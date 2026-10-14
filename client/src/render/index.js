@@ -274,7 +274,7 @@ export function createRenderer({ canvas, sheets }) {
     snapTarget(x, y) { rig.setTarget(x, y, true); },
     zoom(delta) { rig.zoom(delta); },
     zoomBy(f) { rig.zoomBy(f); },
-    setCameraFar(d) { rig.setFar(d); fitRT(true); },
+    setCameraFar(d, start) { rig.setFar(d, start); fitRT(true); },
     isShowcase() { return rig.showcase; },
     getTarget() { return rig.getTarget(); },
     update,

@@ -46,8 +46,8 @@ export class CameraRig {
   }
 
   setDevZoom(on) { this.maxDist = on ? 2600 : this.far; this.distanceGoal = clamp(this.distanceGoal, this.minDist, this.maxDist); }
-  /** Furthest (and starting) distance: desktop 1134, touch 1450. */
-  setFar(d) { this.far = this.maxDist = d; this.distance = this.distanceGoal = d; }
+  /** Furthest distance (desktop 1134, touch 1450) and the starting one (default = furthest; touch starts at 1134). */
+  setFar(d, start = d) { this.far = this.maxDist = d; this.distance = this.distanceGoal = clamp(start, this.minDist, d); }
   /** Multiply the distance (factor < 1 = closer), clamped to showcase..far. */
   zoomBy(f) { this.distanceGoal = clamp(this.distanceGoal * f, this.minDist, this.maxDist); }
   /** Close-up past the normal close camera: the game keeps the hero centred. */

@@ -16,17 +16,19 @@ export function register(c, R) {
     const s = u.orbs; if (!s) return;
     const n = Math.min(3, s.length); if (!n) return;
     const alive = !(u.status & ST.DEAD) && u.hp > 0; if (!alive) return;
-    const hero = c.head(u), zc = Math.max((u.z || 0) + 96, hero - 8) + 14 + Math.sin(c.T * 2) * 3;
-    const ph = c.T * 2.5;
+    // orbit AROUND the body (Dota): a wide ring at chest height, tilted so the back of the ring rides higher than the front;
+    // the near half passes in front of the sprite, the far half behind it (depth-tested against the billboard)
+    const zc = c.chest(u) + 4 + Math.sin(c.T * 2) * 3;
+    const ph = c.T * 1.8;
     for (let i = 0; i < n; i++) {
       const ch = s[i] === 'q' || s[i] === 'w' || s[i] === 'e' ? s[i].toUpperCase() : s[i];
       const o = ORB[ch]; if (!o) continue;
-      const a = ph + i * (TAU / 3), R0 = 52;
-      const ox = u.x + Math.cos(a) * R0, oy = u.y + Math.sin(a) * R0 * 0.75, oz = zc + Math.sin(a * 1.0 + 1) * 5 + (i - 1) * 5;
+      const a = ph + i * (TAU / 3), R0 = 78;
+      const ox = u.x + Math.cos(a) * R0, oy = u.y + Math.sin(a) * R0, oz = zc + Math.sin(a) * 16;
       const mul = elemMul(ch, c.T, i * 7.3 + u.id.length);
       // body: sprite quad + two halo glows (soft wide + tight hot)
       const f = fOrb[ch];
-      if (f) Q.put(ox, oy, oz, f, 1.5, o.lt[0] * 2.0, o.lt[1] * 2.0, o.lt[2] * 2.0, 1, 1.6 * (0.8 + 0.2 * mul), 0, 0, 0, 0, false, 1.1);
+      if (f) Q.put(ox, oy, oz, f, 1.5, o.lt[0] * 1.5, o.lt[1] * 1.5, o.lt[2] * 1.5, 1, 1.2 * (0.8 + 0.2 * mul), 0, 0, 0, 0, false, 1.1);
       P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 18 + (ch === 'W' ? 5 * mul : 0), size1: 16, col0: o.pal.mid, col1: o.pal.mid, a0: 0.22 * (0.7 + 0.3 * mul), a1: 0.2, mode: 'glow', speed: 0, noScale: true });
       P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 7, size1: 6, col0: o.pal.hot, col1: o.pal.hot, a0: 1, a1: 1, mode: 'glow', speed: 0, noScale: true });
       // per-orb light (trainer behaviour: E flickers, W strobes, Q steady and a bit tighter)
