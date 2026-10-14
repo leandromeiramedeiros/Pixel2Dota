@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { SPELL_REACH } from './shaderlib.js';
 
 export const SHADOW_LAYER = 1;
+const KEY_TILT = 0.3;   // horizontal part of the key-shadow direction (1 = along uKeyDir, 0 = straight down)
 
 /** depth-only fragment shader for caster variants (colour writes are ignored, the depth attachment is what counts) */
 export const DEPTH_FRAG = /* glsl */ `
@@ -59,7 +60,8 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
     render(scene, x, y, z, half) {
       if (!state.enabled) { uniforms.uShadowP.value.w = 0; return; }
       const t0 = performance.now();
-      L.copy(uniforms.uKeyDir.value).normalize();
+      // sun / moon shadows fall almost straight down (short, readable); only spell lights throw long shadows. Shading keeps uKeyDir.
+      L.copy(uniforms.uKeyDir.value).normalize(); L.x *= KEY_TILT; L.z *= KEY_TILT; L.normalize();
       // fixed orientation (look along -L, world up) -> snap the centre to whole texels so the map does not shimmer while panning
       cam.position.set(0, 0, 0).addScaledVector(L, 4000); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
       R.setFromMatrixColumn(cam.matrixWorld, 0); U.setFromMatrixColumn(cam.matrixWorld, 1);

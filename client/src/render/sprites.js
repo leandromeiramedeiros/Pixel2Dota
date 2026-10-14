@@ -121,7 +121,7 @@ void main(){
   vec3 n = normalize(vec3(0., .55, .83));
   gPSh = 0.;
   vec3 L = uAmb + uKeyCol * .55 + pointLights(vWorld + n * 8., n, .65);
-  L = quantL(L, ip);
+  L = min(quantL(L, ip), vec3(1.2));   // units never wash out under stacked tower / hero / spell lights (readability)
   vec3 alb = c.rgb * vTint.rgb;
   vec3 col = alb * L;
   float em = fetchE(ip) * 4.;

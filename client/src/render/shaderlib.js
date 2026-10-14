@@ -146,10 +146,11 @@ uniform vec4 uLB[${MAX_LIGHTS}];
 uniform float uBounceK;
 float hfShadow(vec3 p, vec3 lp){
   vec3 d = lp - p; float L = length(d.xz);
-  if (L < 72.) return 1.;
+  float t0 = gPSh > .5 ? 48. : 110.;   // sprites start past their own pillar disc
+  if (L < t0 + 24.) return 1.;
   float vis = 1.;
   for (int s = 0; s < 12; s++){
-    float t = 48. + (L - 72.) * (float(s) + .5) / 12.;
+    float t = t0 + (L - t0 - 24.) * (float(s) + .5) / 12.;
     vec3 q = p + d * (t / L);
     vec2 uv = vec2((q.x - uHFM.x) * uHFM.z, (uHFM.y - q.z) * uHFM.z);
     if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) break;

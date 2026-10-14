@@ -192,7 +192,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         if (e.kind !== 'lantern') { const R = BINFO[bt].R; sprites.decal(e.x, e.y, R * 1.25, 0, 0, 0, 0, 0.5, decalHeights(e.x, e.y, R), false, 0.62); }
         if (e.kind === 'lantern') lights.add({ x: e.x, y: e.y, z: e.z + 150, r: 1, g: 0.62, b: 0.28, radius: 260, intensity: 0.55 + 0.35 * night, flicker: 0.25 });
         else if (e.kind === 'fountain') lights.add({ x: e.x, y: e.y, z: e.z + 150, r: 0.45, g: 0.85, b: 1, radius: 620, intensity: 0.9, flicker: 0.1 });
-        else if (e.kind === 'tower') lights.add({ x: e.x, y: e.y - 130, z: e.z + 260, r: side === 'r' ? 1 : 1, g: side === 'r' ? 0.8 : 0.45, b: side === 'r' ? 0.45 : 0.3, radius: 420, intensity: 0.7 + 0.5 * night, flicker: 0.2 });
+        else if (e.kind === 'tower') lights.add({ x: e.x, y: e.y - 130, z: e.z + 260, r: side === 'r' ? 1 : 1, g: side === 'r' ? 0.8 : 0.45, b: side === 'r' ? 0.45 : 0.3, radius: 420, intensity: 0.45 + 0.3 * night, flicker: 0.2 });
         else if (e.kind === 'fort') lights.add({ x: e.x, y: e.y - 200, z: e.z + 300, r: side === 'r' ? 0.7 : 1, g: side === 'r' ? 1 : 0.5, b: side === 'r' ? 0.6 : 0.4, radius: 560, intensity: 0.8 + 0.5 * night, flicker: 0.12 });
         else if (e.kind === 'barracks') lights.add({ x: e.x, y: e.y - 150, z: e.z + 170, r: 1, g: 0.7, b: 0.4, radius: 260, intensity: 0.4 + 0.4 * night, flicker: 0.25 });
       }
@@ -277,9 +277,9 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         nUnits++;
         // lights
         if (!dead) {
-          if (u.kind === 'hero') lights.add({ x: u.x, y: u.y, z: z + 50, r: u.team === 1 ? 1 : 0.9, g: u.team === 1 ? 0.55 : 0.95, b: u.team === 1 ? 0.45 : 0.7, radius: 200, intensity: 0.25 + 0.35 * night + (mineHero ? 0.15 : 0) });
+          if (u.kind === 'hero') lights.add({ x: u.x, y: u.y, z: z + 50, r: u.team === 1 ? 1 : 0.9, g: u.team === 1 ? 0.55 : 0.95, b: u.team === 1 ? 0.45 : 0.7, radius: 200, intensity: 0.18 + 0.22 * night + (mineHero ? 0.1 : 0) });
           else if (ap.kind === 'building') {
-            if (u.kind === 'tower') lights.add({ x: u.x, y: u.y - 130, z: z + 260, r: 1, g: u.team === 1 ? 0.45 : 0.8, b: u.team === 1 ? 0.3 : 0.45, radius: 440, intensity: 0.7 + 0.5 * night, flicker: 0.2 });
+            if (u.kind === 'tower') lights.add({ x: u.x, y: u.y - 130, z: z + 260, r: 1, g: u.team === 1 ? 0.45 : 0.8, b: u.team === 1 ? 0.3 : 0.45, radius: 440, intensity: 0.45 + 0.3 * night, flicker: 0.2 });
             else if (u.kind === 'fountain') lights.add({ x: u.x, y: u.y, z: z + 150, r: 0.45, g: 0.85, b: 1, radius: 640, intensity: 0.9, flicker: 0.1 });
             else if (u.kind === 'ancient') lights.add({ x: u.x, y: u.y - 200, z: z + 300, r: u.team === 1 ? 1 : 0.7, g: u.team === 1 ? 0.5 : 1, b: u.team === 1 ? 0.4 : 0.6, radius: 580, intensity: 0.8 + 0.5 * night, flicker: 0.12 });
             else lights.add({ x: u.x, y: u.y - 150, z: z + 170, r: 1, g: 0.7, b: 0.4, radius: 270, intensity: 0.4 + 0.4 * night, flicker: 0.25 });
