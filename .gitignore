@@ -4,3 +4,6 @@ tools/.cache/
 *.log
 .DS_Store
 tools/art/out/
+
+# third-party style references (fan art): local only, never commit (public repo)
+art-refs/
