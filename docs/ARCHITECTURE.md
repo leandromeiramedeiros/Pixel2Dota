@@ -64,7 +64,7 @@ Art direction = InvokerTrainer: chunky pixel art, dark outlines, Bayer-quantised
 - **Fog of war**: client-side. Team vision grid (tile resolution) from allied units' day/night vision radius; can't see higher elevation from lower; trees block. Unexplored/not-visible terrain darkened, enemy units not drawn. (Trust gap: server sends all units — accepted for a fan project.)
 
 ## Network
-- Server authoritative, no client prediction. Sim at 30 Hz fixed dt (accumulator), `patchRate` 50 ms. Client renders units interpolated ~100 ms behind.
+- Server authoritative, no client prediction. Sim at 30 Hz fixed dt (accumulator), `patchRate` = 1 tick (33.3 ms, Dota sends 30 Hz snapshots). Client renders units interpolated ~100 ms behind.
 - Room name `"match"`. `roomId` = 4-letter uppercase code (set in onCreate). Join by code (`joinById`) or from a list of open lobbies. Max 10 players + bots fill slots.
 - State is plain Colyseus schema (`server/src/room/schema.js`, built with `schema()` / `defineTypes`). Client uses `@colyseus/sdk` 0.18 (reflection decoding — client needs no schema classes).
 - Spell/attack VFX, projectiles, damage numbers etc. are **events**: the room broadcasts `"fx"` once per tick with an array of event objects (only if non-empty).

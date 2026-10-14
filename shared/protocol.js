@@ -3,7 +3,7 @@
 export const ROOM = 'match';
 export const PORT = 2567;
 export const TICK_HZ = 30;
-export const PATCH_MS = 50;
+export const PATCH_MS = 1000 / 30; // one patch per sim tick, like Dota (30 Hz snapshots)
 export const INTERP_MS = 100;
 
 export const MSG = { LOBBY: 'lobby', ORDER: 'order', CHAT: 'chat', FX: 'fx' };
