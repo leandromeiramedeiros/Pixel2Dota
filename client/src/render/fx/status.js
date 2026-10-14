@@ -34,7 +34,7 @@ export function register(c, R) {
       P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 6, size1: 5, col0: o.pal.hot, col1: o.pal.hot, a0: 0.6, a1: 0.6, mode: 'glow', speed: 0, noScale: true });
       // per-orb light (trainer behaviour: E flickers, W strobes, Q steady and a bit tighter)
       // stronger than the orb looks: it lights Invoker (faint coloured rim + fill) and the ground, and casts a soft shadow (spell light, cube shadow when in budget)
-      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 230 : 210, 0.45 * mul, 0);
+      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 150 : 140, 0.6 * mul, 0);   // tight radius: each orb tints its own side of him and the ground (wide ones summed to white)
       // element-specific wisps
       const nn = c.n((ch === 'E' ? 60 : ch === 'W' ? 40 : 45) * dt);
       for (let k = 0; k < nn; k++) {
