@@ -327,6 +327,7 @@ export function createPost(renderer, shared) {
   const LEVELS = 5;
   const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS };   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
   let ssrDirty = false;
+  const noBloom = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); noBloom.needsUpdate = true;   // stands in for the bloom texture when bloom is off (adds nothing)
 
   function disposeRTs() {
     if (scene_rt) { scene_rt.dispose(); scene_rt.depthTexture && scene_rt.depthTexture.dispose(); }
@@ -426,7 +427,7 @@ export function createPost(renderer, shared) {
       ssrDirty = true;
       const u = mSsr.uniforms, pm = camera.projectionMatrix;
       u.tScene.value = scene_rt.texture; u.tDepth.value = scene_rt.depthTexture; u.tDofA.value = dofA.texture; u.tDofB.value = dofB.texture;
-      u.tBloom.value = bloomTex || dofB.texture;
+      u.tBloom.value = bloomTex || noBloom;
       u.uProj.value.copy(pm); u.uInvProj.value.copy(camera.projectionMatrixInverse); u.uCamWorld.value.copy(camera.matrixWorld); u.uView.value.copy(camera.matrixWorldInverse);
       u.uPAB.value.set(pm.elements[10], pm.elements[14]);
       u.uTime.value = time; u.uNight.value = night; u.uDbg.value = state.ssrDebug ? 1 : 0;
@@ -434,7 +435,7 @@ export function createPost(renderer, shared) {
       pass(mSsr, ssr_rt);
     }
     const f = mFinal.uniforms;
-    f.tScene.value = scene_rt.texture; f.tBloom.value = bloomTex || scene_rt.texture; f.tDofA.value = dofA.texture; f.tDofB.value = dofB.texture; f.tSsr.value = ssr_rt.texture;
+    f.tScene.value = scene_rt.texture; f.tBloom.value = bloomTex || noBloom; f.tDofA.value = dofA.texture; f.tDofB.value = dofB.texture; f.tSsr.value = ssr_rt.texture;
     f.uBloom.value = bloomTex ? state.bloomStrength : 0; f.uVig.value = state.vignette; f.uNight.value = night; f.uTime.value = time;
     f.uOut.value.set(outW, outH);
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
@@ -447,6 +448,6 @@ export function createPost(renderer, shared) {
 
   return {
     state, setRT, render, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
-    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); quadGeo.dispose(); },
+    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); quadGeo.dispose(); noBloom.dispose(); },
   };
 }

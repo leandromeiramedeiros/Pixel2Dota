@@ -55,7 +55,7 @@ any spell without a server) or a real match with cheats. Never self-certify visu
 ## Add a quality setting
 1. Renderer: a new key in `render/index.js DEFAULTS` (= the high preset) and a `setSetting` branch that pushes it to the consumer (post state, uniform, module flag).
 2. `render/quality.js PRESETS`: set it in all three levels (`client/test/quality.test.js` checks `high` == DEFAULTS, low is a potato, cost monotonic low <= medium <= high).
-3. The menu (`ui/menu.js`) only exposes Low/Medium/High; no change unless a new level is wanted.
+3. Presets never touch the user options (resolution, FPS cap, bloom, vsync: `quality.js` options, stored separately, defaults from `detectDefaults`). A user-facing toggle is an option, not a preset key; the menu (`ui/menu.js`) lists both.
 
 ## Add a synced field or event
 - Field: `server/src/room/schema.js` + its `*_FIELDS` list + the sim object; the client reads it on the interpolated view (`net/index.js LIVE` for non-interpolated fields).

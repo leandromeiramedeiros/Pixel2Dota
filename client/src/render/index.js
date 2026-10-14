@@ -29,8 +29,9 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
-  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: true, clutter: true,
+  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off)
   wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5,   // wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
+  maxLights: 32, shadowPoints: 10,   // light pool size (lights.js) / spell lights with a cube shadow (shadow.js)
 };
 
 const DMG_COL = { phys: '#ff6a55', mag: '#6aa8ff', pure: '#ffb347' };
@@ -197,7 +198,7 @@ export function createRenderer({ canvas, sheets }) {
   }
 
   // ---- HP bars -------------------------------------------------------------------------------------------------------------------------
-  const BAR_W = { hero: 11, creep: 6, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };
+  const BAR_W = { hero: 17, creep: 6, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };
   function drawBars(view) {
     if (!settings.hpBars) return;
     const cssPerArt = cssH / (rig.visibleHeight / ART_UNITS_PER_PX);
@@ -211,10 +212,11 @@ export function createRenderer({ canvas, sheets }) {
       if (!hero && !hurt && p.id !== actors.state.selected && p.id !== actors.state.hover) continue;
       const aw = BAR_W[u.kind] != null ? BAR_W[u.kind] : 6;
       if (!aw) continue;
-      const w = Math.round(aw * cssPerArt * 0.95);
+      const w = hero ? Math.max(46, Math.round(aw * cssPerArt * 0.95)) : Math.round(aw * cssPerArt * 0.95);
+      const hh = hero ? Math.max(8, Math.min(14, Math.round(cssPerArt * 3))) : 3;   // hero bar: big enough to read on a phone
       const s = worldToScreen(u.x, u.y, p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92);
       const mine = u.team === myTeam;
-      overlay.bar({ sx: s.x, sy: s.y - 6, w, h: hero ? 5 : 3, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', ticks: hero ? Math.max(0, Math.min(14, Math.round(u.maxHp / 250))) : 0, level: hero ? u.level : null });
+      overlay.bar({ sx: s.x, sy: s.y - 6 - (hero ? Math.round(hh * 1.8) : 0), w, h: hh, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', maxHp: hero ? u.maxHp : 0, level: hero ? u.level : null });
     }
   }
 
@@ -249,9 +251,9 @@ export function createRenderer({ canvas, sheets }) {
     actors.state.outlines = settings.outlines;
     actors.draw(view, dt, nightK, time, settings);
     particles.update(dt, time);
-    if (settings.ambient && settings.particles > 0) {
+    if (settings.ambient > 0 && settings.particles > 0) {
       const tg = rig.getTarget();
-      ambient.update(dt, tg.x, tg.y, rig.visibleWidth * 0.55, rig.visibleHeight * 0.8, nightK);
+      ambient.update(dt * settings.ambient, tg.x, tg.y, rig.visibleWidth * 0.55, rig.visibleHeight * 0.8, nightK);
     }
     if (fxMod) { try { fxMod.update(dt, view); } catch (e) { if (!update.warned) { update.warned = true; console.warn('[render] fx update error:', e); } } }
     for (const h of hooks) h(dt, view, time);
@@ -260,7 +262,7 @@ export function createRenderer({ canvas, sheets }) {
     lights.finalize(time);
     sprites.end(); particles.flush();
     sprites.setRim(settings.rim);
-    clutter.enabled = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight);
+    clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight);
 
     terrain.update(cam, rig.snap ? 999 : 6);
     shadow.setEnabled(settings.shadows);
@@ -290,7 +292,7 @@ export function createRenderer({ canvas, sheets }) {
       if (!events) return;
       for (const ev of events) {
         builtinFx(ev);
-        if (ev.e === EV.SPELL && settings.wind > 0) wind.report(ev, (id) => unitMap.get(id), undefined, (x, y) => fog.isVisible(x, y));   // spell casts kick up gusts; basic attacks do not
+        if (ev.e === EV.SPELL && settings.wind > 0) wind.report(ev, (id) => unitMap.get(id), undefined, (x, y) => { const c = unitMap.get(ev.s); return (c && c.team === myTeam) || fog.isVisible(x, y); });   // spell casts kick up gusts (own team's always, enemy only when seen); basic attacks do not
         if (fxMod) safeFx(ev); else if (fxLoader) { if (fxQueue.length < 256) fxQueue.push(ev); }
       }
     },
@@ -322,6 +324,8 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'ssr') post.state.ssr = !!value;
       if (name === 'rays') post.state.rays = !!value;
       if (name === 'bloomLevels') post.state.bloomLevels = value | 0;
+      if (name === 'maxLights') lights.setMax(value);
+      if (name === 'shadowPoints') lights.setMaxShadow(value);
     },
     minimapCanvas: () => terrain.minimapCanvas(),
     /** explored/visible tile grids for the minimap (row-major, 368x368, row 0 = north) */

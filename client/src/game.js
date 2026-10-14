@@ -7,7 +7,8 @@ import { createInput } from './input.js';
 import { createTouch } from './ui/touch.js';
 import { createPerf } from './ui/perf.js';
 import { createMenu } from './ui/menu.js';
-import { LEVELS, LABEL, applyQuality, loadLevel, saveLevel, createFpsGovernor } from './render/quality.js';
+import { createLoop, measureRefreshHz } from './loop.js';
+import { LEVELS, LABEL, RES_LABEL, applyQuality, applyOptions, loadLevel, saveLevel, loadOptions, saveOption, clearStored, detectDefaults, gatherHardwareInfo, createFpsGovernor } from './render/quality.js';
 import { MSG, TEAM } from '@p2d/shared/protocol.js';
 
 export async function startGame({ root, net }) {
@@ -28,18 +29,37 @@ export async function startGame({ root, net }) {
 
   const perf = createPerf(hudRoot, net);
 
-  // graphics quality: saved choice (Low on phones, else High); the governor steps down one level when fps stays < 40, until the user picks one by hand
-  let level = loadLevel(), autoDropped = false, userPicked = false;
-  applyQuality(renderer, level);
+  // graphics: hardware detection picks the preset + options; whatever the user changed by hand (stored overrides) wins per key.
+  // The preset (Low/Medium/High) only sets fidelity; resolution / fps cap / bloom / vsync are separate options. The governor only ever lowers the preset.
+  let hw = gatherHardwareInfo({ gl: renderer.gl.getContext() });
+  let det = detectDefaults(hw);
+  let level = loadLevel(det.level), opts = { resolution: det.resolution, fps: det.fps, bloom: det.bloom, vsync: det.vsync, ...loadOptions() };
+  let autoDropped = false, userPicked = false;
+  const apply = () => { applyQuality(renderer, level); applyOptions(renderer, opts); };
+  apply();
+  const detText = () => 'Detected: ' + LABEL[det.level] + ', ' + RES_LABEL[det.resolution] + ', ' + det.fps + ' fps' + (det.bloom ? '' : ', no bloom');
   const perfKey = 'p2d.perf';
   const perfOn = (() => { try { return localStorage.getItem(perfKey) !== '0'; } catch { return true; } })();
   perf.setVisible(perfOn);
   const menu = createMenu(hudRoot, {
-    level, perfOn,
+    level, options: opts, perfOn,
     onLevel(l) { level = l; saveLevel(l); applyQuality(renderer, l); if (autoDropped) userPicked = true; gov.reset(); },
+    onOption(k, v) {
+      opts = { ...opts, [k]: v }; saveOption(k, v); applyOptions(renderer, opts);
+      if (k === 'fps') { loop.setFps(v); gov.setCap(v); gov.reset(); }
+      if (k === 'vsync') loop.setVsync(v);
+      if (k === 'resolution') gov.reset();
+    },
+    onDefaults() {
+      clearStored(); det = detectDefaults({ ...hw, refreshHz: hz });
+      level = det.level; opts = { resolution: det.resolution, fps: det.fps, bloom: det.bloom, vsync: det.vsync };
+      autoDropped = userPicked = false; apply(); loop.setFps(opts.fps); loop.setVsync(opts.vsync); gov.setCap(opts.fps); gov.reset();
+      menu.setLevel(level); menu.setOptions(opts); menu.setDetected(detText());
+    },
     onPerf(on) { perf.setVisible(on); try { localStorage.setItem(perfKey, on ? '1' : '0'); } catch { /* storage off */ } },
     onOpen() { input.cancel && input.cancel(); },
   });
+  menu.setDetected(detText());
   hud.toggleMenu = menu.toggle; hud.isMenuOpen = menu.isOpen;
   const gov = createFpsGovernor({
     onDrop() {
@@ -49,6 +69,7 @@ export async function startGame({ root, net }) {
       menu.toast('Graphics lowered to ' + LABEL[level] + ' for smoother play - change in menu (' + (touch.isActive() ? '☰' : 'Esc') + ')');
     },
   });
+  gov.setCap(opts.fps);
 
   const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: () => net.mySid, send });
 
@@ -59,12 +80,11 @@ export async function startGame({ root, net }) {
   const offFx = net.onFx((events) => { renderer.fx(events); hud.fx?.(events); });
 
   const me = () => net.state?.players?.get(net.mySid);
-  let myTeam = -1, spec = false, centred = false, raf = 0, last = performance.now();
+  let myTeam = -1, spec = false, centred = false, hz = 0;
 
-  const frame = (now) => {
-    raf = requestAnimationFrame(frame);
-    perf.frame(now); gov.feed(now - last, now);
-    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  const frame = (now, dtMs) => {
+    perf.frame(now); gov.feed(dtMs, now);
+    const dt = Math.min(0.1, dtMs / 1000);
     const st = net.state; if (!st) return;
     const p = me();
     // spectators see both teams' vision; Radiant reads as the friendly (green) side, like Dota's spectator view
@@ -83,12 +103,21 @@ export async function startGame({ root, net }) {
     renderer.update(view, dt);
     hud.update(st, hero, net.mySid, view);
   };
-  raf = requestAnimationFrame(frame);
+  const loop = createLoop({ frame, fps: opts.fps, vsync: opts.vsync });
+  loop.start();
+  // high-refresh display on a capable machine: default the cap to 120 (unless the user already chose one)
+  measureRefreshHz().then((h) => {
+    hz = h; if (!h || det.tier !== 'good') return;
+    const d2 = detectDefaults({ ...hw, refreshHz: h });
+    if (d2.fps === det.fps) return;
+    det = d2; menu.setDetected(detText());
+    if (loadOptions().fps === undefined) { opts = { ...opts, fps: det.fps }; loop.setFps(det.fps); gov.setCap(det.fps); menu.setOptions({ fps: det.fps }); }
+  });
 
   return {
     renderer, hud, input,
     destroy() {
-      cancelAnimationFrame(raf);
+      loop.destroy();
       removeEventListener('resize', resize);
       offFx?.();
       menu.destroy(); perf.destroy(); touch.destroy(); input.destroy(); hud.destroy();

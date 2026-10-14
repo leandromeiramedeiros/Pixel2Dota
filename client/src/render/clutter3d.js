@@ -373,7 +373,7 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
   const { GW, GH, keyStart, cellMaxH } = data, src = data.data;
   const MARGIN = 150;
   const api = {
-    group, stats, data, enabled: true,
+    group, stats, data, enabled: true, density: 1,   // density < 1 thins every cell evenly (quality)
     /** cull to the camera view and fill the instance buffers. (tx, ty) = camera target, visW / visH = visible size at the target */
     update(camera, tx, ty, visW, visH) {
       const t0 = performance.now();
@@ -392,8 +392,17 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
           cells++;
           for (let v = 0; v < NV; v++) {
             const s = keyStart[ci * NV + v], e = keyStart[ci * NV + v + 1]; if (s === e) continue;
-            const t = vars[v], k = Math.min(e - s, t.inst.max - t.n); if (k <= 0) continue;
-            t.inst.data.set(src.subarray(s * STRIDE, (s + k) * STRIDE), t.n * STRIDE); t.n += k;
+            const t = vars[v], room = t.inst.max - t.n;
+            if (api.density >= 1) {
+              const k = Math.min(e - s, room); if (k <= 0) continue;
+              t.inst.data.set(src.subarray(s * STRIDE, (s + k) * STRIDE), t.n * STRIDE); t.n += k;
+            } else {   // keep instance i when floor((i + 1) * density) steps up: an even, deterministic thinning
+              const d = api.density;
+              for (let i = s, a = 0; i < e && t.n < t.inst.max; i++) {
+                const q = Math.floor((i - s + 1) * d); if (q === a) continue; a = q;
+                t.inst.data.set(src.subarray(i * STRIDE, (i + 1) * STRIDE), t.n * STRIDE); t.n++;
+              }
+            }
           }
         }
       }

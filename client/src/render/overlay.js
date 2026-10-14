@@ -42,20 +42,32 @@ export function createOverlay(canvas) {
       ctx.imageSmoothingEnabled = false;
       for (const b of bars) {
         const w = b.w, h = b.h || 4, x = Math.round(b.sx - w / 2), y = Math.round(b.sy);
-        ctx.fillStyle = 'rgba(8,6,12,0.85)'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2 + (b.mana != null ? 3 : 0));
+        const big = h >= 7, mh = b.mana != null ? (big ? Math.max(3, Math.round(h * 0.45)) : 2) : 0, gap = b.mana != null ? 1 : 0;
+        ctx.fillStyle = 'rgba(8,6,12,0.88)'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2 + (mh ? mh + gap : 0));
         ctx.fillStyle = '#1c2a1c'; ctx.fillRect(x, y, w, h);
         const f = Math.max(0, Math.min(1, b.hp));
         ctx.fillStyle = b.color || (f > 0.5 ? '#46d946' : f > 0.25 ? '#e0c030' : '#e04040');
         ctx.fillRect(x, y, Math.round(w * f), h);
-        ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(x, y, Math.round(w * f), 1);
-        if (b.mana != null) {
-          ctx.fillStyle = '#16203a'; ctx.fillRect(x, y + h + 1, w, 2);
-          ctx.fillStyle = '#4a7cf0'; ctx.fillRect(x, y + h + 1, Math.round(w * Math.max(0, Math.min(1, b.mana))), 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(x, y, Math.round(w * f), big ? 2 : 1);
+        if (mh) {
+          ctx.fillStyle = '#16203a'; ctx.fillRect(x, y + h + gap, w, mh);
+          ctx.fillStyle = '#4a7cf0'; ctx.fillRect(x, y + h + gap, Math.round(w * Math.max(0, Math.min(1, b.mana))), mh);
         }
-        if (b.ticks) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; for (let i = 1; i < b.ticks; i++) ctx.fillRect(x + Math.round((w * i) / b.ticks), y, 1, h); }
+        if (b.maxHp > 0) {   // Dota 2 segmentation: a tick every 250 HP, every 4th (1000 HP) stronger; minor ticks drop out when they would be closer than 3 px
+          const n = Math.floor((b.maxHp - 1) / 250), step = (w * 250) / b.maxHp;
+          for (let i = 1; i <= n; i++) {
+            const major = i % 4 === 0; if (!major && step < 3) continue;
+            const tx = x + Math.round(step * i), th = major ? h : Math.max(2, Math.round(h * 0.6));
+            ctx.fillStyle = major ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.5)'; ctx.fillRect(tx, y + (major ? 0 : h - th), major && big ? 2 : 1, th);
+          }
+        }
         if (b.level != null) {
-          ctx.font = FONT; ctx.textAlign = 'right'; ctx.fillStyle = '#e8e0c0';
-          ctx.fillText(String(b.level), x - 3, y + h);
+          const fs = big ? Math.max(11, h + 3) : 11, bw = Math.round(fs * 1.5);
+          ctx.font = '700 ' + fs + 'px "Courier New", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          const bh = h + 2 + (mh ? mh + gap : 0), bx = x - bw - 2;
+          ctx.fillStyle = 'rgba(8,6,12,0.9)'; ctx.fillRect(bx, y - 1, bw, bh);
+          ctx.fillStyle = '#c9a23a'; ctx.fillRect(bx, y - 1, bw, 1); ctx.fillRect(bx, y + bh - 2, bw, 1);
+          ctx.fillStyle = '#f0e6c0'; ctx.fillText(String(b.level), bx + bw / 2, y - 1 + Math.round((bh + fs * 0.7) / 2));
         }
       }
       bars.length = 0;

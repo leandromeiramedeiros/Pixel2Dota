@@ -104,9 +104,12 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
 - **Spell vision**: `w.addVision()` in the sim (`vision.js`) -> `state.vision` -> client `fog.js` casts from each source like a friendly unit.
 - **Spell wind** (`wind.js`): up to `MAX_GUSTS` 8 gusts derived from EV.SPELL events (shape swirl/line/burst from targeting, strength from damage, size
   from radius/range, read generically from DATA; `OVERRIDES` per key). Trees + clutter shaders read the shared gust uniforms. Attacks never gust.
-- **Quality** (`quality.js`): presets low / medium / high over the renderer `settings` (`pixelScale, bloom*, shadows, particles, ambient, clutter, rim, wind,
-  dof, ssr, rays, outlines`). `high` must equal `render/index.js DEFAULTS` (tested). Low = potato: 1.25 pixelScale, no DoF/SSR/rays/shadows/clutter, 3 bloom mips,
-  0.35 particles, static wind. Default low on phones; FPS governor drops a level when the 10 s median stays under 40.
+- **Quality** (`quality.js`): two independent layers. *Preset* low / medium / high = renderer `settings` for fidelity (`bloomStrength/Levels, shadows, shadowPoints, maxLights,
+  particles, ambient, clutter, rim, wind, dof, ssr, rays, outlines`; `high` must equal `render/index.js DEFAULTS`, tested; graded low <= medium <= high). *Options* =
+  resolution (1/4, 1/2, native -> `pixelScale` 1, sqrt2, 2), fps cap 30/60/120, `bloom` on/off, vsync; presets never touch them, and only changed ones are stored (`p2d.gfx.opts`).
+  `detectDefaults(info)` (pure; GPU string, cores, memory, screen, phone, refresh) picks preset + options in three tiers (potato / low-mid / good); DEFAULTS in the menu clears the
+  overrides. `loop.js` runs the frame: rAF + `createFrameCap` accumulator, or timer/MessageChannel when vsync is off (= not waiting on rAF; browsers still composite on display vsync).
+  The FPS governor only lowers the preset (10 s median under min(40, 70% of the cap)).
 - **Fog** (`fog.js`): tile-resolution vision grid, rays blocked by higher ground and live trees; radius from DATA (hero visionDay/visionNight, unit `vision`).
 - **Input**: `input.js` (desktop, header lists every key). `ui/touch.js`: joystick, attack button (tap / drag-to-target with hero priority), last-hit button,
   ability arc with tap / double-tap self-cast / hold-to-aim with rangefinder (clipped at the camera near plane), hold 3 s to reorder the wheel (per hero),
