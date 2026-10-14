@@ -1,0 +1,90 @@
+// Shared GLSL chunks + the shared uniform bag (the same Uniform objects are referenced by terrain / sprite / decal / particle materials).
+import * as THREE from 'three';
+
+export const MAX_LIGHTS = 32;
+export const LIGHT_LEVELS = 9;    // quantisation steps per 1.0 of light (trainer: 9-level Bayer)
+
+export function createSharedUniforms() {
+  const fogTex = new THREE.DataTexture(new Uint8Array([255, 255, 0, 0]), 1, 1, THREE.RGFormat, THREE.UnsignedByteType);
+  fogTex.needsUpdate = true;
+  return {
+    uTime: { value: 0 },
+    uAmb: { value: new THREE.Vector3(1, 1, 1) },
+    uKeyDir: { value: new THREE.Vector3(-0.5, 0.75, 0.45).normalize() },   // toward the key light (sun/moon), three coords
+    uKeyCol: { value: new THREE.Vector3(0.18, 0.16, 0.1) },
+    uRimKey: { value: new THREE.Vector3(0.5, 0.45, 0.3) },                  // key rim colour * strength
+    uKeyRimDir: { value: new THREE.Vector2(-0.6, 0.8) },                    // key light direction in sprite plane (x right, y up)
+    uNight: { value: 0 },
+    uLN: { value: 0 },
+    uLP: { value: new Float32Array(MAX_LIGHTS * 4) },
+    uLC: { value: new Float32Array(MAX_LIGHTS * 4) },
+    uLevels: { value: LIGHT_LEVELS },
+    uFog: { value: fogTex },
+    uFogMap: { value: new THREE.Vector4(-8832, 8832, 17664, 0) },           // x0, y1, size (world), enabled
+    uFogLv: { value: new THREE.Vector3(0.12, 0.5, 1) },                     // unexplored, explored brightness
+    uCamRight: { value: new THREE.Vector3(1, 0, 0) },
+    uCamUp: { value: new THREE.Vector3(0, 1, 0) },
+    uCamPos: { value: new THREE.Vector3() },
+    uRT: { value: new THREE.Vector2(640, 360) },                            // render target size in px
+    uPxK: { value: 1 },                                                     // 0.5 * RTheight * P11: px per world unit = uPxK / viewDepth
+    uArtPx: { value: 2 },                                                   // RT px per art px at the reference distance
+    uRefW: { value: 1134 },                                                 // reference clip.w (camera distance to target)
+    uPersp: { value: 0 },                                                   // 0 = constant sprite scale, 1 = perspective scale
+  };
+}
+
+export const UNIFORMS_GLSL = /* glsl */ `
+uniform float uTime;
+uniform vec3 uAmb, uKeyDir, uKeyCol, uRimKey;
+uniform vec2 uKeyRimDir;
+uniform float uNight, uLevels;
+uniform int uLN;
+uniform vec4 uLP[${MAX_LIGHTS}];
+uniform vec4 uLC[${MAX_LIGHTS}];
+uniform sampler2D uFog;
+uniform vec4 uFogMap;
+uniform vec3 uFogLv;
+uniform vec3 uCamRight, uCamUp, uCamPos;
+uniform vec2 uRT;
+uniform float uPxK, uArtPx, uRefW, uPersp;
+`;
+
+export const COMMON_GLSL = UNIFORMS_GLSL + /* glsl */ `
+
+float bayer4(vec2 p){
+  vec2 b = mod(floor(p), 4.);
+  vec4 r = b.y < .5 ? vec4(0.,8.,2.,10.) : b.y < 1.5 ? vec4(12.,4.,14.,6.) : b.y < 2.5 ? vec4(3.,11.,1.,9.) : vec4(15.,7.,13.,5.);
+  float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
+  return (v + .5) / 16.;
+}
+// light quantised to uLevels steps with ordered dither (dp = stable art-pixel coordinate)
+vec3 quantL(vec3 l, vec2 dp){ float bay = bayer4(dp); return min(floor(l * uLevels + bay) / uLevels, vec3(1.7)); }
+
+// fog brightness at world point p (three coords), 5-step dithered edge
+float fogBright(vec3 p, vec2 dp){
+  if (uFogMap.w < .5) return 1.;
+  vec2 uv = vec2((p.x - uFogMap.x) / uFogMap.z, (p.z + uFogMap.y) / uFogMap.z);
+  vec2 f = texture2D(uFog, uv).rg;
+  float lo = uFogLv.x;
+  float t = mix(mix(lo, uFogLv.y, f.g), 1., f.r);
+  t = (t - lo) / (1. - lo);
+  t = floor(t * 5. + bayer4(dp)) / 5.;
+  return lo + clamp(t, 0., 1.) * (1. - lo);
+}
+
+// sum of point lights at world point p with surface normal n; soft = how much of each light ignores the normal
+vec3 pointLights(vec3 p, vec3 n, float soft){
+  vec3 acc = vec3(0.);
+  for (int i = 0; i < ${MAX_LIGHTS}; i++){
+    if (i >= uLN) break;
+    vec3 d = uLP[i].xyz - p;
+    float dist = length(d);
+    float a = 1. - dist / uLP[i].w;
+    if (a <= 0.) continue;
+    a *= a;
+    float ndl = max(dot(n, d / max(dist, 1.)), 0.);
+    acc += uLC[i].rgb * (a * mix(ndl, 1., soft));
+  }
+  return acc;
+}
+`;

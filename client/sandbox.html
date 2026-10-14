@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel2Dota render sandbox</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050509; overflow: hidden; font: 12px/1.3 ui-monospace, Consolas, monospace; color: #cfd6e6; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  #hud { position: fixed; left: 8px; top: 8px; padding: 6px 8px; background: rgba(5, 5, 12, .66); border: 1px solid #2a3350; border-radius: 4px; white-space: pre; pointer-events: none; }
+  #keys { position: fixed; left: 8px; bottom: 8px; padding: 6px 8px; background: rgba(5, 5, 12, .66); border: 1px solid #2a3350; border-radius: 4px; white-space: pre; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"></div>
+<div id="keys">WASD / edge: pan   wheel: zoom   N: day/night   1 fireball  2 ice ring  3 lightning  4 sun strike   F: fog   B: bloom   P: pixel scale   L: lane tour   click: select</div>
+<script type="module" src="/src/sandbox.js"></script>
+</body>
+</html>
