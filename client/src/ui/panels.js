@@ -22,6 +22,8 @@ export function faceEl(sheets, heroKey, w = 24) {
 export function createScoreboard(parent, { sheets }) {
   const el = h('div', 'h-sb h-panel'); parent.append(el);
   let open = false, sig = '';
+  const closeBtn = h('div', 'sbx', 'X'); el.append(closeBtn);   // always-present close control (the touch layout also closes on any tap of the panel)
+  closeBtn.addEventListener('click', () => api.setOpen(false));
   const api = {
     el, isOpen: () => open,
     setOpen(v) { open = !!v; el.classList.toggle('open', open); if (open) sig = ''; },
@@ -53,6 +55,7 @@ export function createScoreboard(parent, { sheets }) {
         }
         el.append(box);
       }
+      el.append(closeBtn);
     },
   };
   return api;

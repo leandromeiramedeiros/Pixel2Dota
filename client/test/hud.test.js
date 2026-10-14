@@ -11,7 +11,7 @@ import {
   abilitySlotForCode, itemSlotForCode, targetInfo, teamOk, abilityReady, itemReady, canLearn, requiredLevel, pipCount,
   orderForRightClick, orderForAttackClick, resolveTargetClick, resolveSelfCast, orderCast,
 } from '../src/ui/targeting.js';
-import { SHOP_CATEGORIES, categoryOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned } from '../src/ui/shopdata.js';
+import { SHOP_CATEGORIES, categoryOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned, clampPanelPos, parsePanelPos } from '../src/ui/shopdata.js';
 import { abilityTip, itemTip, recipeLines } from '../src/ui/tipdata.js';
 import { rasterRows, parseColor } from '../src/ui/pixels.js';
 import { expandUnits, hudScale } from '../src/ui/style.js';
@@ -277,3 +277,19 @@ test('minimap: baked terrain is opaque and varied', () => {
 });
 
 test('TEAM constants sanity', () => { assert.equal(TEAM.RADIANT, 0); assert.equal(TEAM.DIRE, 1); });
+
+// ---------------------------------------------------------------- draggable panel helpers
+test('clampPanelPos keeps a panel fully on screen', () => {
+  assert.deepEqual(clampPanelPos(100, 50, 200, 100, 844, 390), { x: 100, y: 50 });
+  assert.deepEqual(clampPanelPos(-40, -9, 200, 100, 844, 390), { x: 2, y: 2 });
+  assert.deepEqual(clampPanelPos(900, 500, 200, 100, 844, 390), { x: 642, y: 288 });
+  assert.deepEqual(clampPanelPos(50, 50, 900, 500, 844, 390), { x: 2, y: 2 });   // bigger than the view: pin to the margin
+  assert.deepEqual(clampPanelPos(NaN, undefined, 10, 10, 100, 100), { x: 2, y: 2 });
+});
+
+test('parsePanelPos accepts only finite {x,y}', () => {
+  assert.deepEqual(parsePanelPos('{"x":12,"y":34}'), { x: 12, y: 34 });
+  assert.equal(parsePanelPos(null), null);
+  assert.equal(parsePanelPos('nope'), null);
+  assert.equal(parsePanelPos('{"x":"a","y":1}'), null);
+});

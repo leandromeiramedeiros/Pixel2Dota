@@ -138,6 +138,8 @@ const CSS = `
 .h-shop { position:absolute; right:3u; bottom:68u; width:276u; height:176u; display:none; flex-direction:column; padding:4u; gap:3u; }
 .h-shop.open { display:flex; }
 .h-shop header { display:flex; align-items:center; gap:4u; height:11u; }
+.h-shop header.drag { cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; margin:-4u -4u 0; padding:4u 4u 0; height:15u; }
+.h-shop header.drag:active { cursor:grabbing; }
 .h-shop header h3 { margin:0; font-size:9u; color:var(--gold); flex:1; font-weight:700; }
 .h-shop header .st { font-size:7u; }
 .h-shop .x { cursor:pointer; padding:1u 3u; background:#2a1414; color:#ff8a7a; box-shadow:0 0 0 1u var(--ink); }
@@ -161,6 +163,9 @@ const CSS = `
 /* ---------- scoreboard ---------- */
 .h-sb { position:absolute; left:50%; top:38u; transform:translateX(-50%); width:344u; display:none; padding:4u; gap:3u; flex-direction:column; }
 .h-sb.open { display:flex; }
+.h-sb .sbx { position:absolute; right:4u; top:4u; z-index:2; cursor:pointer; padding:1u 3u; background:#2a1414; color:#ff8a7a; box-shadow:0 0 0 1u var(--ink); font-size:8u; }
+.h-sb .sbx:hover { background:#4a1c1c; }
+.h-sb > .tm:first-child .ttl { padding-right:22u; }
 .h-sb .tm { display:flex; flex-direction:column; gap:1u; }
 .h-sb .th { display:grid; grid-template-columns:14u 1fr 14u 44u 36u 42u; gap:2u; align-items:center; padding:2u 3u; font-size:7u; }
 .h-sb .th.hd { color:var(--dim); } .h-sb .th.rad .n { color:var(--rad); } .h-sb .th.dire .n { color:var(--dire); }
@@ -270,9 +275,11 @@ html.p2d-touch .h-chat { --u:calc(1.4px * var(--k, 1)); left:calc(6px + 150px * 
 html.p2d-touch .h-chat.typing { left:50%; bottom:auto; top:6px; transform:translateX(-50%); width:min(420px, 70vw); z-index:60; }
 html.p2d-touch .h-chat input { font-size:16px; padding:8px; }
 html.p2d-touch .h-feed { --u:calc(1.4px * var(--k, 1)); top:calc(58px * var(--k, 1)); right:calc(6px + env(safe-area-inset-right, 0px)); width:calc(190px * var(--k, 1)); }
-html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); z-index:30; right:auto; left:50%; transform:translateX(-50%); bottom:auto; top:calc(6px + env(safe-area-inset-top, 0px)); max-height:calc(100% - 12px); overflow:auto; }
+html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); z-index:30; right:auto; left:50%; transform:translateX(-50%); bottom:auto; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); max-height:calc(100% - 54px * var(--bk, 1) - 10px - env(safe-area-inset-top, 0px)); overflow:auto; }   /* starts below the touch toggle buttons so SHOP stays tappable; draggable from its header */
 html.p2d-touch .h-shop .x { padding:6px 12px; }
-html.p2d-touch .h-sb { --u:calc(1.4px * var(--k, 1)); z-index:30; top:calc(6px + env(safe-area-inset-top, 0px)); max-height:calc(100% - 12px); overflow:auto; }
+html.p2d-touch .h-sb { --u:calc(1.4px * var(--k, 1)); z-index:15; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); max-height:calc(100% - 54px * var(--bk, 1) - 10px - env(safe-area-inset-top, 0px)); overflow:auto; }
+html.p2d-touch .h-sb .sbx { padding:6px 12px; font-size:14px; }
+html.p2d-touch .h-sb > .tm:first-child .ttl { padding-right:36px; }
 html.p2d-touch .h-end { z-index:40; }
 /* tooltips: hover-shows are hidden on touch; touch.js opens them (class t-on) from a tap / long press on a skill or item */
 html.p2d-touch .h-tip:not(.t-on) { display:none !important; }

@@ -9,7 +9,7 @@ import {
 } from './format.js';
 import { pixelEl, paintInto } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
-import { heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo } from './targeting.js';
+import { heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo, makeDepthFn, clipPolyNear, clipSegmentNear } from './targeting.js';
 import { inShopRange, sellValue } from './shopdata.js';
 import { createTooltip } from './tooltip.js';
 import { createMinimap } from './minimap.js';
@@ -54,6 +54,14 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   const tooltip = createTooltip(hudRoot, sheetsSafe);
   let handlers = { activate() {}, };
   let ctxState = { state: null, hero: null, mySid: '', myTeam: -1, time: 0 };
+  let lastView = null;
+  // Centre the camera on a unit (portrait clicks). Pure setTarget: no zoom change; the renderer applies its own free-playfield inset.
+  function focusUnit(id) {
+    if (!id || !renderer.setTarget) return;
+    const v = lastView && lastView.units && lastView.units.find ? lastView.units.find((x) => x.id === id) : null;   // interpolated (what is on screen)
+    const u = v || (ctxState.state ? ctxState.state.units.get(id) : null);
+    if (u) renderer.setTarget(u.x, u.y);
+  }
 
   const message = (t, warn) => msgs.show(t, warn);
   const msgs = createMessages(hudRoot);
@@ -88,10 +96,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       const mpm = h('div', 'h-mpm'); const mpi = h('i'); mpm.append(mpi);
       const lv = h('div', 'h-lv', '1'); const dead = h('div', 'h-dead');
       el.append(pt, hpm, mpm, lv, dead);
-      el.addEventListener('click', () => {
-        const u = p.heroId && ctxState.state ? ctxState.state.units.get(p.heroId) : null;
-        if (u && renderer.setTarget) renderer.setTarget(u.x, u.y);
-      });
+      el.addEventListener('click', () => focusUnit(p.heroId));
       tooltip.bind(el, () => ({ type: 'text', title: p.name || heroName(p.hero), lines: [heroName(p.hero)] }));
       teamBoxes[p.team].append(el);
       tiles.push({ p, el, hpi, mpi, lv, dead });
@@ -142,6 +147,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   const port = h('div', 'h-port h-panel'); const pimg = h('div', 'h-pimg'); const plv = h('div', 'h-plv', '1');
   const xpb = h('div', 'h-xp'); const xpi = h('i'); xpb.append(xpi); const resp = h('div', 'h-resp');
   port.append(pimg, plv, xpb, resp); bottom.append(port);
+  port.addEventListener('click', () => { if (ctxState.hero) focusUnit(ctxState.hero.id); });   // own portrait: centre on my hero
   let portKey = '';
 
   // main column
@@ -311,17 +317,19 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   function drawRings(hero) {
     ringCtx.clearRect(0, 0, ring.width, ring.height); ringCtx.globalAlpha = 1;
     if (!targeting || !hero || !renderer.worldToScreen) return;
+    const cl = nearClip();
     const circle = (cx, cy, r, color, fill, lw) => {
+      let pts = [];
+      for (let k = 0; k < 64; k++) { const a = (k / 64) * Math.PI * 2; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+      if (cl) pts = clipPolyNear(pts, cl.depth, cl.d);                              // keep the parts behind the camera out of the projection
+      if (pts.length < 3) return;
       ringCtx.beginPath();
-      for (let k = 0; k <= 64; k++) {
-        const a = (k / 64) * Math.PI * 2; const p = renderer.worldToScreen(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-        if (k === 0) ringCtx.moveTo(p.x, p.y); else ringCtx.lineTo(p.x, p.y);
-      }
+      pts.forEach((q, k) => { const p = renderer.worldToScreen(q[0], q[1]); if (k === 0) ringCtx.moveTo(p.x, p.y); else ringCtx.lineTo(p.x, p.y); });
       ringCtx.closePath();
       if (fill) { ringCtx.fillStyle = fill; ringCtx.fill(); }
       ringCtx.strokeStyle = color; ringCtx.lineWidth = lw || 2; ringCtx.stroke();
     };
-    if (targeting.rich) { drawRich(hero, circle); return; }
+    if (targeting.rich) { drawRich(hero, circle, cl); return; }
     const info = targeting.info || {};
     if (info.range > 0) circle(hero.x, hero.y, info.range, 'rgba(255,226,122,.85)', null);
     if (info.radius > 0 && aim) circle(aim.x, aim.y, info.radius, 'rgba(255,255,255,.9)', 'rgba(255,200,80,.12)');
@@ -329,12 +337,19 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
 
   // touch rangefinder (targeting.rich): range ring around the hero + the spell's world shape at the aim point + target marker,
   // fed by the same setTargeting / setAim path the desktop cursor uses.  Skill shots (line / cone) start at the hero.
-  function drawRich(hero, circle) {
+  // near-plane clip context: a point behind the perspective camera projects mirrored across the screen, so overlays are clipped first
+  function nearClip() {
+    const r = renderer.rig;
+    return r && r.camera && r.camera.matrixWorldInverse ? { depth: makeDepthFn(r.camera, r.tz || 0), d: (r.camera.near || 100) * 2 } : null;
+  }
+  function drawRich(hero, circle, cl) {
     const g = ringCtx, tg = targeting, sh = tg.shape || { type: 'none' };
     const bad = !!tg.cancel;
     const WARM = bad ? 'rgba(255,90,70,.3)' : 'rgba(255,120,60,.26)', EDGE = bad ? 'rgba(255,120,100,.95)' : 'rgba(255,255,255,.95)';
     const wp = (x, y) => renderer.worldToScreen(x, y);
     const poly = (pts, fill, stroke, lw) => {
+      if (cl) pts = clipPolyNear(pts, cl.depth, cl.d);
+      if (pts.length < 3) return;
       g.beginPath(); pts.forEach((p, i) => { const q = wp(p[0], p[1]); if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); }); g.closePath();
       if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw || 3; g.lineJoin = 'round'; g.stroke(); }
     };
@@ -344,8 +359,11 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const dx = aim.x - hero.x, dy = aim.y - hero.y, d = Math.hypot(dx, dy), ux = d > 1 ? dx / d : Math.cos(hero.facing || 0), uy = d > 1 ? dy / d : Math.sin(hero.facing || 0);
     const nx = -uy, ny = ux;
     // faint direction helper
-    const a0 = wp(hero.x, hero.y), a1 = wp(aim.x, aim.y);
-    g.save(); g.setLineDash([8, 7]); g.beginPath(); g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y); g.strokeStyle = 'rgba(120,235,255,.4)'; g.lineWidth = 2; g.stroke(); g.restore();
+    const seg = cl ? clipSegmentNear([hero.x, hero.y], [aim.x, aim.y], cl.depth, cl.d) : [[hero.x, hero.y], [aim.x, aim.y]];
+    if (seg) {
+      const a0 = wp(seg[0][0], seg[0][1]), a1 = wp(seg[1][0], seg[1][1]);
+      g.save(); g.setLineDash([8, 7]); g.beginPath(); g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y); g.strokeStyle = 'rgba(120,235,255,.4)'; g.lineWidth = 2; g.stroke(); g.restore();
+    }
     if (sh.type === 'line') {
       poly([[hero.x + nx * sh.w0 / 2, hero.y + ny * sh.w0 / 2], [hero.x + ux * sh.len + nx * sh.w1 / 2, hero.y + uy * sh.len + ny * sh.w1 / 2],
         [hero.x + ux * sh.len - nx * sh.w1 / 2, hero.y + uy * sh.len - ny * sh.w1 / 2], [hero.x - nx * sh.w0 / 2, hero.y - ny * sh.w0 / 2]], WARM, EDGE, 3);
@@ -361,7 +379,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const mx = u ? u.x : aim.x, my = u ? u.y : aim.y;
     const col = bad ? 'rgba(255,110,90,.95)' : u ? (u.team !== ctxState.myTeam ? 'rgba(255,90,70,.98)' : 'rgba(110,255,140,.98)') : 'rgba(120,235,255,.95)';
     if (u || sh.type === 'none' || sh.type === 'circle') circle(mx, my, u ? 85 : 38, col, u ? 'rgba(255,255,255,.1)' : null);
-    const c = wp(mx, my); g.beginPath(); g.arc(c.x, c.y, 4, 0, Math.PI * 2); g.fillStyle = col; g.fill();
+    if (!cl || cl.depth(mx, my) >= cl.d) { const c = wp(mx, my); g.beginPath(); g.arc(c.x, c.y, 4, 0, Math.PI * 2); g.fillStyle = col; g.fill(); }
   }
 
   // ---- selection card update
@@ -384,7 +402,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const spec = !!me && me.team === TEAM.SPEC;
     const myTeam = spec ? TEAM.RADIANT : me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
     if (spec !== specOn) { specOn = spec; specEl.style.display = spec ? '' : 'none'; }
-    ctxState = { state, hero, mySid, myTeam, time: state.time };
+    ctxState = { state, hero, mySid, myTeam, time: state.time }; lastView = view || null;
     if (pendingFx.length) fx(pendingFx.splice(0));
 
     updateTop(state, mySid);
@@ -482,7 +500,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     update, fx,
     destroy() {
       removeEventListener('resize', onResize);
-      tooltip.destroy(); minimap.destroy(); feed.destroy(); msgs.destroy(); chat.destroy(); end.destroy();
+      tooltip.destroy(); shop.destroy(); minimap.destroy(); feed.destroy(); msgs.destroy(); chat.destroy(); end.destroy();
       hudRoot.textContent = ''; hudRoot.classList.remove('h-root');
     },
     // ---- hooks for input.js / sandbox
