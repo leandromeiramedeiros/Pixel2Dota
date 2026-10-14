@@ -4,7 +4,7 @@ import { getMap, heightAt } from '../../../shared/map.js';
 import { ART_UNITS_PER_PX, CAMERA } from '../../../shared/constants.js';
 import { ST, EV } from '../../../shared/protocol.js';
 import { buildAtlas } from '../art/atlas.js';
-import { CameraRig, camParams, visibleHeight, dofForDistance } from './camera.js';
+import { CameraRig, camParams, visibleHeight, dofForDistance, showcaseK } from './camera.js';
 import { createWind } from './wind.js';
 import { createSharedUniforms } from './shaderlib.js';
 import { createLights } from './lights.js';
@@ -231,7 +231,7 @@ export function createRenderer({ canvas, sheets }) {
     if (view.myTeam != null) myTeam = view.myTeam;
     uniforms.uTime.value = time;
     rig.update(dt);
-    post.state.dofStrength = dofForDistance(rig.distance);   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
+    post.state.dofStrength = dofForDistance(rig.distance); post.state.sky = showcaseK(rig.distance);   // sky + rolling distance fog fade in with the same factor   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
     fitRT(false);
     setNight(view.night, dt);
     const cam = rig.camera;

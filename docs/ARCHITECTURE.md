@@ -91,6 +91,7 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   (threshold 1.4, progressive mips) -> water SSR -> final pass (adaptive exposure, hue-preserving roll-off, light-scatter halo, grade, atmospheric
   perspective, vignette, nearest upscale). DoF strength follows the camera distance (`camera.js dofForDistance`): `DOF_MIN` 0.12 at play distance, ramping
   to 1 from closeDistance down to the showcase close-up. Fight whiteouts are prevented by exposure + roll-off; keep lights hue-local rather than raising intensity.
+- **Showcase sky + distance fog** (`post.js` FINAL, factor `camera.js showcaseK`, 0 in normal play): scene depth gives view distance and ray elevation; undrawn pixels (depth 1) get a day/night horizon-to-zenith gradient, drawn ones fade to the horizon colour from ~1500 to ~4200 u with a slow rolling noise. One pass, no per-material fog.
 - **Terrain** = tile sprites on a 3D heightfield with cliff walls (`terrain.js`, `terrainGeo.js`). **Buildings, trees, ground clutter are 3D instanced
   low-poly meshes** (`buildings3d.js`, `trees3d.js`, `clutter3d.js`) lit/fogged/quantised like the terrain. Lighting is 9-level Bayer-quantised
   (`shaderlib.js LIGHT_LEVELS`) on terrain/sprites/meshes; geo3d fx and beams use stepped bands, never ordered dither.

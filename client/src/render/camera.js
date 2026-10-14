@@ -57,9 +57,13 @@ export const viewFacing = (facing, yaw) => facing - yaw;
  *  ramping smoothly from closeDistance down to the showcase close-up where it is today's full strength (1). Zoomed out / devZoom stay at the floor. */
 export const DOF_MIN = 0.12;
 export function dofForDistance(d, cfg = CAMERA) {
-  if (cfg.showcaseDistance == null) return DOF_MIN;
+  return DOF_MIN + (1 - DOF_MIN) * showcaseK(d, cfg);
+}
+/** 0 at normal play (>= closeDistance) .. 1 at the showcase close-up, smoothstepped: drives DoF, sky and distance fog. */
+export function showcaseK(d, cfg = CAMERA) {
+  if (cfg.showcaseDistance == null) return 0;
   const s = clamp((cfg.closeDistance - d) / (cfg.closeDistance - cfg.showcaseDistance), 0, 1);
-  return DOF_MIN + (1 - DOF_MIN) * s * s * (3 - 2 * s);
+  return s * s * (3 - 2 * s);
 }
 
 /** World height (units) visible across the screen at the target distance. */

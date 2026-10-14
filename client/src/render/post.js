@@ -200,7 +200,8 @@ const FINAL = /* glsl */ `
 precision highp float;
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
 uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
-uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays;
+uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky;
+uniform sampler2D tDepth; uniform mat4 uInvProj, uCamWorld; uniform vec2 uPAB; uniform vec3 uCamPos;
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
 uniform vec3 uGC[8];
@@ -254,8 +255,25 @@ void main(){
   c += vec3(.05, .025, -.02) * smoothstep(.45, 1., l);
   vec3 b = texture2D(tBloom, vUv).rgb * (.14 * bx);   // subtle bloom (art refs: The Last Night, Noita)
   vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
-  float hz = smoothstep(.4, 1., vUv.y) * .55;
+  float hz = smoothstep(.4, 1., vUv.y) * .55 * (1. - uSky);
   c = mix(c, haze + b * .6, hz);
+  if (uSky > .002) {   // showcase: sky gradient behind the world + rolling distance fog into the horizon colour (depth = 1 means nothing was drawn)
+    float d0 = texture2D(tDepth, vUv).r;
+    vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
+    vec3 vd = q.xyz / q.w; vd /= -vd.z;
+    vec3 wd = normalize(mat3(uCamWorld) * vd);
+    vec3 hor = mix(vec3(.62, .68, .68), vec3(.07, .09, .17), uNight), zen = mix(vec3(.25, .42, .60), vec3(.02, .03, .09), uNight);
+    float el = clamp(wd.y, 0., 1.);
+    vec3 sky = mix(hor, zen, pow(el, .55));
+    sky += vec3(.07, .04, -.02) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
+    float dist = 1e5;
+    if (d0 < .99999) dist = uPAB.y / (d0 * 2. - 1. + uPAB.x) * length(vd);
+    vec3 wp = uCamPos + wd * min(dist, 6000.);
+    float roll = sin(wp.x * .0023 + uTime * .06) * sin(wp.z * .0031 - uTime * .045) + .6 * sin((wp.x - wp.z) * .0052 + uTime * .035);
+    float fg = smoothstep(1500., 4200., dist + roll * 650.) * (.82 + .18 * roll);
+    vec3 col = mix(c, hor * (1. + .06 * roll), clamp(fg, 0., 1.) * .97);
+    c = mix(c, d0 >= .99999 ? sky + max(sc.rgb - vec3(.02, .02, .035), 0.) : col, uSky);
+  }
   // light scatter in the haze: soft halo around the strongest on-screen lights, screen-composited (the directional shafts are cone meshes, beams.js)
   c = tmHue(c, .7);   // before the screen composites below (they clamp to 1 and would clip each channel)
   if (uRays > .001 && uGN > 0) {
@@ -315,6 +333,7 @@ export function createPost(renderer, shared) {
     uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
+    uSky: { value: 0 }, tDepth: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() },
   });
 
   const rtOpts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, stencilBuffer: false, generateMipmaps: false, colorSpace: THREE.NoColorSpace };
@@ -325,7 +344,7 @@ export function createPost(renderer, shared) {
   let adaptI = 0, lastT = -1;
   let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, downs = [], ups = [], w = 0, h = 0;
   const LEVELS = 5;
-  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS };   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
+  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, sky: 0, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS };   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
   let ssrDirty = false;
   const noBloom = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); noBloom.needsUpdate = true;   // stands in for the bloom texture when bloom is off (adds nothing)
 
@@ -441,6 +460,8 @@ export function createPost(renderer, shared) {
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
     f.uDof.value = doDof ? state.dofStrength : 0; f.uDofY.value = state.dofY || 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
     f.uRays.value = state.rays ? state.raysStrength : 0;
+    f.uSky.value = state.sky; f.tDepth.value = scene_rt.depthTexture;
+    f.uInvProj.value.copy(camera.projectionMatrixInverse); f.uCamWorld.value.copy(camera.matrixWorld); f.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); f.uCamPos.value.copy(camera.position);
     f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;
     pass(mFinal, null);
