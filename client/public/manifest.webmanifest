@@ -1,0 +1,11 @@
+{
+  "name": "Pixel2Dota",
+  "short_name": "Pixel2Dota",
+  "start_url": ".",
+  "scope": ".",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#05070b",
+  "theme_color": "#05070b",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
