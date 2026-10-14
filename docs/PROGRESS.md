@@ -20,6 +20,7 @@ History lives in `git log`. This page is only what exists now and what is open.
   (stand-ins now: `BODY_STANDIN` in `render/actors.js`); Lina redo then 8-dir 2x for the other 12 heroes; ~37 spells still particle-only -> 3D fx.
 - Director verdicts pending: v3 pilots, tower-destruction blast size, fog darkness, weak `sniper_headshot` / gold icons.
 - iPhone retest: rejoin (move + learn after reclaim), rubber-banding, Low vs High, menu, zoom 1450.
+- Local (UI): item box 6 main (2x3) + 3 backpack row with swap drag (server ready: slots 0-5 main, 6-8 backpack, `swap` cmd); touch wheel 6 big + 6 small slots, active items draggable onto it; desktop spells/inventory fixed (no rearranging); minimap view box with showcase orbit yaw.
 - Render free tier cold start (~1 min) UX not verified on a real spin-up.
 - Neutrals have no abilities; single Roshan pit; no HUD ward stock display.
 - Perf reference: ~2.4 ms median frame (RTX 5070 Ti, 835x397 target, mid-lane fight); sim ~0.2 ms/tick with 10 bots.
