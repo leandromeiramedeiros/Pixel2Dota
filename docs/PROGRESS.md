@@ -25,7 +25,8 @@
 
 - Bot-only matches are slow (~45-50 min); bots push buildings timidly
 - Invoker bot levels slowly
-- Map filler buildings are not drawn (no art yet)
+- Art v2 awaiting creative-director verdict (docs/ART-DIRECTION.md; shots docs/shots/v2-final-*.jpg)
+- Art v2 leftovers: Sun Strike impact blows out white; ramp/stair tiles still old striped art; no directional beam cones; water bokeh is glints not discs
 - Fog of war quite dark
 - Lobby footer below the fold on short screens
 - Scoreboard overlap at HUD scale 2

@@ -62,7 +62,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   const state = { selected: '', hover: '', myTeam: 0, myHero: '', simBuildings: false, simSeen: 0, frame: 0, treesDrawn: 0, unitsDrawn: 0, outlines: true };
 
   // tree spatial grid (512u cells)
-  const TREE_CELL = 512, TREE_SCALE = 1.15;
+  const TREE_CELL = 512, TREE_SCALE = 0.9;
   const gx0 = map.x0, gy1 = map.y1;
   const GW = Math.ceil((map.w * map.tile) / TREE_CELL), GH = Math.ceil((map.h * map.tile) / TREE_CELL);
   const grid = Array.from({ length: GW * GH }, () => []);

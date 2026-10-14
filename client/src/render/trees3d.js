@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { COMMON_GLSL } from './shaderlib.js';
 import { createKit, instancedGeo, flushInstances, silhouetteFrame, DEPTH_GLSL } from './mesh3d.js';
 
-const VSCALE = 1.15;      // vertical exaggeration (see buildings3d.js)
+const VSCALE = 0.85;      // squat (see buildings3d.js)
 const WD = { c: 0x6a4b30, d: 0x2d2027 };
 const g = (c, d, sw, o = {}) => ({ c, d, sw, ...o });
 

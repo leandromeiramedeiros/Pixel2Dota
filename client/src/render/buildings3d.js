@@ -144,7 +144,7 @@ function buildFiller(k) {
   k.box(16, 38, 16, S(SD, { x: 34, z: -20, y: 90 }));                    // chimney
 }
 
-const VSCALE = 1.15;      // slight vertical exaggeration (the 60 deg camera foreshortens heights)
+const VSCALE = 0.8;       // squat: tall props smear toward the camera under the 70 deg FOV perspective
 export const INFO = {
   tower:    { R: 84, H: 490, pull: 70, max: 40, build: buildTower },
   barracks: { R: 150, H: 280, pull: 98, max: 24, build: buildBarracks },

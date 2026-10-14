@@ -148,7 +148,7 @@ void main(){
             else if (tb < .04 * dens) alb *= .72;                                  // its dark root pixel below
             float fpatch = vnoise(dp * .05 + 31.);
             float fl = hash12(dp * 1.31 + 5.);
-            if (fl < (fpatch > .66 ? .045 : .0012)) { float c = hash12(dp + 77.); alb = c < .3 ? vec3(.8, .78, .66) : c < .55 ? vec3(.76, .66, .36) : c < .8 ? vec3(.69, .41, .55) : vec3(.42, .55, .74); }
+            if (fl < (fpatch > .72 ? .014 : .0004)) { float c = hash12(dp + 77.); alb = c < .3 ? vec3(.8, .78, .66) : c < .55 ? vec3(.76, .66, .36) : c < .8 ? vec3(.69, .41, .55) : vec3(.42, .55, .74); }
           } else {
             float tf = hash12(dp);
             if (tf < .035 * dens) alb = alb * 1.3 + vec3(.03, .02, .0);
@@ -157,8 +157,8 @@ void main(){
           if (hash12(dp * .77 + 2.) < .006) alb = mix(alb, vec3(.55, .55, .52), .7);                      // pebble highlight
           else if (hash12((dp - vec2(1., 0.)) * .77 + 2.) < .006) alb *= .62;                              // pebble shadow
         } else if (ft > 3.5 && ft < 4.5) {
-          if (hash12(dp * .83 + 4.) < .03) alb = mix(alb, vec3(.72, .67, .56), .65);
-          else if (hash12((dp - vec2(1., 0.)) * .83 + 4.) < .03) alb *= .6;
+          if (hash12(dp * .83 + 4.) < .012) alb = mix(alb, vec3(.72, .67, .56), .5);
+          else if (hash12((dp - vec2(1., 0.)) * .83 + 4.) < .012) alb *= .7;
           // trampled edge: dirt next to grass darkens a little so the lane reads as worn ground with soft edges
           if (!swapped && h2 < .5) alb *= .9;
         } else if (ft > .5 && ft < 1.5) {
