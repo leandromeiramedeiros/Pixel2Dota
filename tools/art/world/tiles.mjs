@@ -24,6 +24,10 @@ const pal = {
   '1': '#a3ab9f', '2': '#7e867d', '3': '#5f676a', '4': '#454d51', '5': '#2a3236',
   // cliff Dire (red-brown): lit, light, mid, dark, deepest, red crack
   '6': '#a06d5c', '7': '#7a4e3e', '8': '#5a372d', '9': '#402620', '0': '#28171a', '!': '#9a3a2a',
+  // worn steps Radiant: tread lit, light, mid, dark, riser cut (muted grey-olive stone between the road dirt and the cliff grey; low contrast)
+  '@': '#7f7b67', '#': '#6b6958', '$': '#58564a', '%': '#46453c', '^': '#35342d',
+  // worn steps Dire (warm ash brown)
+  '&': '#73605a', '*': '#614e47', '-': '#4e3f3a', '+': '#3e322e', '=': '#2e2523',
 };
 const emit = {};   // no emissive tile pixels: water sparkle is generated per art pixel in the terrain shader
 
@@ -162,10 +166,25 @@ function cliff(i, dire) {
 for (let i = 0; i < 4; i++) { frames['cliff_r_' + i] = cliff(i, false).rows(); frames['cliff_d_' + i] = cliff(i, true).rows(); }
 
 // ---------- stairs / ramp tiles ----------
+// Worn stone steps, 2 steps per tile (period 4 px along the slope): a dithered shadow riser, a lit tread edge, then the tread fading dark.
+// Tones sit within a few percent of each other so the steps read as texture, not stripes; the shader adds the macro tint, wear flecks and
+// blends the tile's edges into the neighbouring grass / dirt.
 function stairs(horizontal, dire) {
-  const cv = new Cv(8, 8, '.', false); const S = dire ? ['6', '7', '8', '9', '0'] : ['1', '2', '3', '4', '5']; const r = rng(horizontal ? 11 : 12);
-  for (let s = 0; s < 4; s++) for (let t = 0; t < 2; t++) for (let k = 0; k < 8; k++) { const [x, y] = horizontal ? [k, s * 2 + t] : [s * 2 + t, k]; cv.g[y][x] = t === 0 ? (r() < 0.2 ? S[1] : S[0]) : (r() < 0.25 ? S[3] : S[2]); }
-  for (let s = 0; s < 4; s++) for (let k = 0; k < 8; k++) { const [x, y] = horizontal ? [k, s * 2 + 1] : [s * 2 + 1, k]; if (k === 0 || k === 7) cv.g[y][x] = S[4]; }
+  const cv = new Cv(8, 8, '.', false), r = rng(horizontal ? 11 : 12);
+  const S = dire ? ['&', '*', '-', '+', '='] : ['@', '#', '$', '%', '^'];   // hi, light, mid, dark, cut
+  const jx = [1, 5, 3, 7];   // stone joint across a step, staggered per step row
+  for (let s = 0; s < 8; s++) for (let k = 0; k < 8; k++) {
+    const p = s % 4, ck = (s + k) & 1, v = r();
+    let c;
+    if (p === 0) c = ck ? S[3] : S[2];                          // riser shadow, checker dither into the tread above
+    else if (p === 1) c = v < 0.12 ? S[2] : ck ? S[0] : S[1];   // lit tread edge
+    else if (p === 2) c = v < 0.18 ? S[0] : ck ? S[1] : S[2];   // tread
+    else c = v < 0.15 ? S[1] : ck ? S[2] : S[3];                // tread fading into the next riser
+    if (p === 0 && v > 0.8) c = S[4];                           // darkest cut specks along the riser
+    if (k === jx[s & 3] && (p === 1 || p === 2)) c = S[3];      // stone joint
+    const [x, y] = horizontal ? [k, s] : [s, k];
+    cv.g[y][x] = c;
+  }
   return cv;
 }
 frames.stairs_0 = stairs(true, false).rows();

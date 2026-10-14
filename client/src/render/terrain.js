@@ -66,7 +66,8 @@ void main(){
     alb = own.rgb; em = own.a * 4.;
     vec2 tile = floor((vWorld.xz - vec2(uMapRect.x, -uMapRect.y)) / uMapRect.z - vUv + .5);
     Tl me = fetchTile(tile);
-    if (me.type < 5.5 && me.stairs < .5) {
+    if (me.type < 5.5) {
+      bool st = me.stairs > .5;                              // worn stair tile: keeps its own art, edges dither into the neighbouring ground
       vec2 lp = px + .5;                                     // art-pixel centre inside the tile, 0..8
       float myP = prio(me.type);
       float th = mix(hash12(dp), bayer4(dp), .5);            // dither threshold
@@ -77,6 +78,7 @@ void main(){
       float dX = 0., dY = 0., dXY = 0.;
       float lip = 99., ao = 0., dLand = 99., dWater = 99., bestP = myP - .5, bestD = 99.;
       Tl best = me;
+      Tl sb = me; float sbD = 99.; bool sHit = false;         // stairs: nearest dithered-in neighbour ground
       for (int i = 0; i < 8; i++) {
         vec2 o = OFS[i];
         Tl nb = fetchTile(tile + o);
@@ -84,6 +86,14 @@ void main(){
         if (o.x == 0. && o.y == qd.y) dY = nb.depth;
         if (o == qd) dXY = nb.depth;
         float np = prio(nb.type);
+        if (st) {
+          if (i < 4 && nb.stairs < .5 && (nb.type < 1.5 || (nb.type > 3.5 && nb.type < 4.5))) {
+            float d = o.x != 0. ? (o.x > 0. ? 8. - lp.x : lp.x) : (o.y > 0. ? 8. - lp.y : lp.y);
+            float w = clamp(1.25 * (1. - d / (1. + 2.4 * nR)), 0., 1.);
+            if (th < w && d < sbD) { sb = nb; sbD = d; sHit = true; }
+          }
+          continue;
+        }
         if (np < -.5 || nb.ramp > .5 || me.ramp > .5) continue;
         vec2 c = vec2(o.x > .5 ? 8. : (o.x < -.5 ? 0. : lp.x), o.y > .5 ? 8. : (o.y < -.5 ? 0. : lp.y));
         float d = length(lp - c);                            // orthogonal: distance to that edge, diagonal: to that corner
@@ -96,7 +106,8 @@ void main(){
         float w = clamp(1.3 * (1. - d / max(reach, .01)), 0., 1.);
         if (reach > 0. && th < w && (np > bestP || (np == bestP && d < bestD))) { bestP = np; best = nb; bestD = d; }
       }
-      bool swapped = bestP > myP - .25;
+      if (sHit) { best = sb; bestD = sbD; }
+      bool swapped = sHit || (!st && bestP > myP - .25);
       float ft = swapped ? best.type : me.type;
       float fs = swapped ? best.side : me.side;
       bool meWater = me.type > 4.5;
@@ -138,10 +149,15 @@ void main(){
         float mn = vnoise(dp * .009 + 3.) * .6 + vnoise(dp * .034 + 9.) * .4;
         float mq = floor(mn * 5. + th) / 5.;
         float k = ft < 1.5 ? 1. : ft < 2.5 ? .55 : .8;
+        if (st && !swapped) k = .7;
         alb *= mix(vec3(1.), mix(vec3(.84, .93, .98), vec3(1.07, 1.04, .92), clamp(mq * 1.25, 0., 1.)), k);
         // detail scatter at art-pixel resolution (hash noise), by final ground kind
         float dens = .6 + .8 * mn;
-        if (ft < .5) {
+        if (st && !swapped) {
+          // worn steps: sparse lit chips and dark pits, a few pixels of ground wear dirt (no grass tufts / flowers on stone)
+          if (h1 < .05) alb *= 1.14; else if (h1 > .93) alb *= .8;
+          else if (h2 < .05) alb = mix(alb, ft < 1.5 ? vec3(.3, .26, .2) : vec3(.28, .24, .19), .55);
+        } else if (ft < .5) {
           if (fs < .5) {
             float tf = hash12(dp), tb = hash12(dp - vec2(0., 1.));
             if (tf < .04 * dens) alb = alb * 1.34 + vec3(.01, .03, .0);            // blade tip
