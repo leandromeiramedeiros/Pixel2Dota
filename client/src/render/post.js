@@ -200,7 +200,7 @@ const FINAL = /* glsl */ `
 precision highp float;
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
 uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
-uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky;
+uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky, uMist;
 uniform sampler2D tDepth; uniform mat4 uInvProj, uCamWorld; uniform vec2 uPAB; uniform vec3 uCamPos;
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
@@ -228,7 +228,15 @@ void main(){
   vec3 c = sc.rgb;
   // tilt-shift: crisp band in the middle, soft bottom ~15% and top ~25%
   float dy = vUv.y - uDofY;   // uDofY: focus band follows the view inset (touch HUD) so the sharp band stays on the framed target
-  float dof = max(smoothstep(.17, 0., dy), smoothstep(.74, 1., dy)) * uDof;
+  float d0 = 1., dist = 1e5; vec3 vd = vec3(0.);
+  if (uSky > .002) {   // showcase: view distance from depth (depth = 1 means nothing was drawn)
+    d0 = texture2D(tDepth, vUv).r;
+    vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
+    vd = q.xyz / q.w; vd /= -vd.z;
+    if (d0 < .99999) dist = uPAB.y / (d0 * 2. - 1. + uPAB.x) * length(vd);
+  }
+  // showcase (medium/high): depth of field by distance, the hero (~800) sharp, distant trees blurry; ramps in with uSky
+  float dof = mix(max(smoothstep(.17, 0., dy), smoothstep(.74, 1., dy)), smoothstep(1000., 2400., dist), uSky * uMist) * uDof;
   if (dof > .003) {
     vec3 sA = texture2D(tDofA, vUv).rgb;
     vec3 sB = (texture2D(tDofB, vUv + uBt * vec2(-1.2, -.4)).rgb + texture2D(tDofB, vUv + uBt * vec2(1.2, .4)).rgb
@@ -258,19 +266,14 @@ void main(){
   float hz = smoothstep(.4, 1., vUv.y) * .55 * (1. - uSky);
   c = mix(c, haze + b * .6, hz);
   if (uSky > .002) {   // showcase: sky gradient behind the world + rolling distance fog into the horizon colour (depth = 1 means nothing was drawn)
-    float d0 = texture2D(tDepth, vUv).r;
-    vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
-    vec3 vd = q.xyz / q.w; vd /= -vd.z;
     vec3 wd = normalize(mat3(uCamWorld) * vd);
     vec3 hor = mix(vec3(.62, .68, .68), vec3(.07, .09, .17), uNight), zen = mix(vec3(.25, .42, .60), vec3(.02, .03, .09), uNight);
     float el = clamp(wd.y, 0., 1.);
     vec3 sky = mix(hor, zen, pow(el, .55));
     sky += vec3(.07, .04, -.02) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
-    float dist = 1e5;
-    if (d0 < .99999) dist = uPAB.y / (d0 * 2. - 1. + uPAB.x) * length(vd);
     vec3 wp = uCamPos + wd * min(dist, 6000.);
     float roll = sin(wp.x * .0023 + uTime * .06) * sin(wp.z * .0031 - uTime * .045) + .6 * sin((wp.x - wp.z) * .0052 + uTime * .035);
-    float fg = smoothstep(1500., 4200., dist + roll * 650.) * (.82 + .18 * roll);
+    float fg = smoothstep(mix(1500., 650., uMist), mix(4200., 2600., uMist), dist + roll * mix(650., 420., uMist)) * (.82 + .18 * roll);   // medium/high: dense rolling mist
     vec3 col = mix(c, hor * (1. + .06 * roll), clamp(fg, 0., 1.) * .97);
     c = mix(c, d0 >= .99999 ? sky + max(sc.rgb - vec3(.02, .02, .035), 0.) : col, uSky);
   }
@@ -333,7 +336,7 @@ export function createPost(renderer, shared) {
     uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
-    uSky: { value: 0 }, tDepth: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() },
+    uSky: { value: 0 }, uMist: { value: 1 }, tDepth: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() },
   });
 
   const rtOpts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, stencilBuffer: false, generateMipmaps: false, colorSpace: THREE.NoColorSpace };
@@ -460,7 +463,7 @@ export function createPost(renderer, shared) {
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
     f.uDof.value = doDof ? state.dofStrength : 0; f.uDofY.value = state.dofY || 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
     f.uRays.value = state.rays ? state.raysStrength : 0;
-    f.uSky.value = state.sky; f.tDepth.value = scene_rt.depthTexture;
+    f.uSky.value = state.sky; f.uMist.value = state.dof ? 1 : 0; f.tDepth.value = scene_rt.depthTexture;
     f.uInvProj.value.copy(camera.projectionMatrixInverse); f.uCamWorld.value.copy(camera.matrixWorld); f.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); f.uCamPos.value.copy(camera.position);
     f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;
