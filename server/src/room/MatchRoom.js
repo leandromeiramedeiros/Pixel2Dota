@@ -246,6 +246,7 @@ export class MatchRoom extends Room {
   onReconnect(client) {
     const p = this.pl(client);
     if (!p) return;
+    if (p.claim && p.claim !== client.sessionId) { client.leave(); return; }   // seat already reclaimed by a newer session
     p.connected = true;
     const sp = this.world?.players.get(p.sid); if (sp) sp.connected = true;
     this.migrateHost();
