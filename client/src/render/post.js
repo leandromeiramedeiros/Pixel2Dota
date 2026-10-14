@@ -1,6 +1,6 @@
 // Low-res HDR pipeline: scene -> HalfFloat render target (nearest, with a depth texture) ->
 //   half / quarter-res scene blur (tilt-shift DOF) -> threshold + progressive bloom -> water SSR (low-res depth ray-march)
-//   -> final pass (DOF mix, SSR mix, light scatter / god rays, grade, atmospheric perspective, vignette, Bayer dither, nearest upscale).
+//   -> final pass (DOF mix, SSR mix, light scatter halo, grade, atmospheric perspective, vignette, Bayer dither, nearest upscale).
 // WATER MASK CONTRACT: scene RT alpha = 1 for everything except water top tiles (terrain.js), which write 1 - fogBrightness,
 // so 0 = fully visible water, rising towards 1 as fog of war darkens it. Additive particles write alpha 1 (no reflection under them).
 import * as THREE from 'three';
@@ -155,7 +155,30 @@ void main(){
     float gl = exp(-(perp * perp) / (sg * sg));
     glint += uLC[i].rgb * (gl * at * at);
   }
-  refl += glint * 3.;
+  refl += glint * 1.6;                                           // rippled glint streaks (shimmer)
+  // bokeh discs: every strong light is mirrored in this water plane (y = Pw.y, flat per body) and splatted as a soft round / faintly
+  // hexagonal disc at its mirrored SCREEN position, so it stays round whatever the ripples do. Ripples only nudge the disc per light-grid
+  // cell (pixel-art wobble) and modulate its brightness; the edge is Bayer-dithered. Only runs on water pixels (early-out above).
+  vec3 bok = vec3(0.);
+  vec2 asp = vec2(uProj[0][0], uProj[1][1]);
+  for (int i = 0; i < 12; i++){
+    if (i >= uLN) break;
+    vec3 Lw = uLP[i].xyz;
+    if (Lw.y < Pw.y + 10.) continue;
+    vec4 cl = uProj * (uView * vec4(Lw.x, 2. * Pw.y - Lw.y, Lw.z, 1.));
+    if (cl.w <= 1.) continue;
+    vec2 uvm = cl.xy / cl.w * .5 + .5;
+    vec2 rs = (30. + uLP[i].w * .11) * asp / cl.w * .5;
+    vec2 d = (vUv - uvm) / rs;
+    if (dot(d, d) > 2.) continue;
+    d += g * vec2(.035, .05);
+    float hx = max(abs(d.y), abs(d.x) * .866 + abs(d.y) * .5);
+    float r = mix(length(d), hx, .4);
+    float disc = (1. - smoothstep(.66, 1., r)) * (.62 + .38 * smoothstep(.4, .9, r));
+    disc = floor(disc * 5. + jit) / 5.;
+    bok += uLC[i].rgb * disc * (.78 + .22 * clamp(g.x, -1., 1.));
+  }
+  refl += bok * 2.1;
   if (uDbg > .5) refl = vec3(conf * 2., found ? 1. : 0., 0.);
   gl_FragColor = vec4(refl, wm);
 }`;
@@ -207,7 +230,7 @@ void main(){
   vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
   float hz = smoothstep(.4, 1., vUv.y) * .55;
   c = mix(c, haze + b * .6, hz);
-  // light scatter in the haze: soft halo + faint angular shafts around the strongest on-screen lights, screen-composited
+  // light scatter in the haze: soft halo around the strongest on-screen lights, screen-composited (the directional shafts are cone meshes, beams.js)
   if (uRays > .001 && uGN > 0) {
     float asp = uOut.x / uOut.y;
     vec3 sct = vec3(0.);
@@ -218,10 +241,7 @@ void main(){
       float r = length(d) / gl.z;
       if (r > 2.2) continue;
       float halo = 1. / (1. + r * r * 5.) * (1. - smoothstep(1.2, 2.2, r));
-      float ang = atan(d.y, d.x);
-      float sh = .5 + .5 * sin(ang * 9. + gl.w + uTime * .25) * sin(ang * 5. - gl.w * 1.7 - uTime * .18);
-      float rays = mix(1., sh, smoothstep(.05, .7, r)) ;
-      sct += uGC[i] * (halo * rays);
+      sct += uGC[i] * halo;
     }
     sct *= uRays * mix(.35, 1.1, uNight) * mix(.75, 1.1, vUv.y);
     c = 1. - (1. - min(c, 1.)) * (1. - min(sct, vec3(.95)));

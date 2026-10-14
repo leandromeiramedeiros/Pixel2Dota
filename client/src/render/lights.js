@@ -1,6 +1,7 @@
 // Per-frame point lights: add() during the frame, finalize() sorts by contribution, caps at 32 and writes the shared uniforms.
 // Public API (also handed to fx): add({x,y,z,r,g,b,radius,intensity,flicker}) in WORLD coords (x east, y north, z up).
 import { MAX_LIGHTS } from './shaderlib.js';
+import { createBeams } from './beams.js';
 
 export const CAP = MAX_LIGHTS;
 
@@ -14,8 +15,9 @@ export function selectLights(list, cx, cy, cap = CAP) {
   return sc.slice(0, cap).map((e) => e.l);
 }
 
-export function createLights(uniforms) {
+export function createLights(uniforms, scene) {
   const list = [];
+  const beams = scene ? createBeams(scene, uniforms) : null;     // volumetric shafts, drawn into the scene target (beams.js)
   let n = 0, cx = 0, cy = 0, viewR = 2600;
   return {
     /** call at the start of each frame */
@@ -24,7 +26,7 @@ export function createLights(uniforms) {
       if (!l || !(l.radius > 0)) return;
       list.push({
         x: l.x, y: l.y, z: l.z == null ? 40 : l.z, r: l.r == null ? 1 : l.r, g: l.g == null ? 1 : l.g, b: l.b == null ? 1 : l.b,
-        radius: l.radius, intensity: l.intensity == null ? 1 : l.intensity, flicker: l.flicker || 0,
+        radius: l.radius, intensity: l.intensity == null ? 1 : l.intensity, flicker: l.flicker || 0, beam: l.beam,
       });
     },
     setView(x, y, r) { cx = x; cy = y; if (r) viewR = r; },
@@ -44,8 +46,10 @@ export function createLights(uniforms) {
         C[i * 4] = l.r * l.intensity * f; C[i * 4 + 1] = l.g * l.intensity * f; C[i * 4 + 2] = l.b * l.intensity * f; C[i * 4 + 3] = 1;
       }
       n = sel.length; uniforms.uLN.value = n;
+      if (beams) beams.update(sel, C, uniforms.uNight.value);
       return sel;
     },
+    beams,
     get count() { return n; },
     get pending() { return list.length; },
   };

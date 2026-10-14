@@ -42,7 +42,7 @@ export function createRenderer({ canvas, sheets }) {
   const rig = new CameraRig();
   const scene = new THREE.Scene();
   const atlas = buildAtlas({ ...(sheets || {}), ph_unit: makePlaceholderSheet() });
-  const lights = createLights(uniforms);
+  const lights = createLights(uniforms, scene);
   const terrain = createTerrain({ scene, uniforms, tiles: sheets && sheets.tiles });
   const sprites = createSprites({ scene, uniforms, atlas });
   const fog = createFog(uniforms);
