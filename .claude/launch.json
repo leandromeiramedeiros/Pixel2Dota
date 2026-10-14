@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "server", "runtimeExecutable": "node", "runtimeArgs": ["server/src/index.js"], "port": 2567 },
+    { "name": "client", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "client", "--port", "5180", "--strictPort"], "port": 5180 }
+  ]
+}

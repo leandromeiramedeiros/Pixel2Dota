@@ -21,7 +21,7 @@ const tokenSet = (v) => { try { if (store) v ? store.setItem(TOKEN_KEY, v) : sto
 function defaultEndpoint() {
   if (typeof location === 'undefined') return 'ws://localhost:2567';
   const secure = location.protocol === 'https:';
-  const dev = location.port === '5173' || location.port === '4173';
+  const dev = !!(import.meta.env && import.meta.env.DEV) || location.port === '4173';
   return (secure ? 'wss://' : 'ws://') + (dev ? location.hostname + ':2567' : location.host);
 }
 
