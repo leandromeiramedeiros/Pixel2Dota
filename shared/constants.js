@@ -19,7 +19,7 @@ export const MAX_LEVEL = 30;
 export const XP_TABLE = [0, 240, 640, 1160, 1760, 2440, 3200, 4000, 4900, 5900, 7000, 8200, 9500, 10900, 12400, 14000, 15700, 17500, 19400, 21400, 23600, 26000, 28600, 31400, 34400, 38400, 43400, 49400, 56400, 63900];
 export const ULT_LEVELS = [6, 12, 18];
 export const XP_RADIUS = 1500;
-export const heroKillXp = (victimLevel) => 100 + 0.13 * XP_TABLE[Math.min(victimLevel, 30) - 1] / 1; // simplified
+export const heroKillXp = (victimLevel) => Math.round(100 + 0.13 * XP_TABLE[Math.min(victimLevel, 30) - 1]); // simplified
 export const RESPAWN = [6, 8, 10, 14, 16, 26, 28, 30, 32, 34, 36, 46, 48, 50, 52, 54, 56, 66, 70, 74, 78, 82, 86, 90, 100, 100, 100, 100, 100, 100];
 
 // gold

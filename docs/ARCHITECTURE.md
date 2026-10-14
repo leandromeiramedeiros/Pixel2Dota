@@ -37,7 +37,7 @@ tools/
 reference/trainer/   read-only copies of InvokerTrainer code for porting (do not import at runtime)
 docs/                ARCHITECTURE.md (this), DECISIONS.md, PROGRESS.md
 ```
-Commands: `npm run dev:server` (node --watch), `npm run dev:client` (vite :5173, connects to ws://<host>:2567), `npm test`, `npm run bake`.
+Commands (two terminals): `npm run dev:server` (node --watch), `npm run dev:client` (vite :5173, connects to ws://<host>:2567), `npm test`, `npm run bake`.
 
 ## Coordinates and scale
 - Sim/world: Dota world units. x east, y north. Map box x,y in [-8832, 8832]. Ground height z from `shared/map.js heightAt(x,y)` (elev tier * 128, ramps interpolate).
@@ -125,16 +125,47 @@ Same ASCII format as the trainer: `export default { pal: {ch: '#rrggbb'|'#rrggbb
 - World: `tiles.js` (terrain tile atlas frames), `trees.js`, `buildings.js` (tower_radiant/dire, rax_melee/ranged per team, ancient per team, fountain, shop), `creeps.js`, `icons.js` (ability + item icons 16x16 or 24x24), `fx.js` (projectiles, small particle stamps).
 - Generators live in `tools/art/*.mjs`; generated files say so in their header.
 
+## Client code interfaces
+```
+// client/src/art/atlas.js (render)
+loadSheets() -> Promise<{ [name]: sheetDef }>          // imports client/src/art/sheets/*.js (import.meta.glob)
+buildAtlas(sheets) -> { texture, emitTexture, frame(sheet, key) -> { u0,v0,u1,v1, w,h, ax,ay, flip } } // west = mirrored east
+
+// client/src/render/index.js (render)
+createRenderer({ canvas, sheets }) -> {
+  resize(w, h), setTarget(x, y), zoom(delta), getTarget() -> {x, y},
+  update(view, dtSeconds),             // draw one frame
+  fx(events),                          // feed server "fx" events (forwards to render/fx)
+  pick(screenX, screenY) -> { x, y, unitId|null },   // ground point under cursor + unit under cursor (sprite hit, alpha-tested)
+  worldToScreen(x, y, z?) -> { x, y }, // css px, for DOM overlays
+  setSelected(unitId), setMyTeam(team), setSetting(name, value)
+}
+view = { time, night, myTeam, myHeroId, treesDown:Set<number>, units: Iterable<UnitView> }
+UnitView = schema Unit fields (interpolated x, y, facing) + z (heightAt) + animTime (s since anim/animSeq changed) + visible
+
+// client/src/render/fx/index.js (fx)
+createFx({ scene, particles, lights, atlas, heightAt }) -> { handle(event, view), update(dt, view) }   // one handler per ability/item key
+
+// client/src/net/index.js (net)
+createNet(endpoint) -> { listLobbies() -> Promise<[{code, players, host}]>, create(name) -> Promise<room>, join(code, name) -> Promise<room>,
+  room, state, mySid, send(type, payload), onFx(cb), onChange(cb), view(nowMs) -> view (interpolated, INTERP_MS behind) }
+
+// client/src/ui/hud.js (hud)       createHud(root, { send }) -> { update(state, myHeroUnit, mySid), destroy() }
+// client/src/input.js (hud)         createInput({ canvas, renderer, send, hud, getState }) -> { destroy() }  // Dota keys: right-click move/attack, A attack-move, S stop, H hold, Q W E R (D F) abilities, Z X C V B N items, Ctrl+key learn, F1/space center, Y lock, B/F4 shop, wheel zoom, edge pan
+// client/src/ui/lobby.js (net)      createLobby(root, net, { onGameStart }) -> { destroy() }
+// client/src/game.js (orchestrator) glue: net + renderer + hud + input + fx loop
+```
+
 ## Ownership (one agent per area; do not edit files you don't own — note needed changes in your report)
 | Area | Files |
 |---|---|
-| orchestrator | docs/*, shared/protocol.js, shared/constants.js, package.json files |
-| data | tools/bake.mjs, tools/vpk.mjs, shared/data/*.json, shared/data/lanes.js, shared/map.js, shared/heroes.js, shared/test/* |
+| orchestrator | docs/*, shared/protocol.js, shared/constants.js, shared/map.js, shared/heroes.js, shared/data/lanes.js, tools/vpk.mjs, client/src/game.js, package.json files |
+| data | tools/bake.mjs, shared/data/*.json, shared/data.js (loader), shared/test/* |
 | sim | server/src/sim/** except abilities/ and items.js, bots.js; server/test/sim*.test.js |
 | abilities | server/src/sim/abilities/**, server/test/abilities*.test.js |
 | items+bots | server/src/sim/items.js, server/src/sim/bots.js, server/test/items*.test.js, bots*.test.js |
 | net | server/src/index.js, server/src/room/**, client/src/net/**, client/src/main.js, client/src/ui/lobby*, client/index.html |
-| render | client/src/render/** except fx/, client/sandbox.html, client/src/sandbox.js, client/vite.config.js |
+| render | client/src/render/** except fx/, client/src/art/atlas.js, client/sandbox.html, client/src/sandbox.js, client/vite.config.js |
 | fx | client/src/render/fx/** |
 | hud | client/src/ui/** except lobby*, client/src/input.js |
-| art | tools/art/**, client/src/art/** |
+| art | tools/art/**, client/src/art/sheets/** |
