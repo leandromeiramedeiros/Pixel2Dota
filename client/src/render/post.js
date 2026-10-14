@@ -183,9 +183,23 @@ void main(){
   gl_FragColor = vec4(refl, wm);
 }`;
 
+// fight exposure: mean over-threshold energy of the coarsest bloom mip (4x4 taps), smoothed over time in a 1x1 ping-pong target.
+// One spell barely moves the mean; a stacked teamfight fills the screen with it -> FINAL lowers exposure and bloom (no readback).
+const ADAPT = /* glsl */ `
+precision highp float;
+uniform sampler2D tSrc; uniform sampler2D tPrev; uniform float uUp, uDown;
+varying vec2 vUv;
+void main(){
+  vec3 s = vec3(0.);
+  for (int i = 0; i < 16; i++) s += texture2D(tSrc, vec2(float(i - (i / 4) * 4) + .5, float(i / 4) + .5) * .25).rgb;
+  float e = dot(s / 16., vec3(.3, .59, .11)), p = texture2D(tPrev, vec2(.5)).r;
+  gl_FragColor = vec4(mix(p, e, e > p ? uUp : uDown), 0., 0., 1.);
+}`;
+
 const FINAL = /* glsl */ `
 precision highp float;
-uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr;
+uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
+uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
 uniform float uBloom, uVig, uNight, uTime, uDof, uSsr, uRays;
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
@@ -219,14 +233,17 @@ void main(){
     c *= mix(1., .62, wm);                                      // darker, glossier water body
     c += sr.rgb * wm * uSsr * (.55 + .25 * uNight) * vec3(.85, 1., 1.05);
   }
-  c *= .8;
+  // stacked spells: exposure and bloom drop with the adapted over-threshold energy (floors keep the fight readable, not dark)
+  float ae = uExpo.z > 0. ? texture2D(tAdapt, vec2(.5)).r : 0.;
+  float ex = max(.55, 1. / (1. + uExpo.x * ae)), bx = max(.3, 1. / (1. + uExpo.y * ae));
+  c *= .8 * ex;
   float l = dot(c, vec3(.3, .59, .11));
   // atmospheric perspective: saturation + contrast fall off toward the top (far side) of the frame
   float far = smoothstep(.3, 1., vUv.y);
   c = mix(vec3(l), c, 1. - .38 * far);
   c = mix(c * vec3(.72, .95, 1.), c, smoothstep(.15, .7, l));
   c += vec3(.05, .025, -.02) * smoothstep(.45, 1., l);
-  vec3 b = texture2D(tBloom, vUv).rgb * .2;
+  vec3 b = texture2D(tBloom, vUv).rgb * (.2 * bx);
   vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
   float hz = smoothstep(.4, 1., vUv.y) * .55;
   c = mix(c, haze + b * .6, hz);
@@ -248,7 +265,7 @@ void main(){
     c += max(sct - .95, 0.) * .2;
   }
   c += b * uBloom * (1. - min(c, 1.));
-  c += b * b * .15;
+  vec3 bb = min(b, vec3(1.5)); c += bb * bb * .15;   // bounded: a stacked core must not add unbounded white
   // soft knee above 0.85 so HDR highlights roll off instead of clipping
   vec3 hi = max(c - .85, 0.);
   c = min(c, vec3(.85)) + .15 * (1. - exp(-hi / .15));
@@ -270,6 +287,7 @@ export function createPost(renderer, shared) {
   const mPre = mk(PRE, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 1.12 }, uKnee: { value: 0.25 } });
   const mDown = mk(DOWN, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
   const mBox = mk(BOX, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
+  const mAdapt = mk(ADAPT, { tSrc: { value: null }, tPrev: { value: null }, uUp: { value: 1 }, uDown: { value: 1 } });
   const mUp = mk(UP, { tSrc: { value: null }, tPrev: { value: null }, uTexel: { value: new THREE.Vector2() }, uMix: { value: 1 } });
   const glArr = Array.from({ length: 8 }, () => new THREE.Vector4()), gcArr = Array.from({ length: 8 }, () => new THREE.Vector3());
   const sharedLP = shared ? shared.uLP : { value: new Float32Array(128) }, sharedLC = shared ? shared.uLC : { value: new Float32Array(128) }, sharedLN = shared ? shared.uLN : { value: 0 };
@@ -287,14 +305,18 @@ export function createPost(renderer, shared) {
     uBloom: { value: 0.9 }, uVig: { value: 0.35 }, uNight: { value: 0 }, uTime: { value: 0 }, uOut: { value: new THREE.Vector2() },
     uDof: { value: 1 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
+    tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
   });
 
   const rtOpts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, stencilBuffer: false, generateMipmaps: false, colorSpace: THREE.NoColorSpace };
   const lin = { ...rtOpts, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
   const flat = { ...rtOpts, depthBuffer: false };
+  // 1x1 adaptation ping-pong (HalfFloat, persists across resizes)
+  const adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, flat));
+  let adaptI = 0, lastT = -1;
   let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, downs = [], ups = [], w = 0, h = 0;
   const LEVELS = 5;
-  const state = { bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1 };
+  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1 };
 
   function disposeRTs() {
     if (scene_rt) { scene_rt.dispose(); scene_rt.depthTexture && scene_rt.depthTexture.dispose(); }
@@ -377,7 +399,15 @@ export function createPost(renderer, shared) {
         pass(mUp, ups[i]); prev = ups[i];
       }
       bloomTex = ups[0].texture;
+      if (state.expo) {   // darken fast (~0.1 s), recover slowly (~1 s)
+        const dt = lastT < 0 ? 1 / 60 : Math.min(0.25, Math.max(0, time - lastT));
+        const a = mAdapt.uniforms;
+        a.tSrc.value = downs[LEVELS - 1].texture; a.tPrev.value = adapt[adaptI].texture;
+        a.uUp.value = 1 - Math.exp(-dt * state.adaptUp); a.uDown.value = 1 - Math.exp(-dt * state.adaptDown);
+        adaptI ^= 1; pass(mAdapt, adapt[adaptI]);
+      }
     }
+    lastT = time;
     if (doSsr) {
       const u = mSsr.uniforms, pm = camera.projectionMatrix;
       u.tScene.value = scene_rt.texture; u.tDepth.value = scene_rt.depthTexture; u.tDofA.value = dofA.texture; u.tDofB.value = dofB.texture;
@@ -395,12 +425,13 @@ export function createPost(renderer, shared) {
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
     f.uDof.value = doDof ? state.dofStrength : 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
     f.uRays.value = state.rays ? state.raysStrength : 0;
+    f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;
     pass(mFinal, null);
   }
 
   return {
-    state, setRT, render, get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
-    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mSsr.dispose(); mFinal.dispose(); quadGeo.dispose(); },
+    state, setRT, render, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
+    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); quadGeo.dispose(); },
   };
 }
