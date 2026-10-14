@@ -137,7 +137,7 @@ export function createChat(parent, { send }) {
 export function createEnd(parent) {
   const el = h('div', 'h-end'); const title = h('h1'); const sub = h('div', 'sub'); const btn = h('div', 'btn', 'RETURN TO LOBBY');
   el.append(title, sub, btn); parent.append(el);
-  btn.addEventListener('click', () => location.reload());
+  btn.addEventListener('click', () => dispatchEvent(new Event('p2d:return-lobby')));   // main.js leaves the room (drops the resume token) and reboots to the lobby
   let shown = false;
   return {
     el, isShown: () => shown,

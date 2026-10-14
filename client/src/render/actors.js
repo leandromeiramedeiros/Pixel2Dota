@@ -70,7 +70,8 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4();
 
   const ents = [];
-  for (const kind of ['tower', 'barracks', 'fort', 'fountain', 'filler', 'shop', 'lantern']) for (const e of map.ents[kind] || []) ents.push({ kind, x: e.x, y: e.y, name: e.name || '', z: heightAt(e.x, e.y) });
+  // map 'filler' buildings are not drawn: no filler art, and reusing the shop stall made bases look like markets
+  for (const kind of ['tower', 'barracks', 'fort', 'fountain', 'shop', 'lantern']) for (const e of map.ents[kind] || []) ents.push({ kind, x: e.x, y: e.y, name: e.name || '', z: heightAt(e.x, e.y) });
 
   const h4 = [0, 0, 0, 0];
   function decalHeights(x, y, r) {

@@ -28,6 +28,8 @@ async function startMatch() {
 
 // connection lost for good mid-match -> back to the lobby screen (lobby.js handles drops while it is shown)
 net.onLeave(() => { if (!game) return; game.destroy(); game = null; boot(); });
+// end screen 'Return to lobby': leave for good (clears the resume token, else boot() would rejoin the ended room)
+addEventListener('p2d:return-lobby', () => { const g = game; game = null; net.leave(); g?.destroy(); boot(); });
 
 boot();
 if (import.meta.hot) import.meta.hot.dispose(() => { lobby?.destroy(); game?.destroy(); });
