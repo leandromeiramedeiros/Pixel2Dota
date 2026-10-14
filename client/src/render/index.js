@@ -23,7 +23,7 @@ let fxMods = {};
 try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */ }
 
 const DEFAULTS = {
-  pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.35, spritePersp: 0, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
+  pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 0, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
   outlines: true, hpBars: true, damageNumbers: true, ambient: true,
 };
 

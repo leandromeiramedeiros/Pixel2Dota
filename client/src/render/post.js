@@ -59,7 +59,18 @@ float bayer4(vec2 p){
   return (v + .5) / 16.;
 }
 void main(){
-  vec3 c = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * uBloom;
+  // v2 look (docs/ART-DIRECTION.md): bloom normalised over 5 levels and screen-composited so it cannot white out,
+  // low-key exposure, teal shadows / warm highlights, far (top) of the frame dissolves into tinted haze.
+  vec3 b = texture2D(tBloom, vUv).rgb * .2;
+  vec3 c = texture2D(tScene, vUv).rgb * .8;
+  float l = dot(c, vec3(.3, .59, .11));
+  c = mix(c * vec3(.72, .95, 1.), c, smoothstep(.15, .7, l));
+  c += vec3(.05, .025, -.02) * smoothstep(.45, 1., l);
+  vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
+  float hz = smoothstep(.4, 1., vUv.y) * .55;
+  c = mix(c, haze + b * .6, hz);
+  c += b * uBloom * (1. - min(c, 1.));
+  c += b * b * .15;
   // soft knee above 0.85 so HDR highlights roll off instead of clipping
   vec3 hi = max(c - .85, 0.);
   c = min(c, vec3(.85)) + .15 * (1. - exp(-hi / .15));
@@ -87,7 +98,7 @@ export function createPost(renderer) {
   const lin = { ...rtOpts, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
   let scene_rt = null, downs = [], ups = [], w = 0, h = 0;
   const LEVELS = 5;
-  const state = { bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.12 };
+  const state = { bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4 };
 
   function setRT(nw, nh) {
     nw = Math.max(16, nw | 0); nh = Math.max(16, nh | 0);

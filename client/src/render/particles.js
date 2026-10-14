@@ -248,8 +248,8 @@ export function createAmbient(particles, getHeight) {
       for (let i = 0; i < n; i++) {
         const x = cx + rnd(-halfW, halfW), y = cy + rnd(-halfH, halfH), z = getHeight(x, y) + rnd(10, 120);
         if (night > 0.5) {
-          if (Math.random() < 0.55) particles.spawn({ x, y, z, life: [4, 9], size0: [10, 16], size1: 10, col0: [2.6, 3.2, 0.7], col1: [0.8, 2.2, 0.3], a0: 1, a1: 1, env: true, speed: [4, 14], gravity: 0, drag: 0.4, mode: 'glow', jitter: 6, delay: 0 });
-          else particles.spawn({ x, y, z: z - 40, life: [6, 11], size0: [60, 110], size1: [90, 150], col0: [0.14, 0.2, 0.42], col1: [0.1, 0.14, 0.3], a0: 1, a1: 1, env: true, speed: [3, 9], drag: 0.2, mode: 'glow', flat: true });
+          if (Math.random() < 0.85) particles.spawn({ x, y, z, life: [4, 9], size0: [10, 16], size1: 10, col0: [2.6, 3.2, 0.7], col1: [0.8, 2.2, 0.3], a0: 1, a1: 1, env: true, speed: [4, 14], gravity: 0, drag: 0.4, mode: 'glow', jitter: 6, delay: 0 });
+          else particles.spawn({ x, y, z: z - 40, life: [6, 11], size0: [3, 5], size1: 3, col0: [0.5, 1.6, 1.8], col1: [0.2, 0.6, 0.8], a0: 1, a1: 1, env: true, speed: [3, 9], drag: 0.2, mode: 'glow', flat: true });
         } else {
           particles.spawn({ x, y, z, life: [5, 10], size0: [5, 9], size1: 6, col0: [1.0, 0.92, 0.7], col1: [0.8, 0.75, 0.55], a0: 1, a1: 1, env: true, speed: [2, 8], drag: 0.3, mode: 'square', jitter: 3 });
         }
