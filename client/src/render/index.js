@@ -13,6 +13,7 @@ import { createSprites } from './sprites.js';
 import { createActors } from './actors.js';
 import { createBuildings3d } from './buildings3d.js';
 import { createTrees3d } from './trees3d.js';
+import { createClutter3d } from './clutter3d.js';
 import { createFog } from './fog.js';
 import { createShadow } from './shadow.js';
 import { createParticles, createAmbient } from './particles.js';
@@ -27,7 +28,7 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 0, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
-  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: true,
+  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: true, clutter: true,
 };
 
 const DMG_COL = { phys: '#ff6a55', mag: '#6aa8ff', pure: '#ffb347' };
@@ -51,10 +52,10 @@ export function createRenderer({ canvas, sheets }) {
   const ambient = createAmbient(particles, heightAt);
   const post = createPost(gl, uniforms);
   const overlay = createOverlay(canvas);
-  const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms });
+  const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
-  for (const c of [...buildings.casters(), ...trees3d.casters()]) shadow.addCaster(c.mesh, c.mat);
+  for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters()]) shadow.addCaster(c.mesh, c.mat);
   const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d });
 
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
@@ -249,6 +250,7 @@ export function createRenderer({ canvas, sheets }) {
     lights.finalize(time);
     sprites.end(); particles.flush();
     sprites.setRim(settings.rim);
+    clutter.enabled = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight);
 
     terrain.update(cam, rig.snap ? 999 : 6);
     shadow.setEnabled(settings.shadows);
@@ -257,7 +259,7 @@ export function createRenderer({ canvas, sheets }) {
     post.render(scene, cam, time, nightK, outW, outH);
     drawBars(view);
     overlay.draw(dt);
-    stats.cpuMs = performance.now() - t0; stats.lights = lights.count; stats.chunks = terrain.stats.drawn; stats.tris = terrain.stats.tris + buildings.stats.tris + trees3d.stats.tris; stats.props3d = buildings.stats.draws + trees3d.stats.draws;
+    stats.cpuMs = performance.now() - t0; stats.lights = lights.count; stats.chunks = terrain.stats.drawn; stats.tris = terrain.stats.tris + buildings.stats.tris + trees3d.stats.tris + clutter.stats.tris; stats.props3d = buildings.stats.draws + trees3d.stats.draws;
     stats.sprites = sprites.count; stats.units = actors.state.unitsDrawn; stats.trees = actors.state.treesDrawn; stats.spawned = particles.spawned; stats.fogMs = fog.state.castMs; stats.shadowMs = shadow.state.ms;
   }
 
@@ -303,7 +305,7 @@ export function createRenderer({ canvas, sheets }) {
     /** explored/visible tile grids for the minimap (row-major, 368x368, row 0 = north) */
     fogGrid: () => ({ w: map.w, h: map.h, visible: fog.vis, explored: fog.explored }),
     // internals for the sandbox / tests
-    gl, scene, rig, uniforms, shadow, lights, terrain, post, atlas, stats, settings, sprites, actors, fog, particles, overlay,
+    gl, scene, rig, uniforms, shadow, clutter, lights, terrain, post, atlas, stats, settings, sprites, actors, fog, particles, overlay,
     get camera() { return rig.camera; },
     get fxModule() { return fxMod; },
     get night() { return nightK; },
