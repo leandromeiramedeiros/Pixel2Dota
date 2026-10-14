@@ -24,7 +24,7 @@ export const Unit = schema({
 
 export const Player = schema({
   sid: t.string(), name: t.string(), team: t.int8(), slot: t.int8(), hero: t.string(), isBot: t.boolean(), isHost: t.boolean(),
-  connected: t.boolean(), heroId: t.string(), gold: t.uint32(), kills: t.uint16(), deaths: t.uint16(), assists: t.uint16(), lh: t.uint16(), dn: t.uint16(),
+  connected: t.boolean(), claim: t.string(), heroId: t.string(), gold: t.uint32(), kills: t.uint16(), deaths: t.uint16(), assists: t.uint16(), lh: t.uint16(), dn: t.uint16(),
 }, 'Player');
 
 export const MatchState = schema({

@@ -94,6 +94,7 @@ export class MatchRoom extends Room {
   autoDispose = true;
 
   async onCreate(options) {
+    this.alias = new Map();   // client sessionId -> reclaimed seat sid (see seatFor)
     // unique 4-letter code as roomId
     let code = '';
     for (let i = 0; i < 40; i++) {
@@ -175,6 +176,7 @@ export class MatchRoom extends Room {
     const ph = this.state.phase, spec = this.state.spectators, nSpec = this.specs().length;
     if (ph === PHASE.ENDED) throw new Error('This match has ended');
     if (ph === PHASE.GAME) {
+      if (this.seatFor(options)) return true;   // a dropped player coming back after the reconnect window / lost token
       if (!spec) throw new Error('Match in progress, the host did not allow spectators');
       if (nSpec >= SPEC_MAX) throw new Error('Spectator seats are full');
       return true;
@@ -183,7 +185,37 @@ export class MatchRoom extends Room {
     return true;
   }
 
+  // Live match: a disconnected human seat this joiner may take back (stored seat id first, else a unique name match).
+  seatFor(options) {
+    if (this.state.phase !== PHASE.GAME) return null;
+    const free = this.humans().filter((p) => !p.connected && (p.team === TEAM.RADIANT || p.team === TEAM.DIRE));
+    const seat = typeof options?.seat === 'string' ? options.seat : '';
+    const bySeat = seat && free.find((p) => p.sid === seat);
+    if (bySeat) return bySeat;
+    const name = cleanName(options?.name).toLowerCase();
+    const byName = name ? free.filter((p) => p.name.toLowerCase() === name) : [];
+    return byName.length === 1 ? byName[0] : null;
+  }
+
+  /** the Player a client controls (its own seat, or a seat it reclaimed) */
+  pl(client) { return this.state.players.get(this.alias.get(client.sessionId) || client.sessionId); }
+  clientOf(sid) {
+    const c = this.clients.getById(sid); if (c) return c;
+    for (const [cs, ps] of this.alias) if (ps === sid) return this.clients.getById(cs);
+    return undefined;
+  }
+
   onJoin(client, options) {
+    const old = this.seatFor(options);
+    if (old) {   // reclaim: the client keeps its own session id, the state keeps the seat key; Player.claim tells the client which is its
+      for (const [cs, ps] of this.alias) if (ps === old.sid) this.alias.delete(cs);
+      this.alias.set(client.sessionId, old.sid);
+      old.claim = client.sessionId; old.connected = true;
+      const sp = this.world?.players.get(old.sid); if (sp) sp.connected = true;
+      this.migrateHost();
+      this.broadcastMsg(old.name + ' reconnected');
+      return;
+    }
     const p = new Player();
     p.sid = client.sessionId;
     p.name = cleanName(options?.name) || 'Player ' + (this.humans().length + 1);
@@ -200,7 +232,8 @@ export class MatchRoom extends Room {
   }
 
   onDrop(client) {
-    const p = this.state.players.get(client.sessionId);
+    const p = this.pl(client);
+    if (p && p.claim && p.claim !== client.sessionId) return;   // the seat was reclaimed by a newer session
     if (this.state.phase === PHASE.GAME && p) {
       p.connected = false;
       const sp = this.world?.players.get(p.sid); if (sp) sp.connected = false;
@@ -211,7 +244,7 @@ export class MatchRoom extends Room {
   }
 
   onReconnect(client) {
-    const p = this.state.players.get(client.sessionId);
+    const p = this.pl(client);
     if (!p) return;
     p.connected = true;
     const sp = this.world?.players.get(p.sid); if (sp) sp.connected = true;
@@ -219,8 +252,9 @@ export class MatchRoom extends Room {
   }
 
   onLeave(client) {
-    const p = this.state.players.get(client.sessionId);
-    if (!p) return;
+    const p = this.pl(client);
+    if (this.alias.get(client.sessionId)) { this.alias.delete(client.sessionId); if (p && p.claim === client.sessionId) p.claim = ''; }
+    if (!p || (p.claim && p.claim !== client.sessionId)) return;   // the original session timing out after its seat was reclaimed
     if (this.state.phase === PHASE.LOBBY) {
       this.state.players.delete(p.sid);
       this.migrateHost();
@@ -244,7 +278,7 @@ export class MatchRoom extends Room {
   onChat(client, m) {
     const text = str(m?.text, MAX_CHAT).trim();
     if (!text) return;
-    const p = this.state.players.get(client.sessionId);
+    const p = this.pl(client);
     if (!p) return;
     if (CHEATS && text[0] === '-' && this.cheat(p, text)) return;
     this.fxQueue.push({ e: EV.CHAT, p: p.sid, name: p.name, team: p.team, text });
@@ -267,7 +301,7 @@ export class MatchRoom extends Room {
     if (this.state.phase !== PHASE.GAME || !this.world) return;
     const o = cleanOrder(m);
     if (!o) return;
-    const p = this.state.players.get(client.sessionId);
+    const p = this.pl(client);
     if (!p || (p.team !== TEAM.RADIANT && p.team !== TEAM.DIRE)) return;   // spectators and the unslotted cannot order
     this.world.order(p.sid, o);
   }
@@ -376,7 +410,7 @@ export class MatchRoom extends Room {
       w.addHero({ pid: p.sid, team: p.team, heroKey: p.hero, bot: p.isBot, name: p.name, slot: p.slot, isHost: p.isHost, connected: p.connected });
     }
     this.state.phase = PHASE.GAME;
-    if (!this.state.spectators) this.lock();   // open rooms stay joinable: newcomers become spectators (onAuth / onJoin)
+    // no lock(): onAuth turns strangers away when spectators are off, but a dropped player must still be able to rejoin (seatFor)
     this.refreshMeta();
     this.setPatchRate(null);                       // patches are flushed manually, once per sim tick
     this.syncState();
@@ -438,7 +472,7 @@ export class MatchRoom extends Room {
     }
     if (direct) {
       pub = events.filter((e) => !(e.e === EV.MSG && e.p));
-      for (const e of direct) this.clients.getById(e.p)?.send(MSG.FX, [e]);
+      for (const e of direct) this.clientOf(e.p)?.send(MSG.FX, [e]);
     }
     if (pub.length) this.broadcast(MSG.FX, pub);
   }

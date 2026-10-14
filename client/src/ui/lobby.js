@@ -7,6 +7,7 @@ import { serverKind } from '../net/index.js';
 import './lobby.css';
 
 const UNREACHABLE = 'Cannot reach the server';
+const CONNECTING = 'Connecting…';
 const WAKING = 'Waking up the server, this can take a minute...';
 
 // Hero portraits: sheets/<short>.js 'portrait' frame (ASCII rows) -> 1x PNG data URL, shown pixelated at 1x/3x via CSS.
@@ -45,6 +46,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 const TEAM_NAME = ['Radiant', 'Dire'];
+// pixel-art cloud (16x8 cells, drawn at 2x) for the cloud server badge
+const CLOUD_PX = ['.....oooo.......', '....owwwwo.ooo..', '..oowwwwwwowwwo.', '.owwwwwwwwwwwwwo', 'owwwwwwwwwwwwwwo', 'owwwwwwwwwwwssso', '.osssssssssssso.', '..oooooooooooo..'];
+const CLOUD_COL = { o: '#2f6fa8', w: '#eef8ff', s: '#9fd2f5' };
+const CLOUD_SVG = '<svg class="lb-cloud" viewBox="0 0 16 8" width="32" height="16" shape-rendering="crispEdges" aria-hidden="true">' +
+  CLOUD_PX.map((r, y) => [...r].map((c, x) => (CLOUD_COL[c] ? '<rect x="' + x + '" y="' + y + '" width="1" height="1" fill="' + CLOUD_COL[c] + '"/>' : '')).join('')).join('') + '</svg>';
+const SRV_STATE = { wait: 'connecting…', wake: 'waking up…', up: 'online', down: 'offline' };
 
 export function createLobby(root, net, { onGameStart } = {}) {
   const el = document.createElement('div');
@@ -55,6 +62,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
   let lobbies = [];
   let error = '';
   let failSince = 0;
+  let srv = 'wait', listing = false, slowTimer = 0;   // server status for the badge: wait | wake | up | down
   let busy = false;
   let started = false;
   let destroyed = false;
@@ -94,7 +102,13 @@ export function createLobby(root, net, { onGameStart } = {}) {
 
   function renderList() {
     const box = el.querySelector('#lb-list'); if (!box) return;
-    if (!lobbies.length) { box.innerHTML = '<div class="lb-empty">No open lobbies. Create one.</div>'; return; }
+    if (!lobbies.length) {
+      box.innerHTML = srv === 'up' ? '<div class="lb-empty">No open lobbies. Create one.</div>'
+        : srv === 'down' ? '<div class="lb-empty">Server unreachable.</div>'
+        : '<div class="lb-empty lb-loading">' + (srv === 'wake' ? 'Waking the server up. Free cloud servers sleep when idle: about a minute' : 'Connecting to the server') +
+          '<span class="lb-dots"><i></i><i></i><i></i></span></div>';
+      return;
+    }
     box.innerHTML = lobbies.map((l) => `
       <div class="lb-lobby">
         <b class="lb-lcode">${esc(l.code)}</b>
@@ -104,15 +118,27 @@ export function createLobby(root, net, { onGameStart } = {}) {
       </div>`).join('');
   }
 
+  // a free cloud server sleeps when idle: the first request hangs ~1 min while it boots -> show that instead of an empty list
+  function setSrv(s) {
+    if (s === srv) return; srv = s;
+    const t = el.querySelector('.lb-srvtag'); if (t) t.outerHTML = serverTag();
+    if (mode === 'browse' && !lobbies.length) renderList();
+  }
   async function refreshList() {
-    if (destroyed || mode !== 'browse') return;
+    if (destroyed || mode !== 'browse' || listing) return;
+    listing = true;
+    const local = /\/\/(localhost|127\.|\[::1\])/.test(net.endpoint || '');
+    clearTimeout(slowTimer); slowTimer = setTimeout(() => { if (listing && srv !== 'up') setSrv(local ? 'wait' : 'wake'); }, 1500);
     try { lobbies = await net.listLobbies(); } catch {
       // a free cloud server sleeps when idle and takes about a minute to wake: say so instead of failing
+      listing = false; clearTimeout(slowTimer);
       lobbies = []; failSince ||= Date.now();
-      const local = /\/\/(localhost|127\.|\[::1\])/.test(net.endpoint || '');
-      setErr(!local && Date.now() - failSince < 120000 ? WAKING : UNREACHABLE); return;
+      const waking = !local && Date.now() - failSince < 120000;
+      setSrv(waking ? 'wake' : 'down');
+      setErr(waking ? WAKING : UNREACHABLE); return;
     }
-    failSince = 0;
+    listing = false; clearTimeout(slowTimer);
+    failSince = 0; setSrv('up');
     if (error === UNREACHABLE || error === WAKING) setErr('');
     renderList();
   }
@@ -128,8 +154,9 @@ export function createLobby(root, net, { onGameStart } = {}) {
   // which server this page talks to, so players can tell the cloud from someone's own machine
   function serverTag() {
     const s = serverKind(net.endpoint);
-    const txt = s.kind === 'cloud' ? '☁ Cloud server' : (s.kind === 'local' ? '🖥 Local server' : '🌐 Custom server') + ' · ' + s.host;
-    return `<span class="lb-srvtag lb-srv-${s.kind}" title="${esc(net.endpoint || '')}">${esc(txt)}</span>`;
+    const txt = s.kind === 'cloud' ? 'Cloud server' : (s.kind === 'local' ? '🖥 Local server' : '🌐 Custom server') + ' · ' + s.host;
+    const st = mode === 'room' ? 'up' : srv;
+    return `<span class="lb-srvtag lb-srv-${s.kind}" title="${esc(net.endpoint || '')}">${s.kind === 'cloud' ? CLOUD_SVG : ''}<span>${esc(txt)}</span><b class="lb-srvst lb-st-${st}"><i></i>${SRV_STATE[st]}</b></span>`;
   }
   function setErr(msg) { error = msg; const n = el.querySelector('#lb-err'); if (n) n.textContent = msg; }
   function curName() {
@@ -139,13 +166,17 @@ export function createLobby(root, net, { onGameStart } = {}) {
 
   async function enter(promise) {
     if (busy) return;
-    busy = true; setErr('');
+    busy = true; setErr(CONNECTING);
+    el.classList.add('lb-busy');
+    const slow = setTimeout(() => { if (busy && srv !== 'up') setErr(WAKING); }, 2500);
     try {
       await promise();
       if (net.state?.phase === PHASE.GAME) { started = true; onGameStart?.(); }   // joined a live match: spectator
       else showRoom();
     }
     catch (e) { setErr(String(e?.message || e || 'Failed').replace(/^Error:\s*/, '')); }
+    clearTimeout(slow); if (error === CONNECTING || error === WAKING) setErr('');
+    el.classList.remove('lb-busy');
     busy = false;
   }
 

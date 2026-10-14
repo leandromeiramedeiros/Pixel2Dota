@@ -17,6 +17,21 @@ const store = (() => {
 })();
 const tokenGet = () => { try { return store && store.getItem(TOKEN_KEY); } catch { return null; } };
 const tokenSet = (v) => { try { if (store) v ? store.setItem(TOKEN_KEY, v) : store.removeItem(TOKEN_KEY); } catch { /* ignore */ } };
+// Seat id per room code (localStorage: survives iOS tab eviction and the 60 s reconnect window) -> rejoining a live match takes the hero back.
+const SEAT_KEY = 'p2d.seat.';
+const seatGet = (code) => { try { return localStorage.getItem(SEAT_KEY + code) || ''; } catch { return ''; } };
+const seatSet = (code, sid) => { try { if (code && sid) localStorage.setItem(SEAT_KEY + code, sid); } catch { /* ignore */ } };
+// Last live match code (localStorage): boot rejoins it when the reconnect token is gone (iOS tab eviction, phone locked > 60 s).
+const LAST_KEY = 'p2d.lastMatch';
+const lastGet = () => { try { return localStorage.getItem(LAST_KEY) || ''; } catch { return ''; } };
+const lastSet = (v) => { try { v ? localStorage.setItem(LAST_KEY, v) : localStorage.removeItem(LAST_KEY); } catch { /* ignore */ } };
+/** The state key of my Player: my session id, or the seat I reclaimed (Player.claim === my session id). */
+export function ownSid(players, sessionId) {
+  if (!players || players.has?.(sessionId)) return sessionId;
+  let own = sessionId;
+  players.forEach?.((p, k) => { if (p && p.claim === sessionId) own = k; });
+  return own;
+}
 
 // Game server chosen by the player: ?server=host:port (shareable link) or the lobby's Server field, remembered in localStorage.
 // "host:port" / "http(s)://..." / "ws(s)://..." all work; bare hosts get wss:// unless they are this machine or the LAN.
@@ -74,15 +89,25 @@ export function createNet(endpoint) {
       return r.json();
     },
     async create(name) { return attach(await client.create(ROOM, { name })); },
-    async join(code, name) { return attach(await client.joinById(String(code || '').trim().toUpperCase(), { name })); },
+    async join(code, name) { const c = String(code || '').trim().toUpperCase(); return attach(await client.joinById(c, { name, seat: seatGet(c) })); },
     // Re-enter a room after a page reload (60 s server window). Resolves null when there is nothing to resume.
+    // Then falls back to rejoining the last live match by stored seat / name (the server hands the hero back; never as a spectator).
     async resume() {
-      const tok = tokenGet(); if (!tok) return null;
-      try { return attach(await client.reconnect(tok)); } catch { tokenSet(null); return null; }
+      const tok = tokenGet();
+      if (tok) { try { return attach(await client.reconnect(tok)); } catch { tokenSet(null); } }
+      const code = lastGet(); if (!code) return null;
+      let name = ''; try { name = localStorage.getItem('p2d.name') || ''; } catch { /* ignore */ }
+      try {
+        const room = await net.join(code, name);
+        const st = await new Promise((res) => { if (room.state && room.state.players && room.state.players.size) res(room.state); else { room.onStateChange.once((s) => res(s)); setTimeout(() => res(room.state), 4000); } });
+        const p = st && st.players && st.players.get(ownSid(st.players, room.sessionId));
+        if (st && st.phase === 'game' && p && (p.team === 0 || p.team === 1)) return room;
+        net.leave(); return null;
+      } catch { lastSet(null); return null; }
     },
     // clears room/state now (not on the async onLeave) so a lobby created right after starts on the browse view
-    leave() { tokenSet(null); const r = net.room; net.room = null; net.state = null; net.connected = false; if (r) { try { r.leave(true); } catch { /* ignore */ } } },
-    send(type, payload) { const r = net.room; if (r && net.connected) r.send(type, payload); },
+    leave() { tokenSet(null); lastSet(null); const r = net.room; net.room = null; net.state = null; net.connected = false; if (r) { try { r.leave(true); } catch { /* ignore */ } } },
+    send(type, payload) { const r = net.room; if (r) r.send(type, payload); },   // during a drop the SDK queues it and flushes on reconnect
     onFx(cb) { fxCbs.add(cb); return () => fxCbs.delete(cb); },
     onChange(cb) { changeCbs.add(cb); return () => changeCbs.delete(cb); },
     onLeave(cb) { leaveCbs.add(cb); return () => leaveCbs.delete(cb); },
@@ -90,11 +115,17 @@ export function createNet(endpoint) {
   };
 
   function attach(room) {
-    net.room = room; net.state = room.state; net.mySid = room.sessionId; net.connected = true;
+    net.room = room; net.state = room.state; net.mySid = ownSid(room.state && room.state.players, room.sessionId); net.connected = true;
+    seatSet(room.roomId, net.mySid);
     recs.clear(); views.clear(); trees.clear(); treeSig = '';
     tokenSet(room.reconnectionToken);
     room.onMessage(MSG.FX, (events) => { for (const cb of fxCbs) cb(events); });
-    room.onStateChange((st) => { net.state = st; sample(st); for (const cb of changeCbs) cb(st); });
+    room.onStateChange((st) => {
+      net.state = st;
+      if (net.room === room) { const own = ownSid(st.players, room.sessionId); if (own !== net.mySid) { net.mySid = own; seatSet(room.roomId, own); } }
+      if (net.room === room) { const pl = st.players && st.players.get(net.mySid), live = st.phase === 'game' && pl && (pl.team === 0 || pl.team === 1); if (live) { if (lastGet() !== room.roomId) lastSet(room.roomId); } else if (st.phase === 'ended' && lastGet() === room.roomId) lastSet(null); }
+      sample(st); for (const cb of changeCbs) cb(st);
+    });
     room.onLeave((code) => {
       if (net.room === room) { net.connected = false; net.room = null; net.state = null; }
       if (code === 1000 || code === 4000 || code >= 4000) tokenSet(null);

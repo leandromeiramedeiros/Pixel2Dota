@@ -185,3 +185,34 @@ test('spectators off: live match refuses joins', { timeout: 20000 }, async () =>
   await assert.rejects(new Client(base).joinById(host.roomId, { name: 'X' }));
   await host.leave();
 });
+
+test('rejoining a live match by name / stored seat takes the hero back (not a spectator)', { timeout: 60000 }, async () => {
+  const { ownSid } = await import('../../client/src/net/index.js').catch(() => ({}));
+  const c1 = new Client(base);
+  const r1 = await c1.create(ROOM, { name: 'Iris' });
+  const code = r1.roomId, seat = r1.sessionId;
+  r1.send(MSG.LOBBY, { t: LOBBY.HERO, key: 'npc_dota_hero_mirana' });
+  await until(() => r1.state.players?.get(seat)?.hero === 'npc_dota_hero_mirana', 3000, 'pick');
+  r1.send(MSG.LOBBY, { t: LOBBY.FILL });
+  await sleep(200);
+  r1.send(MSG.LOBBY, { t: LOBBY.START });
+  await until(() => r1.state.phase === 'game' && r1.state.players?.get(seat)?.heroId, 10000, 'game');
+  r1.leave(false);                                                       // unconsented: the server keeps the seat
+  // a second client can't watch (no spectators), but the dropped player can come back
+  const c2 = new Client(base);
+  await assert.rejects(c2.joinById(code, { name: 'Stranger' }));
+  const r2 = await c2.joinById(code, { name: 'iris' });                 // name match, case-insensitive
+  await until(() => r2.state.players?.get(seat)?.claim === r2.sessionId, 5000, 'claim');
+  const p = r2.state.players?.get(seat);
+  assert.equal(p.connected, true); assert.notEqual(p.team, 3);
+  assert.equal(r2.state.players.has(r2.sessionId), false, 'no spectator entry');
+  if (ownSid) assert.equal(ownSid(r2.state.players, r2.sessionId), seat);
+  const h = r2.state.units.get(p.heroId), x0 = h.x, y0 = h.y;
+  r2.send(MSG.ORDER, { t: 'move', x: x0 + 600, y: y0 + 600 });
+  await until(() => Math.hypot(h.x - x0, h.y - y0) > 100, 5000, 'hero moves');
+  // and again through the stored seat id, after this session drops too
+  r2.leave(false);
+  const r3 = await new Client(base).joinById(code, { name: 'renamed', seat });
+  await until(() => r3.state.players?.get(seat)?.claim === r3.sessionId, 5000, 'claim by seat');
+  await r3.leave(true);
+});

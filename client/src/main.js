@@ -6,18 +6,22 @@ import { mountFullscreenButton, guardLeave } from './ui/fullscreen.js';
 const root = document.getElementById('app');
 const net = createNet(serverOverride() || normalizeServer(import.meta.env?.VITE_P2D_ENDPOINT) || undefined);
 let lobby = null, game = null;
+const BOOT_MSG = (t) => '<div id="boot" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#8e99b3;font:14px monospace">' + t + '</div>';
 
 async function boot() {
   lobby?.destroy(); lobby = null;
   root.innerHTML = '';
-  await net.resume();          // reload during a match / lobby -> back into the room (60 s window)
+  // reload during a match / lobby -> back into the room (60 s window), else back into the last live match by seat
+  const note = setTimeout(() => { root.innerHTML = BOOT_MSG('Reconnecting to your match…'); }, 400);
+  await net.resume();
+  clearTimeout(note); root.innerHTML = '';
   guardLeave(false);
   lobby = createLobby(root, net, { onGameStart: startMatch });
 }
 
 async function startMatch() {
   lobby?.destroy(); lobby = null;
-  root.innerHTML = '<div id="boot" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#8e99b3;font:14px monospace">Loading match...</div>';
+  root.innerHTML = BOOT_MSG('Loading match...');
   try {
     const { startGame } = await import('./game.js');
     game = await startGame({ root, net });

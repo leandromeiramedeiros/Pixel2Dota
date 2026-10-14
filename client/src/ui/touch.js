@@ -241,7 +241,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   // ---- state helpers
   const state = () => getState();
-  const me = () => { const s = state(); return s && s.players ? s.players.get(mySid) : null; };
+  const me = () => { const s = state(); return s && s.players ? s.players.get(typeof mySid === 'function' ? mySid() : mySid) : null; };
   const heroU = () => { const s = state(), p = me(); return s && p && p.heroId ? s.units.get(p.heroId) : null; };
   const isSpec = () => { const p = me(); return !!p && p.team === TEAM.SPEC; };
   const myTeam = () => { const p = me(); return p ? p.team : -1; };

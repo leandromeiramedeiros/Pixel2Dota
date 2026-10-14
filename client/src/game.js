@@ -22,10 +22,10 @@ export async function startGame({ root, net }) {
   const send = (type, payload) => net.send(type, payload);
   const hud = createHud(hudRoot, { send, renderer, sheets });
   const getState = () => net.state;
-  const input = createInput({ canvas, renderer, send, hud, getState, mySid: net.mySid });
+  const input = createInput({ canvas, renderer, send, hud, getState, mySid: () => net.mySid });
 
   const perf = createPerf(hudRoot, net);
-  const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: net.mySid, send });
+  const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: () => net.mySid, send });
 
   const resize = () => renderer.resize(root.clientWidth, root.clientHeight);
   addEventListener('resize', resize);

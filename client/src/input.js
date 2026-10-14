@@ -30,7 +30,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
 
   // ---- state helpers
   const state = () => getState();
-  const me = () => { const s = state(); return s && s.players ? s.players.get(mySid) : null; };
+  const me = () => { const s = state(); return s && s.players ? s.players.get(typeof mySid === 'function' ? mySid() : mySid) : null; };
   const hero = () => { const s = state(), p = me(); return s && p && p.heroId ? s.units.get(p.heroId) : null; };
   const ctx = () => { const s = state(), p = me(); return { myTeam: p ? p.team : -1, getUnit: (id) => (s && s.units ? s.units.get(id) : null) }; };
   const warn = (t) => call('message', t, true);
