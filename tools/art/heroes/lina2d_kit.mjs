@@ -84,7 +84,7 @@ export function tongue(pts, w, o = {}) {
       const [ax, ay] = sp[i], [bx, by] = sp[i + 1], dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
       let t = ((px - ax) * dx + (py - ay) * dy) / L2; t = Math.max(0, Math.min(1, t));
       const cx = ax + dx * t, cy = ay + dy * t, d = Math.hypot(px - cx, py - cy);
-      if (d < best) { best = d; bi = i + t; bs = Math.sign((px - ax) * dy - (py - ay) * dx) * -1; }
+      if (d < best) { best = d; bi = i + t; bs = o.lit ? ((px - cx) + (py - cy) > 0 ? 1 : -1) : Math.sign((px - ax) * dy - (py - ay) * dx) * -1; }
     }
     const tt = bi / N, h = hw(tt);
     if (h > 0.2 && best <= h) { m[I(x, y)] = 1; T[I(x, y)] = tt; S[I(x, y)] = bs * best / h; }
@@ -166,6 +166,16 @@ export class Cv {
       this.px[I(x, y)] = { hex, ramp: null, lv: 5, part: -2, em: 0, ol: true };
     }
   }
+  // fill 1-px gaps enclosed by painted pixels (otherwise the outline pass turns them into dark holes)
+  fillHoles() {
+    for (let pass = 0; pass < 2; pass++) { const add = [];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (!this.px[I(x, y)]) {
+        const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => this.px[I(x + dx, y + dy)]).filter(p => p && !p.noOutline);
+        if (nb.length >= 3) add.push([x, y, nb.sort((a, b) => a.lv - b.lv)[0]]);
+      }
+      for (const [x, y, p] of add) this.px[I(x, y)] = { ...p };
+    }
+  }
   // scattered ember / sparkle pixels (never part of the silhouette)
   dot(x, y, hex, em = 0) { if (!this.at(x, y) && x >= 0 && y >= 0 && x < W && y < H) { this.set(x, y, hex, { em }); this.px[I(x, y)].noOutline = true; } }
 }
@@ -205,3 +215,30 @@ export function toSheet(frames, names) {
 }
 export { mix, I };
 
+
+// ---------------------------------------------------------------- hand-typed span silhouettes (flames / locks)
+// spans: [y0, 'xL-xR xL-xR ...'] rows going down from y0 ("a" alone = a-a). Returns {m, rows:[{y,xl,xr}]}.
+export function spans(y0, str) {
+  const m = new Uint8Array(W * H), rows = [];
+  str.trim().split(/\s+/).forEach((t, i) => { const [a, b] = t.split('-').map(Number), xl = a, xr = b ?? a, y = y0 + i; rows.push({ y, xl, xr }); for (let x = xl; x <= xr; x++) if (x >= 0 && y >= 0 && x < W && y < H) m[I(x, y)] = 1; });
+  return { m, rows };
+}
+// banded flame shading for a span silhouette: pale hot tip, yellow lit edge + core, orange body, red far rim, roots darker
+export function paintFlame(cv, sp, o = {}) {
+  const info = new Map(); for (const r of sp.rows) info.set(r.y, r);
+  const y0 = sp.rows[0].y, y1 = sp.rows[sp.rows.length - 1].y, span = Math.max(1, y1 - y0);
+  const bias = o.bias ?? 0, tipHot = o.tip ?? 0.16;
+  return cv.paint(sp.m, 'hair', { line: o.line ?? null, mode: (x, y) => {
+    const r = info.get(y), w = r.xr - r.xl, u = w ? (x - r.xl) / w : 0, v = (y - y0) / span;
+    let L;
+    if (v < tipHot) L = u > 0.8 && w > 2 ? 1 : 0;
+    else if (w === 0) L = 1;
+    else if (x === r.xl) L = 1;
+    else if (u < 0.34) L = v < 0.6 ? 1 : 2;
+    else if (u < 0.66) L = v < 0.5 ? 1 : 2;
+    else L = 2;
+    if (x === r.xr && w > 1) L = Math.max(L, v < 0.3 ? 2 : 3);
+    if (v > 0.8) L += 1; if (v > 0.92) L += 1;
+    return Math.max(0, Math.min(4, L)) + bias;
+  } });
+}
