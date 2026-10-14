@@ -9,7 +9,8 @@ export const evHit = (w, s, t, d, ty, c) => emit(w, { e: EV.HIT, s, t, d: Math.r
 /** ability / item VFX trigger. extra: {t,x,y,x2,y2,r,dur,lv} */
 export const evSpell = (w, k, s, extra) => emit(w, Object.assign({ e: EV.SPELL, k, s }, extra));
 export const evDeath = (w, u) => emit(w, { e: EV.DEATH, t: u.id, k: u.key, x: Math.round(u.x), y: Math.round(u.y) });
-export const evKill = (w, killerPid, victimPid, gold) => emit(w, { e: EV.KILL, killer: killerPid || '', victim: victimPid || '', gold: gold | 0 });
+// by/kt: killing unit's kind/team, so the feed can name a tower/creep/fountain when no hero gets the kill
+export const evKill = (w, killerPid, victimPid, gold, by, kt) => emit(w, { e: EV.KILL, killer: killerPid || '', victim: victimPid || '', gold: gold | 0, by: by || '', kt: kt === undefined ? -1 : kt });
 export const evGold = (w, t, g) => emit(w, { e: EV.GOLD, t, g: g | 0 });
 export const evLvl = (w, t) => emit(w, { e: EV.LVL, t });
 export const evHeal = (w, t, a) => emit(w, { e: EV.HEAL, t, a: r1(a) });

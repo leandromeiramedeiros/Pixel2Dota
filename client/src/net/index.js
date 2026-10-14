@@ -59,7 +59,8 @@ export function createNet(endpoint) {
       const tok = tokenGet(); if (!tok) return null;
       try { return attach(await client.reconnect(tok)); } catch { tokenSet(null); return null; }
     },
-    leave() { tokenSet(null); const r = net.room; if (r) { try { r.leave(true); } catch { /* ignore */ } } },
+    // clears room/state now (not on the async onLeave) so a lobby created right after starts on the browse view
+    leave() { tokenSet(null); const r = net.room; net.room = null; net.state = null; net.connected = false; if (r) { try { r.leave(true); } catch { /* ignore */ } } },
     send(type, payload) { const r = net.room; if (r && net.connected) r.send(type, payload); },
     onFx(cb) { fxCbs.add(cb); return () => fxCbs.delete(cb); },
     onChange(cb) { changeCbs.add(cb); return () => changeCbs.delete(cb); },

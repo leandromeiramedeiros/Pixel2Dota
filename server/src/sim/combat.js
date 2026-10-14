@@ -251,7 +251,7 @@ function rewardHeroKill(w, v, killer, kh, deny) {
     for (const h of assists) { const p = w.players.get(h.owner); if (p) { p.gold += share; p.assists++; } }
     if (!kh) paid = gold;
   }
-  evKill(w, kh ? kh.owner : '', v.owner, paid);
+  evKill(w, kh ? kh.owner : '', v.owner, paid, killer ? killer.kind : '', killer ? killer.team : -1);
   v._streak = 0;
   const hs = heroesNear(w, v.x, v.y, XP_RADIUS, enemyTeam, w._hl);
   if (hs.length) { const x = xp / hs.length; for (const h of hs) H.addXp(w, h, x); }

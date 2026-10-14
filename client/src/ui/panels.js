@@ -64,12 +64,13 @@ export function createFeed(parent) {
   const timers = new Set();
   return {
     el,
-    /** ev = { killer, victim, gold } (player sids); state for names/teams. */
+    /** ev = { killer, victim, gold, by, kt } (player sids); state for names/teams. */
     kill(ev, state, mySid) {
       const P = (sid) => (sid && state && state.players ? state.players.get(sid) : null);
       const k = P(ev.killer), v = P(ev.victim);
       const row = h('div', 'h-kf' + (ev.killer === mySid || ev.victim === mySid ? ' mine' : ''));
-      const kn = h('span', k ? teamCls(k.team) : 'h-dim', k ? k.name || heroName(k.hero) : 'Neutrals');
+      const by = ev.by === 'tower' ? 'Tower' : ev.by === 'fountain' ? 'Fountain' : ev.by === 'creep' ? 'Creeps' : ev.by ? 'Building' : 'Neutrals';
+      const kn = h('span', k ? teamCls(k.team) : teamCls(ev.kt) || 'h-dim', k ? k.name || heroName(k.hero) : by);
       const vn = h('span', v ? teamCls(v.team) : 'h-dim', v ? v.name || heroName(v.hero) : 'Someone');
       row.append(kn, sizeU(pixelEl(GLYPHS.sword, null, 1), 9), vn);
       if (ev.gold && ev.killer === mySid) row.append(h('span', 'g', '+' + ev.gold));
