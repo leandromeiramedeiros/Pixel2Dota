@@ -201,6 +201,13 @@ precision highp float;
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
 uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
 uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky, uMist;
+float vh(float n) { return fract(sin(n) * 43758.5453); }
+float vnoise(vec3 p) {   // value noise for the volumetric mist
+  vec3 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  float n = i.x + i.y * 57. + i.z * 113.;
+  return mix(mix(mix(vh(n), vh(n + 1.), f.x), mix(vh(n + 57.), vh(n + 58.), f.x), f.y),
+             mix(mix(vh(n + 113.), vh(n + 114.), f.x), mix(vh(n + 170.), vh(n + 171.), f.x), f.y), f.z);
+}
 uniform sampler2D tDepth; uniform mat4 uInvProj, uCamWorld; uniform vec2 uPAB; uniform vec3 uCamPos;
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
@@ -274,8 +281,24 @@ void main(){
     vec3 wp = uCamPos + wd * min(dist, 6000.);
     float roll = sin(wp.x * .0023 + uTime * .06) * sin(wp.z * .0031 - uTime * .045) + .6 * sin((wp.x - wp.z) * .0052 + uTime * .035);
     float fg = smoothstep(mix(1500., 650., uMist), mix(4200., 2600., uMist), dist + roll * mix(650., 420., uMist)) * (.82 + .18 * roll);   // medium/high: dense rolling mist
-    vec3 col = mix(c, hor * (1. + .06 * roll), clamp(fg, 0., 1.) * .97);
-    c = mix(c, d0 >= .99999 ? sky + max(sc.rgb - vec3(.02, .02, .035), 0.) : col, uSky);
+    vec3 base = d0 >= .99999 ? sky + max(sc.rgb - vec3(.02, .02, .035), 0.) : mix(c, hor * (1. + .06 * roll), clamp(fg, 0., 1.) * .97);
+    if (uMist > .5) {   // medium/high: volumetric mist, a short raymarch through a drifting 3D-noise layer hugging the ground (clear around the hero)
+      float L = min(dist, 4200.), ds = L / 14., gY = uCamPos.y - 260., T = 1.;
+      float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+      vec3 acc = vec3(0.), drift = vec3(uTime * 22., 0., uTime * 13.);
+      for (int i = 0; i < 14; i++) {
+        float t = (float(i) + jit) * ds;
+        vec3 p = uCamPos + wd * t;
+        float hy = p.y - gY;
+        float n = vnoise((p + drift) * .0045) * .65 + vnoise((p - drift * 1.7) * .012) * .35;
+        float dens = exp(-max(hy, 0.) / 120.) * smoothstep(.38, .8, n) * smoothstep(220., 560., t);
+        float a = 1. - exp(-dens * ds * .0055);
+        acc += T * a * hor * (.8 + .45 * n);
+        T *= 1. - a;
+      }
+      base = base * T + acc;
+    }
+    c = mix(c, base, uSky);
   }
   // light scatter in the haze: soft halo around the strongest on-screen lights, screen-composited (the directional shafts are cone meshes, beams.js)
   c = tmHue(c, .7);   // before the screen composites below (they clamp to 1 and would clip each channel)
