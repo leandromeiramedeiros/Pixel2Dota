@@ -275,7 +275,11 @@ export function createLobby(root, net, { onGameStart } = {}) {
     }
     if (d.join) return enter(() => net.join(d.join, curName()));
     if (t.id === 'lb-refresh') return refreshList();
-    if (t.id === 'lb-leave') { net.leave(); return; }
+    if (t.id === 'lb-leave') {   // straight back to the first screen (don't wait for the socket close); drop ?join so a reload stays out
+      net.leave(); error = 'You left the lobby';
+      try { const u = new URL(location.href); if (u.searchParams.has('join')) { u.searchParams.delete('join'); history.replaceState(null, '', u.href); } } catch { /* ignore */ }
+      showBrowse(); return;
+    }
     if (t.id === 'lb-copy') { try { navigator.clipboard?.writeText(inviteLink()); t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy link'; }, 1200); } catch { /* ignore */ } return; }
     if (t.id === 'lb-srvgo') { const u = new URL(location.href); u.searchParams.set('server', (el.querySelector('#lb-server').value || '').trim()); u.searchParams.delete('join'); location.href = u.href; return; }
     if (t.id === 'lb-fill') return lobbyMsg({ t: LOBBY.FILL });
@@ -325,7 +329,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
     }
   });
   offLeave = net.onLeave((code) => {
-    if (destroyed || started) return;
+    if (destroyed || started || mode !== 'room') return;   // already on the first screen (Leave button)
     error = code === 1000 || code === 4000 ? 'You left the lobby' : 'Disconnected from the lobby';
     showBrowse();
   });
