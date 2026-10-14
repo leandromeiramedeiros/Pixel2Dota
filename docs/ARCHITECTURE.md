@@ -119,6 +119,8 @@ Rules constants live in `shared/constants.js`. Values (damage, cooldowns, mana, 
 - `items`: `{ key: { cost, recipe:null|{ cost, parts:[keys] }, stats:{ str,agi,int,dmg,armor,as,ms,msPct,hp,mana,hpRegen,manaRegen,mr }, cooldown, manaCost, castRange, behavior, values:{...}, charges, stack, consumable, sell } }` (only the items in DECISIONS.md, plus parts).
 - `units`: creeps (melee/ranged/siege per team), towers by tier, barracks melee/ranged, fort, fountain: `{ hp, hpRegen, mana, armor, mr, dmgMin, dmgMax, bat, atkPoint, atkRange, projSpeed, ms, goldMin, goldMax, xp, vision, hull }`.
 - `meta`: `{ source: "local game files", patch, date, vpk }`.
+- Bake extensions (actual output): abilities `damageType` = "mag"|"phys"|"pure", `targetTeam` string ("ENEMY"...), `targetType` array, `ult` bool, `values.damage` aliases `AbilityDamage`, `levelKeys:{valueName:"quaslevel"|"wexlevel"|"exortlevel"}` — Invoker invoked spells have maxLevel 1 and 9-entry value arrays indexed by that orb level (index 0..8; orb maxLevel 8, so index = orb level; orb levels capped at 7 in this game — no Aghs). Items: `cooldown/manaCost/castRange` scalars, `values` scalar or per-level array, `recipe.alts` (power treads). Blink has no recipe (2250). Hero `hp`/`mana` are RAW base (120/75): the sim adds attribute bonuses. Units keys: `goodguys_melee|ranged|siege`, `badguys_*`, `tower1..4`, `melee_rax`, `ranged_rax`, `fort`, `fountain`.
+- Helpers (shared/data.js): `abilityValue(key, name, level)` (1-based, clamped), `abilityField(key, field, level)`, `itemValue(key, name, level?)`.
 
 ## Art sheets (client/src/art/sheets/<name>.js)
 Same ASCII format as the trainer: `export default { pal: {ch: '#rrggbb'|'#rrggbbaa'}, anchor: [x, y], frames: { key: [rows] } }`, 1 char = 1 px, `.` = transparent.
@@ -152,10 +154,10 @@ createFx({ scene, particles, lights, atlas, heightAt }) -> { handle(event, view)
 createNet(endpoint) -> { listLobbies() -> Promise<[{code, players, host}]>, create(name) -> Promise<room>, join(code, name) -> Promise<room>,
   room, state, mySid, send(type, payload), onFx(cb), onChange(cb), view(nowMs) -> view (interpolated, INTERP_MS behind) }
 
-// client/src/ui/hud.js (hud)       createHud(root, { send }) -> { update(state, myHeroUnit, mySid), destroy() }
-// client/src/input.js (hud)         createInput({ canvas, renderer, send, hud, getState }) -> { destroy() }  // Dota keys: right-click move/attack, A attack-move, S stop, H hold, Q W E R (D F) abilities, Z X C V B N items, Ctrl+key learn, F1/space center, Y lock, B/F4 shop, wheel zoom, edge pan
+// client/src/ui/hud.js (hud)       createHud(root, { send, renderer, sheets }) -> { update(state, myHeroUnit, mySid, view), fx?(events), destroy() }  // sheets.icons for ability/item icons; renderer.worldToScreen for overlays; minimap clicks -> renderer.setTarget
+// client/src/input.js (hud)         createInput({ canvas, renderer, send, hud, getState, mySid }) -> { destroy() }  // Dota keys: right-click move/attack, A attack-move, S stop, H hold, Q W E R (D F) abilities, Z X C V B N items, Ctrl+key learn, F1/space center, Y lock, B/F4 shop, wheel zoom, edge pan
 // client/src/ui/lobby.js (net)      createLobby(root, net, { onGameStart }) -> { destroy() }
-// client/src/game.js (orchestrator) glue: net + renderer + hud + input + fx loop
+// client/src/game.js (orchestrator) startGame({ root, net }) -> Promise<{ destroy() }>  — main.js calls it from lobby onGameStart; owns the rAF loop
 ```
 
 ## Ownership (one agent per area; do not edit files you don't own — note needed changes in your report)
