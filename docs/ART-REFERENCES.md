@@ -28,3 +28,8 @@ portraits-poses.webp and death-prophet.png. Huskar, Arc Warden, Visage and Ursa 
 - The angle and pose come from the references: a 3/4 view, the head tilted or turned with attitude, never a flat front-on mugshot.
 - Same rules as the body: solid dark outline, flat hue-shifted planes, glowing eyes or accents where the hero has them.
 - The HUD portrait box is 32x42 art px (tall); fill it with the head.
+
+## Icons (director, verbatim: "Icons should have same treatment, more similar/referenced/very similar outline, same color scheme, general concept and idea from dota 2, with the style of the Heroes themselves! Much more detailed.")
+- Follow each Dota 2 original's composition, subject, framing, colours and silhouette, so it reads instantly. Look only; every pixel is drawn by our generators.
+- Render them in the hero sprite style above: solid dark outline, flat hue-shifted planes, contrasting rim, hard-edged glow, sparse sparkles.
+- 2x density (40x40 frames) at the same on-screen size, for much more detail.
