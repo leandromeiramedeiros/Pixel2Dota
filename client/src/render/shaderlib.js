@@ -7,6 +7,7 @@ export const LIGHT_LEVELS = 9;    // quantisation steps per 1.0 of light (traine
  *  of the lantern (1 - x)^2, so a blast lights and shadows the towers and units around it. Surface lighting only: glints / bokeh in
  *  post.js still use the authored radius and colour, so the effect itself does not get bigger or brighter. */
 export const SPELL_REACH = 1.5;
+export const MAX_PS = 10;   // spell lights with a real cube shadow at once (shadow.js renderPoints); the rest fall back to hfShadow
 export let SPELL_GAIN = 1.5;
 export function setSpellGain(g) { SPELL_GAIN = g; }
 
@@ -38,16 +39,16 @@ export function createSharedUniforms() {
     uPersp: { value: 0 },                                                   // 0 = constant sprite scale, 1 = perspective scale
     uShadowMap: { value: null },                                            // key-light depth map (shadow.js)
     uShadowM: { value: new THREE.Matrix4() },                               // world (three coords) -> shadow map uv + depth
-    uPSMap: { value: null },                                                // spell-light cube shadow, 3x2 face atlas (shadow.js renderPoint)
-    uPSM: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Matrix4()) },     // per face: world -> atlas uv (xy / w)
-    uPSIdx: { value: -1 },                                                  // index into uLP of the shadow-casting light, -1 = none
+    uPSMap: { value: null },                                                // spell-light cube shadows: atlas of MAX_PS rows x 6 faces (shadow.js renderPoints)
+    uPSR: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Matrix3()) },     // per face: world direction -> face view space
+    uPSS: { value: new Float32Array(MAX_LIGHTS) },                          // per light: cube shadow slot + 1 (0 = none), set by lights.js
+    uPSL: { value: new Float32Array(MAX_PS * 4) },                          // per slot: far, fade weight, -, -
     uSL: { value: new THREE.Vector4(0, 1, 0, 0) },                         // light of the shadow pass being drawn: xyz = dir toward it (w 0) or its position (w 1)
-    uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },
     uHF: { value: null },                                                   // top-down height field (shadow.js renderHeight): depth of the highest caster
     uHFM: { value: new THREE.Vector4(0, 0, 1, 0) },                         // xz -> uv: u = (x - .x) * .z, v = (.y - z) * .z
     uHFZ: { value: new THREE.Vector4(0, 1, 2, 0) },                         // camera y, near, far, strength (0 = off)
     uLB: { value: new Float32Array(MAX_LIGHTS * 4) },                       // per light: bounce colour (light * ground albedo), w = ground y (three)
-    uBounceK: { value: 0.4 },                                              // bounce strength                     // near, far, bias (world units), fade weight
+    uBounceK: { value: 0.4 },                                               // bounce strength
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
@@ -114,21 +115,24 @@ float shadowAt(vec3 p, vec3 n, vec2 dp){
 // ambient occlusion by the key shadow: open-sky light is also partly blocked by the caster
 vec3 shadowAmb(float sh){ return uAmb * mix(.8, 1., sh); }
 
-// shadow of the ONE casting point light (uPSIdx) at p: the cube face is the major axis of p - lp, its view depth is that axis length
+// cube shadow of the light in atlas row 'slot' at p: the face is the major axis of p - lp (90 deg perspective), its view depth is that
+// axis length. Faces are laid out 6 per row, one row per slot (shadow.js renderPoints); near 8, depth bias 10 world units.
 uniform sampler2D uPSMap;
-uniform mat4 uPSM[6];
-uniform int uPSIdx;
-uniform vec4 uPSP;
-float pointShadow(vec3 p, vec3 lp){
+uniform mat3 uPSR[6];
+uniform vec4 uPSS[${MAX_LIGHTS / 4}];   // packed 4 per vec4 (keeps the fragment uniform count low)
+uniform vec4 uPSL[${MAX_PS}];
+float pointShadow(vec3 p, vec3 lp, int slot, float far){
   vec3 d = p - lp, a = abs(d);
-  mat4 M; float z;
-  if (a.x >= a.y && a.x >= a.z) { M = d.x > 0. ? uPSM[0] : uPSM[1]; z = a.x; }
-  else if (a.y >= a.z) { M = d.y > 0. ? uPSM[2] : uPSM[3]; z = a.y; }
-  else { M = d.z > 0. ? uPSM[4] : uPSM[5]; z = a.z; }
-  vec4 s = M * vec4(p, 1.);
-  float zd = texture2D(uPSMap, s.xy / s.w).r;
-  float lin = uPSP.x * uPSP.y / (uPSP.y - zd * (uPSP.y - uPSP.x));
-  return step(z - uPSP.z, lin);
+  int f; float z;
+  if (a.x >= a.y && a.x >= a.z) { f = d.x > 0. ? 0 : 1; z = a.x; }
+  else if (a.y >= a.z) { f = d.y > 0. ? 2 : 3; z = a.y; }
+  else { f = d.z > 0. ? 4 : 5; z = a.z; }
+  if (z >= far) return 1.;
+  vec3 v = uPSR[f] * d;
+  vec2 uv = clamp(v.xy / max(-v.z, 1e-3) * .5 + .5, .004, .996);
+  float zd = texture2D(uPSMap, vec2((float(f) + uv.x) / 6., (float(slot) + uv.y) / ${MAX_PS}.)).r;
+  float lin = 8. * far / (far - zd * (far - 8.));
+  return step(z - 10., lin);
 }
 
 // sum of point lights at world point p with surface normal n; soft = how much of each light ignores the normal
@@ -168,7 +172,8 @@ vec3 pointLights(vec3 p, vec3 n, float soft){
     float a = lightFall(dist, uLP[i].w, uLC[i].w);
     if (a <= 0.) continue;
     bool spell = uLC[i].w > 1.5;
-    if (i == uPSIdx) { if (gPSh > .5) a *= mix(1., mix(.03, 1., pointShadow(p, uLP[i].xyz)), uPSP.w); }
+    int slot = int(uPSS[i / 4][i - (i / 4) * 4]) - 1;
+    if (slot >= 0) { if (gPSh > .5) a *= mix(1., mix(.03, 1., pointShadow(p, uLP[i].xyz, slot, uPSL[slot].x)), uPSL[slot].y); }
     else if (spell && uHFZ.w > 0.) a *= mix(1., mix(.1, 1., hfShadow(p, uLP[i].xyz)), uHFZ.w);
     if (spell) {   // one-bounce fake GI: the spell colour reflected off the ground under it, lighting what faces it (unit fronts, tower bases)
       vec3 db = vec3(uLP[i].x, uLB[i].w, uLP[i].z) - p; float bd = length(db), bx = bd / (uLP[i].w * ${SPELL_REACH.toFixed(2)}), bf = 1. - bx * bx;

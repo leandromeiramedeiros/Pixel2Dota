@@ -1,6 +1,6 @@
 // Per-frame point lights: add() during the frame, finalize() sorts by contribution, caps at 32 and writes the shared uniforms.
 // Public API (also handed to fx): add({x,y,z,r,g,b,radius,intensity,flicker}) in WORLD coords (x east, y north, z up).
-import { MAX_LIGHTS, SPELL_GAIN } from './shaderlib.js';
+import { MAX_LIGHTS, MAX_PS, SPELL_GAIN, SPELL_REACH } from './shaderlib.js';
 import { createBeams } from './beams.js';
 import { getMap, heightAt, TT } from '../../../shared/map.js';
 
@@ -30,7 +30,8 @@ export function selectLights(list, cx, cy, cap = CAP) {
 export function createLights(uniforms, scene) {
   const list = [];
   const beams = scene ? createBeams(scene, uniforms) : null;     // volumetric shafts, drawn into the scene target (beams.js)
-  let spells = 0, n = 0, cx = 0, cy = 0, viewR = 2600, shadowLight = null, px = 1e9, py = 1e9;
+  let spells = 0, n = 0, cx = 0, cy = 0, viewR = 2600;
+  const shadowLights = [], cand = [];
   return {
     /** call at the start of each frame */
     clear() { list.length = 0; n = 0; },
@@ -63,25 +64,25 @@ export function createLights(uniforms, scene) {
         }
       }
       n = sel.length; uniforms.uLN.value = n;
-      // the strongest casting (spell) light gets the cube shadow; sticky to last frame's light so bursts do not flip it every frame
-      let best = -1, bs = 0;
-      for (let i = 0; i < n; i++) {
-        const l = sel[i]; if (!l.cast || l.intensity < 0.12) continue;
-        let s = l.intensity * l.radius * l.radius; if (Math.hypot(l.x - px, l.y - py) < 80) s *= 1.6;
-        if (s > bs) { bs = s; best = i; }
-      }
-      uniforms.uPSIdx.value = best; shadowLight = best >= 0 ? sel[best] : null;
-      // shadow weight follows the light's intensity, so it fades in/out with the light instead of popping at the selection gate
-      const k = shadowLight ? Math.min(1, Math.max(0, (shadowLight.intensity - 0.12) / 0.6)) : 0;
-      uniforms.uPSP.value.w = k * k * (3 - 2 * k);
-      if (uniforms.uPSP.value.w < 0.1) { uniforms.uPSIdx.value = -1; shadowLight = null; }   // too faint to see: skip the 6-face depth pass
-      if (shadowLight) { px = shadowLight.x; py = shadowLight.y; } else { px = py = 1e9; }
-      if (beams) beams.update(sel, C, uniforms.uNight.value);
+      // the MAX_PS strongest casting (spell) lights get cube shadows (atlas row k); the rest use the height field (shaderlib hfShadow).
+      // The shadow weight follows each light's intensity, so shadows fade in/out with the light instead of popping at the 0.12 gate.
+      const S = uniforms.uPSS.value, L = uniforms.uPSL.value;
+      S.fill(0); shadowLights.length = 0; cand.length = 0;
+      for (let i = 0; i < n; i++) { const l = sel[i]; if (l.cast && l.intensity >= 0.12) cand.push(i); }
+      if (cand.length > MAX_PS) cand.sort((a, b) => sel[b].intensity * sel[b].radius ** 2 - sel[a].intensity * sel[a].radius ** 2);
+      for (const i of cand) {
+        if (shadowLights.length >= MAX_PS) break;
+        const l = sel[i], k = Math.min(1, (l.intensity - 0.12) / 0.6), w = k * k * (3 - 2 * k);
+        if (w < 0.1) continue;   // too faint to see: skip its 5-face depth pass
+        const slot = shadowLights.length;
+        S[i] = slot + 1; L[slot * 4] = Math.max(60, l.radius * SPELL_REACH); L[slot * 4 + 1] = w;
+        shadowLights.push(l);
+      }      if (beams) beams.update(sel, C, uniforms.uNight.value);
       return sel;
     },
     beams,
-    /** the light that casts the cube shadow this frame (world coords) or null */
-    get shadowLight() { return shadowLight; },
+    /** lights with a cube shadow this frame (world coords), atlas row = array index */
+    get shadowLights() { return shadowLights; },
     get count() { return n; },
     /** spell (cast) lights uploaded this frame */
     get spellCount() { return spells; },

@@ -2,7 +2,7 @@
 // trees) render a depth-only material variant into it (layer 1); receivers call shadowAt() from COMMON_GLSL (shaderlib.js), which
 // only attenuates the key light term - ambient, point lights and emissives are untouched, so shadows never re-grade the frame.
 import * as THREE from 'three';
-import { SPELL_REACH } from './shaderlib.js';
+import { SPELL_REACH, MAX_PS } from './shaderlib.js';
 
 export const SHADOW_LAYER = 1;
 const KEY_TILT = 0.3;   // horizontal part of the key-shadow direction (1 = along uKeyDir, 0 = straight down)
@@ -27,14 +27,20 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
   const state = { enabled: true, ms: 0, half: 0 };
   uniforms.uShadowMap.value = depthTexture;
 
-  // spell-light cube shadow: 6 x 90 deg faces packed 3x2 into one depth atlas
-  const PF = 256;
-  const pDepth = new THREE.DepthTexture(PF * 3, PF * 2, THREE.UnsignedIntType);
+  // spell-light cube shadows: one atlas row per light (MAX_PS rows), 6 x 90 deg faces per row. Shaders rebuild the face projection
+  // from uPSR (face rotation) + the slot's far plane (shaderlib pointShadow), so no per-light matrices are uploaded.
+  const PF = 192;
+  const pDepth = new THREE.DepthTexture(PF * 6, PF * MAX_PS, THREE.UnsignedIntType);
   pDepth.magFilter = pDepth.minFilter = THREE.NearestFilter;
-  const prt = new THREE.WebGLRenderTarget(PF * 3, PF * 2, { depthBuffer: true, depthTexture: pDepth, generateMipmaps: false });
+  const prt = new THREE.WebGLRenderTarget(PF * 6, PF * MAX_PS, { depthBuffer: true, depthTexture: pDepth, generateMipmaps: false });
   const DIRS = [[1, 0, 0, 0, -1, 0], [-1, 0, 0, 0, -1, 0], [0, 1, 0, 0, 0, 1], [0, -1, 0, 0, 0, -1], [0, 0, 1, 0, -1, 0], [0, 0, -1, 0, -1, 0]];
-  const pcams = DIRS.map(() => { const c = new THREE.PerspectiveCamera(90, 1, 8, 600); c.layers.set(SHADOW_LAYER); return c; });
-  const ATL = pcams.map((_, f) => { const fx = f % 3, fy = (f / 3) | 0; return new THREE.Matrix4().set(0.5 / 3, 0, 0, (0.5 + fx) / 3, 0, 0.25, 0, (0.5 + fy) / 2, 0, 0, 0.5, 0.5, 0, 0, 0, 1); });
+  const UP_FACE = 2;   // +y: only receivers above the light read it, and nothing above a ground-level spell casts onto them -> skipped
+  const pcams = DIRS.map((d, f) => {
+    const c = new THREE.PerspectiveCamera(90, 1, 8, 600); c.layers.set(SHADOW_LAYER);
+    c.position.set(0, 0, 0); c.up.set(d[3], d[4], d[5]); c.lookAt(d[0], d[1], d[2]); c.updateMatrixWorld();
+    uniforms.uPSR.value[f].setFromMatrix4(c.matrixWorldInverse);
+    return c;
+  });
   uniforms.uPSMap.value = pDepth;
   const LP = new THREE.Vector3(), LT = new THREE.Vector3();
 
@@ -86,36 +92,38 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
       swapped.length = 0;
       state.ms = performance.now() - t0;
     },
-    /** cube shadow from point light l (world coords {x,y,z,radius}) or null; uniforms.uPSIdx is set by lights.js */
-    renderPoint(scene, l) {
-      if (!l || !state.enabled) { uniforms.uPSIdx.value = -1; return; }
+    /** cube shadows for up to MAX_PS lights (world coords {x,y,z,radius}); light k fills atlas row k. lights.js maps uLP index -> row. */
+    renderPoints(scene, list) {
+      const n = state.enabled && list ? Math.min(list.length, MAX_PS) : 0;
+      state.points = n;
+      if (!n) { state.pointMs = 0; return; }
       const t0 = performance.now();
-      const far = Math.max(60, l.radius * SPELL_REACH);   // spell lights reach farther on surfaces (shaderlib lightFall)
-      LP.set(l.x, l.z, -l.y);
-      uniforms.uSL.value.set(LP.x, LP.y, LP.z, 1);
       for (const c of casters) swap(c.mesh, c.mat);
       for (const g of groups) for (const m of g.group.children) swap(m, g.mat);
       const prev = gl.getRenderTarget();
-      prt.scissorTest = false; prt.viewport.set(0, 0, PF * 3, PF * 2);
+      prt.scissorTest = false; prt.viewport.set(0, 0, PF * 6, PF * MAX_PS);
       gl.setRenderTarget(prt); gl.clear(true, true, false);
       prt.scissorTest = true;
-      for (let f = 0; f < 6; f++) {
-        const c = pcams[f], d = DIRS[f], fx = f % 3, fy = (f / 3) | 0;
-        c.far = far; c.updateProjectionMatrix();
-        c.position.copy(LP); c.up.set(d[3], d[4], d[5]); c.lookAt(LT.set(LP.x + d[0], LP.y + d[1], LP.z + d[2])); c.updateMatrixWorld();
-        uniforms.uPSM.value[f].multiplyMatrices(ATL[f], c.projectionMatrix).multiply(c.matrixWorldInverse);
-        prt.viewport.set(fx * PF, fy * PF, PF, PF); prt.scissor.set(fx * PF, fy * PF, PF, PF);
-        gl.setRenderTarget(prt);
-        gl.render(scene, c);
+      for (let k = 0; k < n; k++) {
+        const l = list[k], far = Math.max(60, l.radius * SPELL_REACH);   // spell lights reach farther on surfaces (shaderlib lightFall)
+        LP.set(l.x, l.z, -l.y);
+        uniforms.uSL.value.set(LP.x, LP.y, LP.z, 1);   // sprite casters turn their card toward this light
+        for (let f = 0; f < 6; f++) {
+          if (f === UP_FACE) continue;
+          const c = pcams[f], d = DIRS[f];
+          c.far = far; c.updateProjectionMatrix();
+          c.position.copy(LP); c.lookAt(LT.set(LP.x + d[0], LP.y + d[1], LP.z + d[2])); c.updateMatrixWorld();
+          prt.viewport.set(f * PF, k * PF, PF, PF); prt.scissor.set(f * PF, k * PF, PF, PF);
+          gl.setRenderTarget(prt);
+          gl.render(scene, c);
+        }
       }
       prt.scissorTest = false;
       gl.setRenderTarget(prev);
       for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
       swapped.length = 0;
-      uniforms.uPSP.value.x = 8; uniforms.uPSP.value.y = far; uniforms.uPSP.value.z = 10;   // .w = fade weight, set by lights.js
       state.pointMs = performance.now() - t0;
-    },
-    /** height field around ground point (x, y, z three coords), square of half-size `half`; strength 0 disables the marched shadows */
+    },    /** height field around ground point (x, y, z three coords), square of half-size `half`; strength 0 disables the marched shadows */
     renderHeight(scene, x, y, z, half, strength = 1) {
       if (!state.enabled || !(strength > 0)) { uniforms.uHFZ.value.w = 0; return; }
       const t0 = performance.now(), texel = (2 * half) / HS;

@@ -255,9 +255,9 @@ export function createRenderer({ canvas, sheets }) {
 
     terrain.update(cam, rig.snap ? 999 : 6);
     shadow.setEnabled(settings.shadows);
-    shadow.renderPoint(scene, lights.shadowLight);
+    shadow.renderPoints(scene, lights.shadowLights);
     shadow.render(scene, tg.x, heightAt(tg.x, tg.y), -tg.y, Math.max(rig.visibleWidth * 0.75, rig.visibleHeight * 1.15));
-    shadow.renderHeight(scene, tg.x, heightAt(tg.x, tg.y), -tg.y, Math.max(rig.visibleWidth * 0.75, rig.visibleHeight * 1.15), lights.spellCount > (lights.shadowLight ? 1 : 0) ? 1 : 0);   // only when a spell light lacks the cube shadow
+    shadow.renderHeight(scene, tg.x, heightAt(tg.x, tg.y), -tg.y, Math.max(rig.visibleWidth * 0.75, rig.visibleHeight * 1.15), lights.spellCount > lights.shadowLights.length ? 1 : 0);   // only when a spell light lacks a cube shadow
     post.render(scene, cam, time, nightK, outW, outH);
     drawBars(view);
     overlay.draw(dt);
