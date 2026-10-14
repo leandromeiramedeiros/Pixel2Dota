@@ -8,8 +8,7 @@
 // Cliff faces: cliff_r_0..3 (Radiant, mossy lip) / cliff_d_0..3 (Dire, red-brown); top row = lit ledge, bottom rows = dark ground contact; periodic in x so any
 // order of variants tiles horizontally. Pick variant by hash(tile x, y, side).
 export default {
-  pal: { '0':'#2a1815', '1':'#c4c0ac', '2':'#9a977f', '3':'#757263', '4':'#54514a', '5':'#383630', '6':'#b0735f', '7':'#85523f', '8':'#623a2f', '9':'#432822', 'a':'#2c5626', 'b':'#3a6e30', 'c':'#447e36', 'd':'#4f8c3c', 'e':'#64a64a', 'f':'#f4f0d8', 'g':'#f0d050', 'h':'#ee86b8', 'i':'#86b4f4', 'j':'#30231e', 'k':'#43322a', 'l':'#58412f', 'm':'#725540', 'n':'#8c847c', 'o':'#7a2e22', 'p':'#4a1c1a', 'q':'#1a3120', 'r':'#223e28', 's':'#2b4d2e', 't':'#386036', 'u':'#231a1c', 'v':'#2d2123', 'w':'#392b29', 'x':'#4a3630', 'A':'#4e3a28', 'B':'#85653f', 'C':'#9c7a50', 'D':'#b49468', 'E':'#d8c8a8', 'F':'#5e4c3c', 'G':'#392a1c', 'H':'#1b4682', 'I':'#2a64a4', 'J':'#3f84c2', 'K':'#6aaedf', 'L':'#dcf6ff', 'M':'#9fd4ee', 'N':'#14325c', 'O':'#45454f', 'P':'#62626c', 'Q':'#7c7c88', 'R':'#9c9ca8', 'S':'#2a2a34', 'T':'#3a2e34', 'U':'#55434b', 'V':'#6e5a63', 'W':'#8a767e', 'X':'#20161c', 'Y':'#07070d', 'Z':'#0e0e18', '!':'#a03a2a' },
-  emit: { 'L':1.6 },
+  pal: { '0':'#28171a', '1':'#a3ab9f', '2':'#7e867d', '3':'#5f676a', '4':'#454d51', '5':'#2a3236', '6':'#a06d5c', '7':'#7a4e3e', '8':'#5a372d', '9':'#402620', 'a':'#1b3a30', 'b':'#264a38', 'c':'#2e563e', 'd':'#3a6544', 'e':'#587f55', 'f':'#c9c6aa', 'g':'#c2a95a', 'h':'#b0698c', 'i':'#6c8cbc', 'j':'#241d1e', 'k':'#352b2a', 'l':'#473a33', 'm':'#5c4a3e', 'n':'#77726f', 'o':'#6a2a22', 'p':'#40191a', 'q':'#12241f', 'r':'#192f26', 's':'#213b2c', 't':'#2c4a33', 'u':'#1d1618', 'v':'#271d1f', 'w':'#32262a', 'x':'#413238', 'A':'#3f352b', 'B':'#6c5a44', 'C':'#7b664b', 'D':'#8e7757', 'E':'#b3a68c', 'F':'#4a4037', 'G':'#2e261e', 'H':'#102c38', 'I':'#17424d', 'J':'#225a62', 'K':'#3b8082', 'L':'#9fd8d0', 'M':'#82b8b2', 'N':'#0b212b', 'O':'#3a4046', 'P':'#515860', 'Q':'#676e76', 'R':'#868d95', 'S':'#22262d', 'T':'#352c32', 'U':'#4e4048', 'V':'#65545c', 'W':'#806f77', 'X':'#1d151a', 'Y':'#07070d', 'Z':'#0e0e18', '!':'#9a3a2a' },
   anchor: [0, 0],
   frames: {
   grass_r_0: [
@@ -58,9 +57,9 @@ export default {
     'bbbbbabb',
     'abbbbbbb',
     'cbccbebc',
-    'bebbdcdb',
-    'dcdbbabb',
-    'cabbcbbc'
+    'bbbbdcdb',
+    'abbbbabb',
+    'ccbbcbbc'
   ],
   grass_d_2: [
     'kllkkkkk',
@@ -77,10 +76,10 @@ export default {
     'bbbabgcc',
     'abbbbdcb',
     'cbbbbbbb',
-    'bcfbbcab',
+    'bcbbbcab',
     'ccabbbbb',
-    'bbbcccfc',
-    'bbbbbaca'
+    'bbbcccbc',
+    'bbbbbaba'
   ],
   grass_d_3: [
     'kkkkkkjj',
@@ -94,13 +93,13 @@ export default {
   ],
   grass_r_4: [
     'bcbcbbbb',
-    'babccebb',
-    'bbbbdcda',
-    'bbbbcabb',
-    'abbbbcbc',
-    'cbbbbbbc',
-    'bbbbbahb',
-    'bbbbbbdb'
+    'bcbccbbb',
+    'bbbbccca',
+    'bbbbcbbb',
+    'abbbbebc',
+    'cbbbdcdc',
+    'bbbbbabb',
+    'bbbbbbbb'
   ],
   grass_d_4: [
     'kkkkkkkk',
@@ -117,9 +116,9 @@ export default {
     'bbbbbcbi',
     'cbbbbbbd',
     'bbbbcbab',
-    'bbebbebb',
-    'cdcddcdb',
-    'bbaababb',
+    'bbcbbbbb',
+    'ccbbbbbb',
+    'bbbabbbb',
     'cbbbbbbc'
   ],
   grass_d_5: [

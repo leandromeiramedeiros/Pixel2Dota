@@ -15,14 +15,14 @@ export function register(c, R) {
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u || u.hp <= 0) return false;
       if (u.visible === false) return;
-      const zz = (u.z || 0) + 56, spin = c.T * 20, n = c.n(120 * dt);
+      const zz = (u.z || 0) + 56, spin = c.T * 20, n = c.n(380 * dt);
       for (let b = 0; b < 3; b++) {   // three blade glints at the radius, each smearing a short arc behind it
         for (let i = 0; i < Math.max(1, n / 3); i++) {
           const a = spin + b * TAU / 3 - i * 0.07, d = rad * 0.82;
-          P.spawn({ x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(-8, 8), life: [0.1, 0.22], size0: [12, 18], size1: 3, col0: steel.hot, col1: steel.mid, a0: 1, a1: 0, mode: 'glow', speed: 0, vel: [-Math.sin(a) * 320, Math.cos(a) * 320, 0] });
+          P.spawn(c.pix(steel, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(-8, 8), life: [0.1, 0.22], speed: 0, vel: [-Math.sin(a) * 320, Math.cos(a) * 320, 0] }));
         }
       }
-      if (Math.random() < dt * 14) { const a = rnd(0, TAU), d = rad * rnd(0.3, 0.9); P.spawn({ x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz, life: [0.2, 0.4], size0: 6, size1: 1, col0: steel.hot, col1: steel.mid, a0: 1, a1: 0, stamp: 'p_spark', speed: [60, 200] }); }
+      for (let q = c.n(50 * dt); q > 0; q--) { const a = rnd(0, TAU), d = rad * rnd(0.3, 0.9); P.spawn(c.pix(steel, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz, life: [0.3, 0.7], speed: [60, 200], up: [20, 140], gravity: -520, linger: [0.4, 1.0] })); }
       if (Math.random() < dt * 10) c.dust(u.x + rnd(-rad, rad) * 0.6, u.y + rnd(-rad, rad) * 0.6, u.z || 0, { count: 1, size0: [20, 30] });
     });
   });
@@ -38,8 +38,8 @@ export function register(c, R) {
     c.ringDecal(x, y, rad, dur, [0.6, 1.8, 0.7], { emit: 0.8, fadeIn: 0.3, fadeOut: 0.08, pulse: 0.12, pulseHz: 3 });
     c.glow(x, y, z + 90, green.lt, rad * 0.8, 0.6, dur, { mode: 'flat' });
     c.run(dur, (r, dt) => {
-      const n = c.n(14 * dt);
-      for (let i = 0; i < n; i++) { const a = rnd(0, TAU), d = rad * Math.sqrt(Math.random()); P.spawn({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, z: z + 6, life: [0.8, 1.6], size0: [6, 10], size1: 1, col0: green.hot, col1: green.mid, a0: 1, a1: 0, mode: 'glow', speed: 0, up: [40, 110] }); }
+      const n = c.n(50 * dt);
+      for (let i = 0; i < n; i++) { const a = rnd(0, TAU), d = rad * Math.sqrt(Math.random()); P.spawn(c.pix(green, { x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, z: z + 6, life: [0.8, 1.6], speed: 0, up: [40, 110] })); }
       if (Math.random() < dt * 2.2) c.ring(x, y, z, green, { R: rad, life: [0.9, 1.1], count: 70 });
     });
   });
@@ -76,7 +76,7 @@ export function register(c, R) {
       const u = c.unit(id); if (!u || u.hp <= 0) return false;
       if (u.visible === false) return;
       const n = c.n(50 * dt);
-      for (let i = 0; i < n; i++) { const a = rnd(0, TAU); P.spawn({ x: u.x, y: u.y, z: (u.z || 0) + rnd(20, 110), life: [0.12, 0.28], size0: [7, 11], size1: 1, col0: steel.hot, col1: steel.mid, a0: 1, a1: 0, stamp: 'p_spark', speed: 0, vel: [Math.cos(a) * 320, Math.sin(a) * 320, rnd(-60, 120)], drag: 3 }); }
+      for (let i = 0; i < n; i++) { const a = rnd(0, TAU); P.spawn(c.pix(steel, { x: u.x, y: u.y, z: (u.z || 0) + rnd(20, 110), life: [0.12, 0.28], speed: 0, vel: [Math.cos(a) * 320, Math.sin(a) * 320, rnd(-60, 120)], drag: 3 })); }
     });
   });
 }

@@ -3,28 +3,29 @@ import path from 'node:path';
 import { Cv, rng, writeSheet, SHEETS } from './lib.mjs';
 
 const pal = {
-  // Radiant grass ramp (dark..light; a..e = trainer GRASS ramp, InvokerTrainer js/render/terrain.js) + tuft highlight + flowers
-  a: '#2c5626', b: '#3a6e30', c: '#447e36', d: '#4f8c3c', e: '#64a64a',  f: '#f4f0d8', g: '#f0d050', h: '#ee86b8', i: '#86b4f4',
+  // v2 moody palette: desaturated, teal-leaning darks; saturated colour is reserved for emissive things.
+  // Radiant grass ramp (dark..light) + tuft highlight + muted flowers
+  a: '#1b3a30', b: '#264a38', c: '#2e563e', d: '#3a6544', e: '#587f55',  f: '#c9c6aa', g: '#c2a95a', h: '#b0698c', i: '#6c8cbc',
   // Dire ground (dead): dark..light, ash, red crack, dark red
-  j: '#30231e', k: '#43322a', l: '#58412f', m: '#725540', n: '#8c847c', o: '#7a2e22', p: '#4a1c1a',
+  j: '#241d1e', k: '#352b2a', l: '#473a33', m: '#5c4a3e', n: '#77726f', o: '#6a2a22', p: '#40191a',
   // forest floor R / D
-  q: '#1a3120', r: '#223e28', s: '#2b4d2e', t: '#386036',
-  u: '#231a1c', v: '#2d2123', w: '#392b29', x: '#4a3630',
+  q: '#12241f', r: '#192f26', s: '#213b2c', t: '#2c4a33',
+  u: '#1d1618', v: '#271d1f', w: '#32262a', x: '#413238',
   // road dirt: dark, base, mid, light, pebble light, pebble dark, rim dark
-  A: '#4e3a28', B: '#85653f', C: '#9c7a50', D: '#b49468', E: '#d8c8a8', F: '#5e4c3c', G: '#392a1c',
-  // water: deep, base, mid, light, speck, foam, shore dark
-  H: '#1b4682', I: '#2a64a4', J: '#3f84c2', K: '#6aaedf', L: '#dcf6ff', M: '#9fd4ee', N: '#14325c',
+  A: '#3f352b', B: '#6c5a44', C: '#7b664b', D: '#8e7757', E: '#b3a68c', F: '#4a4037', G: '#2e261e',
+  // water (used for the minimap swatch only; the shader draws the live water): deep, base, mid, light, speck, foam, shore dark
+  H: '#102c38', I: '#17424d', J: '#225a62', K: '#3b8082', L: '#9fd8d0', M: '#82b8b2', N: '#0b212b',
   // rock top neutral (dark..light, crack) / dire rock
-  O: '#45454f', P: '#62626c', Q: '#7c7c88', R: '#9c9ca8', S: '#2a2a34',
-  T: '#3a2e34', U: '#55434b', V: '#6e5a63', W: '#8a767e', X: '#20161c',
+  O: '#3a4046', P: '#515860', Q: '#676e76', R: '#868d95', S: '#22262d',
+  T: '#352c32', U: '#4e4048', V: '#65545c', W: '#806f77', X: '#1d151a',
   // void
   Y: '#07070d', Z: '#0e0e18',
-  // cliff stone Radiant: lit ledge, light, mid, dark, deepest
-  '1': '#c4c0ac', '2': '#9a977f', '3': '#757263', '4': '#54514a', '5': '#383630',
+  // cliff stone Radiant: lit ledge, light, mid, dark, deepest (cool grey-teal)
+  '1': '#a3ab9f', '2': '#7e867d', '3': '#5f676a', '4': '#454d51', '5': '#2a3236',
   // cliff Dire (red-brown): lit, light, mid, dark, deepest, red crack
-  '6': '#b0735f', '7': '#85523f', '8': '#623a2f', '9': '#432822', '0': '#2a1815', '!': '#a03a2a',
+  '6': '#a06d5c', '7': '#7a4e3e', '8': '#5a372d', '9': '#402620', '0': '#28171a', '!': '#9a3a2a',
 };
-const emit = { L: 1.6 };
+const emit = {};   // no emissive tile pixels: water sparkle is generated per art pixel in the terrain shader
 
 const frames = {};
 const T = (seed) => ({ cv: new Cv(8, 8, '.', true), r: rng(seed) });
@@ -33,16 +34,14 @@ const T = (seed) => ({ cv: new Cv(8, 8, '.', true), r: rng(seed) });
 function tuftR(cv, x, y) { cv.set(x, y, 'e'); cv.set(x - 1, y + 1, 'd'); cv.set(x, y + 1, 'c'); cv.set(x + 1, y + 1, 'd'); cv.set(x, y + 2, 'a'); }
 function grassR(i) {
   const { cv, r } = T(100 + i);
-  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const v = r(); cv.set(x, y, v < 0.11 ? 'a' : v < 0.2 ? 'c' : 'b'); }
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const v = r(); cv.set(x, y, v < 0.1 ? 'a' : v < 0.2 ? 'c' : 'b'); }
   // dither clusters
   for (let k = 0; k < 3; k++) { const x = Math.floor(r() * 8), y = Math.floor(r() * 8); cv.set(x, y, 'c'); cv.set(x + 1, y, 'c'); }
   const pos = [[2, 1], [5, 4]];
   if (i === 0) { /* plain */ }
-  if (i === 1 || i === 4 || i === 5) tuftR(cv, 2 + (i === 4 ? 3 : 0), 1 + (i === 5 ? 3 : 0));
-  if (i === 2 || i === 5) { tuftR(cv, 5, 4); }
-  if (i === 2) tuftR(cv, 1, 5);
-  if (i === 3) { cv.set(2, 5, 'a'); cv.set(2, 4, ['f', 'g', 'h', 'i'][0]); cv.set(5, 1, 'g'); cv.set(5, 2, 'd'); cv.set(6, 6, 'f'); cv.set(6, 7, 'c'); }
-  if (i === 4) { cv.set(6, 6, 'h'); cv.set(6, 7, 'd'); }
+  if (i === 1 || i === 4) tuftR(cv, 2 + (i === 4 ? 3 : 0), 1 + (i === 4 ? 3 : 0));
+  if (i === 2) tuftR(cv, 5, 4);
+  if (i === 3) { cv.set(5, 1, 'g'); cv.set(5, 2, 'd'); }
   if (i === 5) { cv.set(7, 1, 'i'); cv.set(7, 2, 'd'); }
   return cv;
 }

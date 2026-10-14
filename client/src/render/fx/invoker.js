@@ -36,10 +36,10 @@ export function register(c, R) {
       const k = r.k;
       for (let i = 0; i < 3; i++) {
         const ch = orbs[i] || 'Q', pal = ELEM_PAL[ch] || PAL.ice;
-        const n = c.n(36 * dt);
+        const n = c.n(130 * dt);
         for (let j = 0; j < n; j++) {
           const a = c.T * 9 + i * (TAU / 3) + rnd(-0.3, 0.3), rr = 70 * (1 - k) + 6;
-          P.spawn({ x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr * 0.8, z: z + rnd(-14, 24) + k * 20, life: [0.12, 0.25], size0: [10, 16], size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', speed: 0 });
+          P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr * 0.8, z: z + rnd(-14, 24) + k * 20, life: [0.14, 0.3], speed: 0, settle: false }));
         }
       }
     });
@@ -48,7 +48,7 @@ export function register(c, R) {
       c.flash(cx, cy, zz, PAL.steel, 50, 0.22);
       for (let i = 0; i < 3; i++) {
         const ch = orbs[i] || 'Q', pal = ELEM_PAL[ch] || PAL.ice;
-        c.pillar(cx + rnd(-10, 10), cy + rnd(-10, 10), u.z || 0, pal, { count: 36, radius: 14, up: [300, 800] });
+        c.pillar(cx + rnd(-10, 10), cy + rnd(-10, 10), u.z || 0, pal, { count: 30, radius: 14, up: [300, 800] });
         c.ring(cx, cy, u.z || 0, pal, { R: 90 + i * 26, life: [0.4, 0.7] });
         c.sparks(cx, cy, zz, pal, { count: 12, speed: [80, 280] });
       }
@@ -67,14 +67,14 @@ export function register(c, R) {
     c.flash(x, y, c.chest(t), pal, 70, 0.28);
     c.shards(x, y, z + 70, pal, { count: 34 });
     c.ring(x, y, z, pal, { R: 120 });
-    c.pillar(x, y, z, pal, { count: 120, radius: 26, up: [400, 1100] });
+    c.pillar(x, y, z, pal, { count: 80, radius: 26, up: [400, 1100] });
     c.decal(x, y, 'decal_frost', 1.1, Math.min(dur, 3), { tint: COLD, emit: 1.3, fadeOut: 0.4, follow: id });
     c.glow(x, y, z + 80, pal.lt, 340, 1.6, Math.min(dur, 3), { follow: id, dz: 70, elem: 'Q', mode: 'flat' });
     // re-freeze pulses on the victim for the debuff duration
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
-      const n = c.n(14 * dt);
-      for (let i = 0; i < n; i++) P.spawn({ x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(10, 120), life: [0.5, 1], size0: [8, 14], size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', stamp: 'p_snow', speed: 0, up: [-10, 14] });
+      const n = c.n(80 * dt);
+      for (let i = 0; i < n; i++) P.spawn(c.pix(pal, { x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(10, 120), life: [0.5, 1], speed: [0, 30], up: [-10, 14], gravity: -90, linger: [0.4, 1.0] }));
     });
   });
 
@@ -89,10 +89,10 @@ export function register(c, R) {
     c.decal(su.x, su.y, 'decal_ring_target', rad / 78, dur, { tint: [0.35, 0.8, 1.4], emit: 1, follow: id, fadeIn: 0.1, fadeOut: 0.12, bright: 0.9, spin: 0.1 });
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
-      const n = c.n(22 * dt);
+      const n = c.n(70 * dt);
       for (let i = 0; i < n; i++) {
         const a = Math.random() * TAU, rr = rad * Math.sqrt(Math.random());
-        P.spawn({ x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr, z: (u.z || 0) + 6, life: [0.7, 1.4], size0: [10, 18], size1: 2, col0: pal.mid, col1: pal.low, a0: 0.8, a1: 0, mode: 'glow', speed: 0, up: [40, 120] });
+        P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr, z: (u.z || 0) + 6, life: [0.7, 1.4], speed: 0, up: [40, 120], settle: false, rampTint: [0.7, 0.7, 0.7] }));
       }
       c.lightNow(u.x, u.y, (u.z || 0) + 80, pal.lt, 260, 0.6, 0);
     });
@@ -112,8 +112,8 @@ export function register(c, R) {
     // eruption
     c.flash((x0 + x1) / 2, (y0 + y1) / 2, c.zAt(x0, y0) + 60, pal, 90, 0.3);
     c.line(x0, y0, c.zAt(x0, y0) + 6, x1, y1, c.zAt(x1, y1) + 6, pal, { life: [0.3, 0.6], size0: [20, 30] });
-    P.burst({ x: x0, y: y0, z: c.zAt(x0, y0) + 6, x2: x1, y2: y1, z2: c.zAt(x1, y1) + 6, shape: 'line', count: Math.round(len / 5), life: [0.5, 1.0], size0: [14, 24], size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [0, 60], up: [300, 800], drag: 1.8, mode: 'glow' });
-    P.emitter({ x: x0, y: y0, z: c.zAt(x0, y0) + 12, x2: x1, y2: y1, z2: c.zAt(x1, y1) + 12, shape: 'line', rate: len * 0.25, duration: dur, life: [0.5, 0.9], size0: [22, 32], size1: 6, col0: [0.5, 1.3, 2.4], col1: [0.1, 0.4, 1.0], a0: 0.45, a1: 0, up: [14, 50], speed: [0, 6], mode: 'glow' });
+    P.burst(c.pix(pal, { x: x0, y: y0, z: c.zAt(x0, y0) + 6, x2: x1, y2: y1, z2: c.zAt(x1, y1) + 6, shape: 'line', count: Math.round(len / 1.5), life: [0.6, 1.2], speed: [0, 60], up: [200, 700], gravity: -500, drag: 1.2 }));
+    P.emitter(c.pix(PAL.ice, { x: x0, y: y0, z: c.zAt(x0, y0) + 12, x2: x1, y2: y1, z2: c.zAt(x1, y1) + 12, shape: 'line', rate: len * 1.4, duration: dur, life: [0.5, 0.9], up: [14, 50], speed: [0, 6], settle: false }));
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
     for (let i = 0; i < 5; i++) { const k = i / 4; c.glow(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, c.zAt(x0, y0) + 90, pal.lt, len * 0.32, 0.75, dur, { mode: 'flat', elem: 'Q' }); }
     for (let i = 0; i < 4; i++) { const k = (i + 0.5) / 4; c.decal(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 'decal_frost', len / 4 / 100, dur, { tint: COLD, emit: 1.1, fadeOut: 0.25, roll: Math.atan2(y1 - y0, x1 - x0) }); }
@@ -123,8 +123,8 @@ export function register(c, R) {
         const pop = Math.min(1, Math.max(0, (r.t * 6 - (i % N) / N * 1.2))), s = ss[i] * pop * (0.6 + 0.4 * grow);
         if (s > 0.05) Q.put(sx[i], sy[i], sz[i], fShard, s, 0.9, 1.7, 2.8, fade, 1.5, 0, 0, 0, sr[i], false, 1.05);
       }
-      const n = c.n(36 * dt);
-      for (let i = 0; i < n; i++) { const k = Math.random(); P.spawn({ x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, z: c.zAt(x0, y0) + rnd(10, 150), life: [0.35, 0.7], size0: [6, 11], size1: 1, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', stamp: 'p_star', speed: 0, up: [0, 20] }); }
+      const n = c.n(110 * dt);
+      for (let i = 0; i < n; i++) { const k = Math.random(); P.spawn(c.pix(pal, { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, z: c.zAt(x0, y0) + rnd(10, 150), life: [0.35, 0.8], speed: 0, up: [0, 20], gravity: -60 })); }
     });
   });
 
@@ -138,25 +138,25 @@ export function register(c, R) {
     c.run(dur, (r, dt) => {
       lt.int = 0.5 + 1.6 * r.k;
       // violet motes on the rim fall inward and tick up faster as the fuse burns down
-      const n = c.n((30 + 90 * r.k) * dt);
+      const n = c.n((90 + 250 * r.k) * dt);
       for (let i = 0; i < n; i++) {
         const a = Math.random() * TAU, rr = rad * rnd(0.82, 1.0);
-        P.spawn({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 6, life: [0.4, 0.8], size0: [9, 16], size1: 2, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, mode: 'glow', vel: [-Math.cos(a) * rad * 0.7, -Math.sin(a) * rad * 0.7, 0], speed: 0, up: [60, 220], drag: 1.2 });
+        P.spawn(c.pix(pal, { x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 6, life: [0.4, 0.8], vel: [-Math.cos(a) * rad * 0.7, -Math.sin(a) * rad * 0.7, 0], speed: 0, up: [60, 220], drag: 1.2, settle: false }));
       }
       // jittery arcs at the centre
       if (Math.random() < dt * (3 + 10 * r.k)) {
         const a = Math.random() * TAU, d = rnd(30, rad * 0.35);
         c.bolt(x, y, z + 6, x + Math.cos(a) * d, y + Math.sin(a) * d, z + rnd(10, 90), pal, { jag: 20, noLights: true, thick: 0.7 });
       }
-      P.spawn({ x, y, z: z + 8, life: 0.07, size0: 80 + 90 * r.k, size1: 70, col0: pal.mid, col1: pal.mid, a0: 0.18 + 0.3 * r.k, a1: 0.1, mode: 'glow', speed: 0, noScale: true, flat: true });
+      P.spawn({ x, y, z: z + 8, life: 0.07, size0: 50 + 60 * r.k, size1: 50, col0: pal.mid, col1: pal.mid, a0: 0.12 + 0.2 * r.k, a1: 0.08, mode: 'glow', speed: 0, noScale: true, flat: true });
     });
     c.later(dur, () => {
       c.flash(x, y, z + 90, PAL.steel, 200, 0.35);
       c.ring(x, y, z, pal, { R: rad, life: [0.5, 0.8] });
       c.ring(x, y, z, PAL.steel, { R: rad * 0.6, life: [0.3, 0.5] });
-      c.pillar(x, y, z, pal, { count: 360, radius: rad * 0.12, up: [700, 2400] });
+      c.pillar(x, y, z, pal, { count: 200, radius: rad * 0.12, up: [700, 2400] });
       for (let i = 0; i < 7; i++) { const a = rnd(0, TAU), d = rnd(rad * 0.2, rad * 0.85); c.bolt(x, y, z + 6, x + Math.cos(a) * d, y + Math.sin(a) * d, z + 4, pal, { lightR: 360, light: 1.2 }); }
-      c.sparks(x, y, z + 40, pal, { count: 50, speed: [200, 700] });
+      c.sparks(x, y, z + 40, pal, { count: 60, speed: [200, 700] });
       c.glow(x, y, z + 100, pal.lt, rad * 1.4, 3.4, 0.7);
       c.decal(x, y, 'decal_scorch', rad / 110, 3, { tint: [0.9, 0.3, 1.8], emit: 0.8, fadeOut: 0.7 });
     });
@@ -170,13 +170,13 @@ export function register(c, R) {
     c.swirl(su.id, 0.5, PAL.arc, { r: 30, rate: 50, speed: 8 });
   });
   const funnel = (cc, p, dt) => {
-    const n = cc.n(220 * dt), z0 = cc.zAt(p.x, p.y);
+    const n = cc.n(700 * dt), z0 = cc.zAt(p.x, p.y);
     for (let i = 0; i < n; i++) {
       const h = Math.random() * 320, a = cc.T * 9 + h * 0.025 + rnd(0, TAU), rr = 18 + h * 0.34 + rnd(-6, 6);
       const pl = Math.random() < 0.45 ? PAL.steel : Math.random() < 0.5 ? PAL.ice : PAL.arc;
-      P.spawn({ x: p.x + Math.cos(a) * rr, y: p.y + Math.sin(a) * rr, z: z0 + h, life: [0.3, 0.55], size0: [10, 18 + h * 0.03], size1: 3, col0: pl.hot, col1: pl.low, a0: 0.9, a1: 0, mode: 'glow', vel: [-Math.sin(a) * rr * 6, Math.cos(a) * rr * 6, 0], speed: 0, up: [20, 80], drag: 1.4 });
+      P.spawn(cc.pix(pl, { x: p.x + Math.cos(a) * rr, y: p.y + Math.sin(a) * rr, z: z0 + h, life: [0.3, 0.55], vel: [-Math.sin(a) * rr * 6, Math.cos(a) * rr * 6, 0], speed: 0, up: [20, 80], drag: 1.4, settle: false }));
     }
-    const m = cc.n(26 * dt);
+    const m = cc.n(14 * dt);
     for (let i = 0; i < m; i++) { const a = rnd(0, TAU); P.spawn({ x: p.x + Math.cos(a) * 50, y: p.y + Math.sin(a) * 50, z: z0 + 6, life: [0.5, 0.9], size0: [20, 34], size1: [40, 60], col0: PAL.earth.low, col1: PAL.earth.dim, a0: 0.6, a1: 0, mode: 'glow', vel: [Math.cos(a) * 60, Math.sin(a) * 60, 0], speed: 0, up: 20, flat: true, drag: 1.5 }); }
   };
   R.proj('invoker_tornado', {
@@ -190,14 +190,14 @@ export function register(c, R) {
     const id = t.id, dur = Math.min(ev.dur || 9, 12), pal = PAL.fire, z = t.z || 0;
     c.flash(t.x, t.y, c.chest(t), PAL.sun, 70, 0.3);
     c.ring(t.x, t.y, z, pal, { R: 130 });
-    c.embers(t.x, t.y, z + 60, pal, { count: 40 });
-    c.pillar(t.x, t.y, z, pal, { count: 110, radius: 28, up: [400, 1000] });
+    c.embers(t.x, t.y, z + 60, pal, { count: 30 });
+    c.pillar(t.x, t.y, z, pal, { count: 80, radius: 28, up: [400, 1000] });
     c.glow(t.x, t.y, c.chest(t), pal.lt, 300, 1.2, dur, { follow: id, dz: 90, elem: 'E', mode: 'flat' });
     c.swirl(id, 1.2, pal, { r: 36, rate: 60, speed: 8 });
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
-      const n = c.n(18 * dt);
-      for (let i = 0; i < n; i++) P.spawn({ x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(0, 120), life: [0.4, 0.8], size0: [7, 12], size1: 1, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, mode: 'glow', stamp: 'p_ember', speed: 0, up: [50, 110] });
+      const n = c.n(70 * dt);
+      for (let i = 0; i < n; i++) P.spawn(c.pix(pal, { x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(0, 120), life: [0.4, 0.8], speed: 0, up: [50, 110], settle: false }));
     });
   });
 
@@ -210,19 +210,21 @@ export function register(c, R) {
     const lt = c.glow(x, y, z + 40, pal.lt, rad * 3, 0.3, dur, { mode: 'flat', elem: 'E' });
     c.run(dur, (r, dt) => {
       lt.int = 0.3 + 1.4 * r.k;
-      const n = c.n((30 + 90 * r.k) * dt);
-      for (let i = 0; i < n; i++) { const a = Math.random() * TAU, rr = rad * Math.sqrt(Math.random()); P.spawn({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 4, life: [0.4, 0.9], size0: [8, 14], size1: 1, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, mode: 'glow', speed: 0, up: [80, 260 + 400 * r.k] }); }
+      const n = c.n((100 + 300 * r.k) * dt);
+      for (let i = 0; i < n; i++) { const a = Math.random() * TAU, rr = rad * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 4, life: [0.5, 1.0], speed: 0, up: [120, 300 + 500 * r.k], gravity: -520 })); }
     });
     c.later(dur, () => {
       // the beam: a line of white-hot glow from the sky to the ground, a flash, ring + scorch
-      P.burst({ x, y, z, x2: x, y2: y, z2: z + 1700, shape: 'line', count: 340, life: [0.35, 0.7], size0: [rad * 0.55, rad * 0.75], size1: rad * 0.25, col0: [8, 7, 3.8], col1: pal.mid, a0: 1, a1: 0, speed: [0, 20], mode: 'glow', jitter: 8 });
-      P.burst({ x, y, z, x2: x, y2: y, z2: z + 1700, shape: 'line', count: 200, life: [0.5, 0.9], size0: [rad * 0.9, rad * 1.2], size1: rad * 0.4, col0: pal.mid, col1: pal.low, a0: 0.5, a1: 0, speed: [0, 20], mode: 'glow' });
-      c.flash(x, y, z + 80, pal, rad * 1.2, 0.4);
+      // white-gold core made of 2-4 px squares across the beam width, a faint wide halo behind it
+      for (let i = c.n(420); i > 0; i--) { const a = Math.random() * TAU, w = rad * 0.38 * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(a) * w, y: y + Math.sin(a) * w, z: z + Math.random() * 1700, life: [0.35, 0.8], px: [1.5, 3], speed: 0, settle: false, keep: true, rampTint: [0.85, 0.85, 0.85] })); }
+      P.burst({ x, y, z, x2: x, y2: y, z2: z + 1700, shape: 'line', count: 90, life: [0.5, 0.9], size0: [rad * 0.8, rad * 1.0], size1: rad * 0.4, col0: pal.mid, col1: pal.low, a0: 0.22, a1: 0, speed: [0, 20], mode: 'glow' });
+      P.burst(c.pix(pal, { x, y, z: z + 6, count: 260, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2.4] }));
+      c.flash(x, y, z + 80, pal, rad * 0.8, 0.35);
       c.ring(x, y, z, pal, { R: rad * 1.8, life: [0.4, 0.7] });
       c.ring(x, y, z, PAL.fire, { R: rad * 1.1, life: [0.3, 0.5] });
-      c.embers(x, y, z + 40, pal, { count: 70, speed: [200, 650] });
-      c.smoke(x, y, z + 20, { count: 10 }, PAL.smoke);
-      c.glow(x, y, z + 120, pal.lt, rad * 5, 4, 0.8, { elem: 'E' });
+      c.embers(x, y, z + 40, pal, { count: 60, speed: [200, 650] });
+      c.smoke(x, y, z + 20, { count: 8 }, PAL.smoke);
+      c.glow(x, y, z + 120, pal.lt, rad * 5, 2.6, 0.8, { elem: 'E' });
       c.decal(x, y, 'decal_scorch', rad / 80, 6, { tint: [1.2, 0.8, 0.35], emit: 0.8, fadeOut: 0.6 });
     });
   });
@@ -235,8 +237,8 @@ export function register(c, R) {
     c.ring(su.x, su.y, su.z || 0, pal, { R: rr + 70 });
     for (let i = 0; i < n; i++) {
       const a = f + TAU * i / n, x = su.x + Math.cos(a) * rr, y = su.y + Math.sin(a) * rr, z = c.zAt(x, y);
-      c.pillar(x, y, z, pal, { count: 150, radius: 22, up: [400, 1200] });
-      c.embers(x, y, z + 30, pal, { count: 24 });
+      c.pillar(x, y, z, pal, { count: 70, radius: 22, up: [400, 1200] });
+      c.embers(x, y, z + 30, pal, { count: 20 });
       c.ringDecal(x, y, 60, 0.9, [3, 1.4, 0.4], { emit: 1.4, spin: 3, fadeOut: 0.5 });
       c.glow(x, y, z + 60, pal.lt, 320, 2, 0.7, { elem: 'E' });
       c.smoke(x, y, z + 20, { count: 6 });
@@ -261,15 +263,15 @@ export function register(c, R) {
       const dx = x - sx, dy = y - sy, dz = z0 - sz;
       if (fr) Q.put(px, py, pz, fr, 3.2 + r.k * 1.4, 1.8, 1.3, 1.0, 1, 3, dx, dy, dz, 0, false, 1.3);
       c.lightNow(px, py, pz, pal.lt, 520, 1.5, 0);
-      const n = c.n(180 * dt);
-      for (let i = 0; i < n; i++) P.spawn({ x: px + rnd(-34, 34) - dx * 0.0003 * i, y: py + rnd(-34, 34), z: pz + rnd(-30, 30), life: [0.3, 0.7], size0: [28, 48], size1: 6, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, mode: 'glow', speed: 0, vel: [-dx * 0.1, -dy * 0.1, -dz * 0.1], up: 0, drag: 1.2 });
-      if (r.t > 0.3) P.spawn({ x: px, y: py, z: pz, life: 0.06, size0: 90, size1: 80, col0: pal.mid, col1: pal.mid, a0: 0.4, a1: 0.3, mode: 'glow', speed: 0, noScale: true });
+      const n = c.n(650 * dt);
+      for (let i = 0; i < n; i++) P.spawn(c.pix(pal, { x: px + rnd(-30, 30), y: py + rnd(-30, 30), z: pz + rnd(-26, 26), life: [0.5, 1.0], px: [0.8, 2.4], speed: [0, 90], vel: [-dx * 0.08, -dy * 0.08, -dz * 0.08], gravity: -420, drag: 0.8, linger: [0.6, 1.6] }));
+      if (r.t > 0.3) P.spawn({ x: px, y: py, z: pz, life: 0.06, size0: 50, size1: 44, col0: pal.mid, col1: pal.mid, a0: 0.3, a1: 0.2, mode: 'glow', speed: 0, noScale: true });
     });
     // impact then roll
     c.later(land, () => {
       c.flash(x, y, z0 + 60, PAL.sun, rad * 0.9, 0.4);
       c.ring(x, y, z0, pal, { R: rad * 1.5, life: [0.45, 0.7] });
-      c.pillar(x, y, z0, pal, { count: 300, radius: rad * 0.4, up: [500, 1700] });
+      c.pillar(x, y, z0, pal, { count: 160, radius: rad * 0.4, up: [500, 1700] });
       c.embers(x, y, z0 + 40, pal, { count: 70, speed: [200, 700] });
       c.smoke(x, y, z0 + 30, { count: 22, radius: rad * 0.4, size0: [50, 80], size1: [110, 160] });
       c.dust(x, y, z0, { count: 30, speed: [100, 380] });
@@ -281,18 +283,18 @@ export function register(c, R) {
         const fr = fireFrames[(r.t * 16 | 0) % fireFrames.length];
         if (fr) Q.put(px, py, pz, fr, 3.6, 1.8, 1.2, 0.8, 1, 3, cs, sn, 0, r.t * 6, false, 1.3);
         c.lightNow(px, py, pz + 20, pal.lt, 540, 1.7 * (0.75 + 0.25 * Math.sin(c.T * 25)), 0);
-        const n = c.n(240 * dt);
-        for (let i = 0; i < n; i++) { const a = Math.random() * TAU; P.spawn({ x: px + Math.cos(a) * rad * 0.3 * Math.random(), y: py + Math.sin(a) * rad * 0.3 * Math.random(), z: pz + rnd(-40, 60), life: [0.4, 0.9], size0: [24, 46], size1: 6, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, mode: 'glow', speed: [0, 60], up: [60, 200], drag: 1.4 }); }
-        const m = c.n(60 * dt);
-        for (let i = 0; i < m; i++) P.spawn({ x: px + rnd(-50, 50), y: py + rnd(-50, 50), z: pz, life: [0.7, 1.4], size0: 8, size1: 3, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, stamp: 'p_ember', speed: [20, 120], up: [100, 300], gravity: -420, drag: 0.9 });
+        const n = c.n(500 * dt);
+        for (let i = 0; i < n; i++) { const a = Math.random() * TAU; P.spawn(c.pix(pal, { x: px + Math.cos(a) * rad * 0.3 * Math.random(), y: py + Math.sin(a) * rad * 0.3 * Math.random(), z: pz + rnd(-40, 60), life: [0.4, 0.9], speed: [0, 60], up: [60, 200], drag: 1.4, settle: false })); }
+        const m = c.n(260 * dt);
+        for (let i = 0; i < m; i++) P.spawn(c.pix(pal, { x: px + rnd(-50, 50), y: py + rnd(-50, 50), z: pz, life: [0.7, 1.4], px: [0.8, 2.4], speed: [20, 140], up: [100, 340], gravity: -480, drag: 0.9, linger: [0.6, 1.6] }));
         if (r.t - lastDecal > 0.25) { lastDecal = r.t; c.decal(px, py, 'decal_scorch', rad / 140, 4, { tint: [1.1, 0.6, 0.25], emit: 0.7, fadeOut: 0.7 }); }
-        P.spawn({ x: px, y: py, z: pz, life: 0.06, size0: 100, size1: 90, col0: pal.mid, col1: pal.mid, a0: 0.35, a1: 0.3, mode: 'glow', speed: 0, noScale: true });
+        P.spawn({ x: px, y: py, z: pz, life: 0.06, size0: 56, size1: 50, col0: pal.mid, col1: pal.mid, a0: 0.28, a1: 0.2, mode: 'glow', speed: 0, noScale: true });
       });
       c.later(roll, () => {
         const ez = c.zAt(x2, y2);
         c.flash(x2, y2, ez + 50, pal, rad * 0.6, 0.3);
         c.ring(x2, y2, ez, pal, { R: rad * 1.1 });
-        c.embers(x2, y2, ez + 40, pal, { count: 40 });
+        c.embers(x2, y2, ez + 40, pal, { count: 30 });
         c.smoke(x2, y2, ez + 30, { count: 14 });
       });
     });
@@ -317,16 +319,16 @@ export function register(c, R) {
       const k = Math.min(1, Math.hypot(p.x - (ev.x != null ? ev.x : p.x), p.y - (ev.y != null ? ev.y : p.y)) / p.d0);
       const w = d.r0 + (d.r1 - d.r0) * k;
       const px = -p.dy, py = p.dx;
-      const n = cc.n(210 * dt);
+      const n = cc.n(600 * dt);
       for (let i = 0; i < n; i++) {
         const s = rnd(-1, 1), back = (1 - s * s) * 0 + s * s * w * 0.55;    // crescent: tips trail behind the centre
         const pl = BLAST_PALS[(Math.random() * 3) | 0];
-        P.spawn({ x: p.x + px * s * w - p.dx * back, y: p.y + py * s * w - p.dy * back, z: p.z + rnd(-20, 40), life: [0.3, 0.6], size0: [20, 34], size1: 6, col0: pl.hot, col1: pl.low, a0: 1, a1: 0, mode: 'glow',
-          vel: [p.dx * 90, p.dy * 90, 0], speed: 0, up: [0, 30], drag: 1.6 });
+        P.spawn(cc.pix(pl, { x: p.x + px * s * w - p.dx * back, y: p.y + py * s * w - p.dy * back, z: p.z + rnd(-20, 40), life: [0.3, 0.6],
+          vel: [p.dx * 90, p.dy * 90, 0], speed: 0, up: [0, 30], drag: 1.6, settle: false }));
       }
       for (let r = 1; r <= 2; r++) {   // trailing echo arcs
-        const m = cc.n(60 * dt);
-        for (let i = 0; i < m; i++) { const s = rnd(-1, 1), back = s * s * w * 0.55 + r * 70; const pl = BLAST_PALS[(Math.random() * 3) | 0]; P.spawn({ x: p.x + px * s * w * (1 + 0.05 * r) - p.dx * back, y: p.y + py * s * w * (1 + 0.05 * r) - p.dy * back, z: p.z, life: [0.2, 0.4], size0: [10, 18], size1: 2, col0: pl.mid, col1: pl.low, a0: 0.8, a1: 0, mode: 'glow', speed: 0 }); }
+        const m = cc.n(180 * dt);
+        for (let i = 0; i < m; i++) { const s = rnd(-1, 1), back = s * s * w * 0.55 + r * 70; const pl = BLAST_PALS[(Math.random() * 3) | 0]; P.spawn(cc.pix(pl, { x: p.x + px * s * w * (1 + 0.05 * r) - p.dx * back, y: p.y + py * s * w * (1 + 0.05 * r) - p.dy * back, z: p.z, life: [0.2, 0.4], speed: 0, settle: false, rampTint: [0.7, 0.7, 0.7] })); }
       }
     },
     hit(cc, p) { for (const pl of BLAST_PALS) cc.ring(p.x, p.y, cc.zAt(p.x, p.y), pl, { R: 140 }); cc.flash(p.x, p.y, p.z, PAL.steel, 60, 0.2); },

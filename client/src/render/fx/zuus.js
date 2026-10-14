@@ -24,7 +24,7 @@ export function register(c, R) {
   const strike = (x, y, thick, big) => {
     const z = c.zAt(x, y), top = z + 1600;
     for (let i = 0; i < (big ? 3 : 2); i++) c.bolt(x + rnd(-30, 30), y + rnd(-20, 20), top, x, y, z + 6, i ? white : pal, { jag: 60, thick: thick * (i ? 0.7 : 1.3), lightR: 560, light: 1.2, noLights: i > 0 || big });
-    P.burst({ x, y, z, x2: x, y2: y, z2: top, shape: 'line', count: 160, life: [0.12, 0.3], size0: [14 * thick, 22 * thick], size1: 4, col0: white.hot, col1: pal.mid, a0: 1, a1: 0, speed: [0, 10], mode: 'glow', jitter: 6 });
+    P.burst(c.pix(white, { x, y, z, x2: x, y2: y, z2: top, shape: 'line', count: 420, life: [0.12, 0.3], speed: [0, 10], jitter: 6, px: [1, 2.4], settle: false }));
     c.flash(x, y, z + 40, pal, 110 * thick, 0.35);
     c.ring(x, y, z, pal, { R: 190 * thick, life: [0.35, 0.55] });
     c.stars(x, y, z + 60, white, { count: 12 });

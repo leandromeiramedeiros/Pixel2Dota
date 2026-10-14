@@ -27,7 +27,10 @@ Buildings become simple 3D meshes. Sprite buildings resize unevenly and look wro
 2. **Grade:** darker base exposure, cool shadows and warm lights. Saturated colour is reserved for emissive things.
 3. **Particles:** crisp 1-art-pixel squares by default. Colour cools along a stepped ramp (white, yellow, orange, red, dark). Particles fall under gravity, land on the terrain and linger briefly as cooling grains. Spells spawn many small sparks rather than a few big soft blobs. Soft glow blobs are used only for small cores and very faint haze.
 4. **Buildings:** simple low-poly 3D meshes with flat or vertex colour, lit by the same lights as the scene (ambient, key light, point lights, rim, fog). They render into the same low-res target, so they pixelate exactly like the terrain. Emissive parts (crystals, windows, braziers) feed the bloom and act as practical lights.
-5. **Gameplay readability:** units, HP bars and spell telegraphs stay readable over the darker grade.
+5. **Trees:** low-poly instanced 3D, lit like the buildings (the creative director: "TREES 3D TOO").
+6. **Terrain:** no hard grid seams. Tiles blend into each other with dithered, pixel-crisp organic edges. Add macro colour variation, cliff lips and cliff ambient occlusion, and shore foam.
+7. **Water:** screen-space reflections (SSR), with bright lights turning into bokeh.
+8. **Gameplay readability:** units, HP bars and spell telegraphs stay readable over the darker grade.
 
 ## Hero reference (creative director: "ITS BEAUTIFUL")
 

@@ -31,9 +31,9 @@ export function register(c, R) {
     c.run(dur, (r, dt) => {   // red flame licking off the afflicted
       const u = c.unit(id); if (!u || u.hp <= 0) return false;
       if (u.visible === false) return;
-      const n = c.n(26 * dt), zz = u.z || 0;
-      for (let i = 0; i < n; i++) P.spawn({ x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: zz + rnd(6, 120), life: [0.3, 0.7], size0: [7, 12], size1: 1, col0: pal.hot, col1: pal.low, a0: 0.9, a1: 0, mode: 'glow', speed: [0, 14], up: [40, 120] });
-      if (Math.random() < dt * 5) P.spawn({ x: u.x, y: u.y, z: zz + rnd(80, 130), life: [0.5, 0.9], size0: 9, size1: 3, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, stamp: 'p_ember', speed: [20, 60], up: [30, 80] });
+      const n = c.n(90 * dt), zz = u.z || 0;
+      for (let i = 0; i < n; i++) P.spawn(c.pix(pal, { x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: zz + rnd(6, 120), life: [0.4, 0.9], speed: [0, 14], up: [40, 120], gravity: -90, linger: [0.3, 0.8] }));
+      for (let q = c.n(16 * dt); q > 0; q--) P.spawn(c.pix(pal, { x: u.x, y: u.y, z: zz + rnd(80, 130), life: [0.5, 0.9], speed: [20, 60], up: [30, 80], gravity: -300 }));
     });
   });
 
@@ -46,10 +46,10 @@ export function register(c, R) {
     const a0 = rnd(0, TAU);   // two sweeping blade arcs, drawn as a burst of motes rotating over 0.28 s
     c.run(0.28, (r, dt) => {
       const u = c.unit(su.id); if (!u) return false;
-      const n = c.n(120 * dt);
+      const n = c.n(360 * dt);
       for (let i = 0; i < n; i++) {
         const side = i & 1, a = a0 + r.k * TAU * 1.25 + side * Math.PI + rnd(-0.12, 0.12), d = rad * rnd(0.45, 0.95);
-        P.spawn({ x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zc + rnd(-10, 10), life: [0.12, 0.28], size0: [10, 17], size1: 2, col0: steel.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', speed: 0, vel: [-Math.sin(a) * 200, Math.cos(a) * 200, 0] });
+        P.spawn(c.pix(steel, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zc + rnd(-10, 10), life: [0.12, 0.28], speed: 0, vel: [-Math.sin(a) * 200, Math.cos(a) * 200, 0] }));
       }
       c.lightNow(u.x, u.y, zc + 20, steel.lt, 280, 0.5, 0);
     });

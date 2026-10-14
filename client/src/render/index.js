@@ -11,6 +11,8 @@ import { createTerrain } from './terrain.js';
 import { createPost } from './post.js';
 import { createSprites } from './sprites.js';
 import { createActors } from './actors.js';
+import { createBuildings3d } from './buildings3d.js';
+import { createTrees3d } from './trees3d.js';
 import { createFog } from './fog.js';
 import { createParticles, createAmbient } from './particles.js';
 import { createOverlay } from './overlay.js';
@@ -46,9 +48,10 @@ export function createRenderer({ canvas, sheets }) {
   const fog = createFog(uniforms);
   const particles = createParticles({ scene, uniforms, atlas, heightAt });
   const ambient = createAmbient(particles, heightAt);
-  const post = createPost(gl);
+  const post = createPost(gl, uniforms);
   const overlay = createOverlay(canvas);
-  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera });
+  const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms });
+  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d });
 
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
   let rtSettledH = 0;
@@ -95,9 +98,9 @@ export function createRenderer({ canvas, sheets }) {
     if (Math.abs(nightK - target) < 0.002) nightK = target;
     const k = nightK;
     const mix = (a, b) => a + (b - a) * k;
-    uniforms.uAmb.value.set(mix(0.56, 0.22), mix(0.57, 0.27), mix(0.6, 0.46));   // day level matched to the trainer's on-screen grass (docs/ART-COMPARE.md)
-    uniforms.uKeyCol.value.set(mix(0.40, 0.16), mix(0.36, 0.22), mix(0.28, 0.40));
-    uniforms.uRimKey.value.set(mix(0.55, 0.28), mix(0.5, 0.42), mix(0.34, 0.75));
+    uniforms.uAmb.value.set(mix(0.52, 0.18), mix(0.56, 0.28), mix(0.58, 0.36));   // day level matched to the trainer's on-screen grass (docs/ART-COMPARE.md)
+    uniforms.uKeyCol.value.set(mix(0.42, 0.14), mix(0.35, 0.25), mix(0.24, 0.36));
+    uniforms.uRimKey.value.set(mix(0.58, 0.22), mix(0.48, 0.46), mix(0.30, 0.66));
     uniforms.uKeyRimDir.value.set(mix(-0.6, 0.55), mix(0.8, 0.83));
     uniforms.uNight.value = k;
   }
@@ -247,7 +250,7 @@ export function createRenderer({ canvas, sheets }) {
     post.render(scene, cam, time, nightK, outW, outH);
     drawBars(view);
     overlay.draw(dt);
-    stats.cpuMs = performance.now() - t0; stats.lights = lights.count; stats.chunks = terrain.stats.drawn; stats.tris = terrain.stats.tris;
+    stats.cpuMs = performance.now() - t0; stats.lights = lights.count; stats.chunks = terrain.stats.drawn; stats.tris = terrain.stats.tris + buildings.stats.tris + trees3d.stats.tris; stats.props3d = buildings.stats.draws + trees3d.stats.draws;
     stats.sprites = sprites.count; stats.units = actors.state.unitsDrawn; stats.trees = actors.state.treesDrawn; stats.spawned = particles.spawned; stats.fogMs = fog.state.castMs;
   }
 

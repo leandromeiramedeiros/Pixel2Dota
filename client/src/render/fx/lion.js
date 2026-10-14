@@ -20,7 +20,7 @@ export function register(c, R) {
       for (let i = 0; i < nsp; i++) {
         const f = (i + Math.random()) / nsp, x = p.x - p.dx * step * f, y = p.y - p.dy * step * f, z = cc.zAt(x, y);
         const off = rnd(-w, w) * 0.6, sx = x - p.dy * off, sy = y + p.dx * off;
-        P.burst({ x: sx, y: sy, z: z + 2, count: 5, shape: 'disc', radius: 8, life: [0.35, 0.65], size0: [18, 26], size1: 4, col0: dark.hot, col1: earth.mid, a0: 1, a1: 0, speed: [0, 8], up: [420, 760], drag: 3.2, mode: 'glow', noScale: true });
+        P.burst(c.pix(dark, { x: sx, y: sy, z: z + 2, count: 28, shape: 'disc', radius: 8, life: [0.35, 0.65], speed: [0, 8], up: [420, 760], drag: 3.2, gravity: -900, linger: [0.4, 1] }));
         P.burst({ x: sx, y: sy, z: z + 2, count: 3, shape: 'disc', radius: 10, life: [0.5, 0.9], size0: [10, 15], size1: 6, col0: earth.hot, col1: earth.low, a0: 1, a1: 0, speed: [30, 90], up: [250, 560], gravity: -900, drag: 0.8, stamp: 'p_shard_ice', spin: [-6, 6], rot: [0, TAU] });
         if (Math.random() < 0.5) cc.dust(x, y, z, { count: 3, radius: w * 0.5 });
       }
@@ -54,12 +54,12 @@ export function register(c, R) {
       if (a.visible === false && b.visible === false) return;
       const dx = a.x - b.x, dy = a.y - b.y, len = Math.hypot(dx, dy) || 1;
       if (len > 1400) return false;
-      const z0 = c.chest(b), z1 = c.chest(a) + 10, n = c.n(Math.min(160, 50 + len * 0.18) * dt);
+      const z0 = c.chest(b), z1 = c.chest(a) + 10, n = c.n(Math.min(480, 150 + len * 0.5) * dt);
       for (let i = 0; i < n; i++) {   // motes streaming from the victim to Lion along a lazy sine
         const f = Math.random(), wob = Math.sin(f * 9 + c.T * 8) * 18 * Math.sin(f * Math.PI);
-        P.spawn({ x: b.x + dx * f - dy / len * wob, y: b.y + dy * f + dx / len * wob, z: z0 + (z1 - z0) * f + Math.sin(f * Math.PI) * 24, life: [0.15, 0.3], size0: [8, 13], size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', speed: 0, vel: [dx / len * 140, dy / len * 140, 0] });
+        P.spawn(c.pix(pal, { x: b.x + dx * f - dy / len * wob, y: b.y + dy * f + dx / len * wob, z: z0 + (z1 - z0) * f + Math.sin(f * Math.PI) * 24, life: [0.15, 0.3], speed: 0, vel: [dx / len * 140, dy / len * 140, 0] }));
       }
-      if (Math.random() < dt * 8) P.spawn({ x: b.x, y: b.y, z: z0, life: [0.3, 0.5], size0: [8, 12], size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, stamp: 'p_star', speed: [30, 90] });
+      for (let q = c.n(30 * dt); q > 0; q--) P.spawn(c.pix(pal, { x: b.x, y: b.y, z: z0, life: [0.4, 0.8], speed: [30, 110], up: [20, 120], gravity: -400, linger: [0.4, 1] }));
       c.lightNow(b.x, b.y, z0, pal.lt, 200, 0.5, 0);
       c.lightNow(a.x, a.y, z1, pal.lt, 200, 0.6, 0);
     });
@@ -71,8 +71,8 @@ export function register(c, R) {
     const sid = su.id, dur = ev.dur || 0.25, x1 = ev.x2 != null ? ev.x2 : tu ? tu.x : su.x, y1 = ev.y2 != null ? ev.y2 : tu ? tu.y : su.y;
     c.run(dur, (r, dt) => {
       const u = c.unit(sid); if (!u) return false;
-      const n = c.n(90 * dt), z = c.chest(u) + 10, a0 = c.T * 14;
-      for (let i = 0; i < n; i++) { const a = a0 + (i / Math.max(1, n)) * TAU, d = 50 * (1 - r.k * 0.6); P.spawn({ x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z, life: [0.1, 0.2], size0: [7, 11], size1: 1, col0: fel.hot, col1: fel.mid, a0: 1, a1: 0, mode: 'glow', speed: 0, vel: [-Math.cos(a) * 150, -Math.sin(a) * 150, 0] }); }
+      const n = c.n(260 * dt), z = c.chest(u) + 10, a0 = c.T * 14;
+      for (let i = 0; i < n; i++) { const a = a0 + (i / Math.max(1, n)) * TAU, d = 50 * (1 - r.k * 0.6); P.spawn(c.pix(fel, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z, life: [0.1, 0.2], speed: 0, vel: [-Math.cos(a) * 150, -Math.sin(a) * 150, 0] })); }
       c.lightNow(u.x, u.y, z, fel.lt, 220 + 140 * r.k, 0.4 + 0.8 * r.k, 0);
     });
     c.later(dur, () => {

@@ -130,12 +130,12 @@ export function createProjectiles(c, R) {
     Q.put(p.x, p.y, p.z, fr, def.scale || 1, t[0], t[1], t[2], 1, def.emit == null ? 2 : def.emit, p.dx, p.dy, p.dz, def.spin ? p.t * def.spin : 0, false, def.bright == null ? 1 : def.bright);
   }
   function trail(tr, p, dt) {
-    const n = c.n((tr.rate || 40) * dt); if (!n) return;
+    const n = c.n((tr.rate || 40) * 3 * dt); if (!n) return;
     const pal = tr.pal || PAL.mana, sp = tr.spread == null ? 5 : tr.spread;
     for (let i = 0; i < n; i++) {
       const a = Math.random(); // distribute along this frame's travel for a continuous streak
-      P.spawn({ x: p.x - p.dx * p.sp * dt * a + rnd(-sp, sp), y: p.y - p.dy * p.sp * dt * a + rnd(-sp, sp), z: p.z - p.dz * p.sp * dt * a + rnd(-sp, sp) * 0.5,
-        life: tr.life || [0.25, 0.55], size0: tr.size || [8, 14], size1: 2, col0: pal.hot, col1: pal.low, a0: tr.a0 || 0.8, a1: 0, mode: 'glow', stamp: tr.stamp, vel: [0, 0, 0], speed: [0, 12], up: tr.up || 0, gravity: tr.grav || 0, drag: 2 });
+      P.spawn(c.pix(pal, { x: p.x - p.dx * p.sp * dt * a + rnd(-sp, sp), y: p.y - p.dy * p.sp * dt * a + rnd(-sp, sp), z: p.z - p.dz * p.sp * dt * a + rnd(-sp, sp) * 0.5,
+        life: tr.life || [0.25, 0.55], px: [0.8, 1.8], vel: [0, 0, 0], speed: [0, 12], up: tr.up || 0, gravity: tr.grav != null ? tr.grav : -160, drag: 2, linger: [0.3, 0.8] }));
     }
   }
 

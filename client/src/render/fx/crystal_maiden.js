@@ -15,7 +15,7 @@ export function register(c, R) {
     c.decal(p.x, p.y, 'decal_frost', rad / 100, 3, { tint: [0.8, 1.6, 2.6], emit: 0.9, fadeOut: 0.6, roll: rnd(0, TAU) });
     c.shards(p.x, p.y, z + 20, pal, { count: 30, speed: [200, rad * 1.3] });
     c.pillar(p.x, p.y, z, pal, { count: 60, radius: 20, up: [300, 800] });
-    P.burst({ x: p.x, y: p.y, z: z + 30, count: 40, shape: 'disc', radius: rad * 0.7, life: [0.6, 1.2], size0: 8, size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, stamp: 'p_snow', speed: [10, 60], up: [20, 120], drag: 1 });
+    P.burst(c.pix(pal, { x: p.x, y: p.y, z: z + 30, count: 40, shape: 'disc', radius: rad * 0.7, life: [0.6, 1.2], speed: [10, 60], up: [20, 120], drag: 1 }));
     c.glow(p.x, p.y, z + 70, pal.lt, rad * 1.8, 1.8, 0.6, { elem: 'Q' });
   });
 
@@ -38,7 +38,7 @@ export function register(c, R) {
         const a = ang[i], s = sz[i] * pop;
         Q.put(u.x + Math.cos(a) * rd[i], u.y + Math.sin(a) * rd[i] * 0.8, z0 + 4, fShard, s, 0.9, 1.7, 2.8, fade, 1.3, 0, 0, 0, (i - 3) * 0.12, false, 1.05);
       }
-      if (Math.random() < dt * 10) P.spawn({ x: u.x + rnd(-30, 30), y: u.y + rnd(-20, 20), z: z0 + rnd(10, 110), life: [0.4, 0.8], size0: [5, 8], size1: 1, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, stamp: 'p_star', speed: 0, up: [10, 40] });
+      for (let q = c.n(30 * dt); q > 0; q--) P.spawn(c.pix(pal, { x: u.x + rnd(-30, 30), y: u.y + rnd(-20, 20), z: z0 + rnd(10, 110), life: [0.4, 0.8], speed: 0, up: [10, 40] }));
     });
   });
 
@@ -77,15 +77,15 @@ export function register(c, R) {
       const u = c.unit(id); if (!u || u.hp <= 0) return false;
       if (u.visible === false) return;
       const ramp = Math.min(1, r.t / 0.8) * Math.min(1, (dur - r.t) / 0.5), zz = u.z || 0;
-      const n = c.n(90 * ramp * dt);
+      const n = c.n(200 * ramp * dt);
       for (let i = 0; i < n; i++) {
         const a = rnd(0, TAU), d = rad * Math.sqrt(Math.random()), sw = 0.9;
-        P.spawn({ x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(160, 420), life: [0.7, 1.3], size0: [6, 11], size1: 3, col0: pal.hot, col1: pal.mid, a0: 0.9, a1: 0.1, stamp: 'p_snow', speed: 0, vel: [-Math.sin(a) * d * sw + 90, Math.cos(a) * d * sw, -300], drag: 0.2 });
+        P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(160, 420), life: [0.7, 1.3], speed: 0, vel: [-Math.sin(a) * d * sw + 90, Math.cos(a) * d * sw, -300], drag: 0.2, px: [0.8, 1.6], settle: false }));
       }
-      const m = c.n(40 * ramp * dt), a1 = c.T * 1.8;
+      const m = c.n(160 * ramp * dt), a1 = c.T * 1.8;
       for (let i = 0; i < m; i++) {
         const a = a1 + rnd(-0.5, 0.5), d = rad * rnd(0.85, 1.0);
-        P.spawn({ x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(10, 90), life: [0.4, 0.8], size0: [14, 24], size1: 6, col0: pal.mid, col1: pal.low, a0: 0.35, a1: 0, mode: 'glow', speed: 0, vel: [-Math.sin(a) * 380, Math.cos(a) * 380, 0], drag: 0.6 });
+        P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(10, 90), life: [0.4, 0.8], speed: 0, vel: [-Math.sin(a) * 380, Math.cos(a) * 380, 0], drag: 0.6, settle: false }));
       }
       if (Math.random() < dt * 8) { const a = rnd(0, TAU), d = rad * Math.sqrt(Math.random()); c.smoke(u.x + Math.cos(a) * d, u.y + Math.sin(a) * d, zz + 30, { count: 1, size0: [40, 60], size1: [90, 140], life: [1.0, 1.8] }, PAL.smoke); }
       lt.int = 0.5 * ramp;

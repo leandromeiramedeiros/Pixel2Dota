@@ -30,18 +30,18 @@ export function register(c, R) {
     const a = ev.x2 != null ? c.ang(su.x, su.y, ev.x2, ev.y2) : su.facing || 0, z = c.chest(su) - 10;
     const x = su.x + Math.cos(a) * 50, y = su.y + Math.sin(a) * 50;
     c.flash(x, y, z, pal, 60, 0.22);
-    P.burst({ x, y, z, count: 26, shape: 'cone', dir: [Math.cos(a), Math.sin(a), 0], spread: 0.7, life: [0.3, 0.6], size0: [14, 22], size1: 4, col0: pal.hot, col1: pal.mid, a0: 0.9, a1: 0, speed: [260, 560], drag: 2.4, mode: 'glow' });
+    P.burst(c.pix(pal, { x, y, z, count: 26, shape: 'cone', dir: [Math.cos(a), Math.sin(a), 0], spread: 0.7, life: [0.3, 0.6], speed: [260, 560], drag: 2.4 }));
   });
   R.proj('drow_ranger_wave_of_silence', {
     frames: null, sp: 1200,
     light: { col: pal.lt, radius: 360, int: 0.8, elem: 'Q' },
     trail(cc, p, dt) {
-      const w = waveW.get(p.sid) || 125, nx = -p.dy, ny = p.dx, n = cc.n(150 * dt);
+      const w = waveW.get(p.sid) || 125, nx = -p.dy, ny = p.dx, n = cc.n(420 * dt);
       for (let i = 0; i < n; i++) {   // crescent wave front, wings swept back
         const s = rnd(-1, 1), back = Math.abs(s) * 110 + rnd(0, p.sp * dt);
-        P.spawn({ x: p.x + nx * s * w - p.dx * back, y: p.y + ny * s * w - p.dy * back, z: p.z + rnd(-16, 16), life: [0.3, 0.6], size0: [16, 28], size1: 4, col0: i & 1 ? steel.hot : pal.hot, col1: pal.mid, a0: 0.8, a1: 0, mode: 'glow', speed: [0, 20], drag: 2 });
+        P.spawn(c.pix(i & 1 ? steel : pal, { x: p.x + nx * s * w - p.dx * back, y: p.y + ny * s * w - p.dy * back, z: p.z + rnd(-16, 16), life: [0.3, 0.6], speed: [0, 20], drag: 2, gravity: -120 }));
       }
-      if (Math.random() < dt * 20) P.spawn({ x: p.x + nx * rnd(-w, w), y: p.y + ny * rnd(-w, w), z: p.z, life: [0.4, 0.8], size0: 8, size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, stamp: 'p_snow', speed: [10, 50], up: [10, 50] });
+      for (let q = cc.n(60 * dt); q > 0; q--) P.spawn(c.pix(pal, { x: p.x + nx * rnd(-w, w), y: p.y + ny * rnd(-w, w), z: p.z, life: [0.4, 0.8], speed: [10, 50], up: [10, 50] }));
     },
     hit(cc, p) { cc.ring(p.x, p.y, cc.zAt(p.x, p.y), pal, { R: 90, life: [0.25, 0.4] }); },
   });
@@ -57,10 +57,10 @@ export function register(c, R) {
     c.run(dur, (r, dt) => {   // frost gathers and spits forward with each volley
       const u = c.unit(id); if (!u || u.hp <= 0) return false;
       if (u.visible === false) return;
-      const n = c.n(36 * dt), z = c.chest(u), f = u.facing != null ? u.facing : a;
+      const n = c.n(110 * dt), z = c.chest(u), f = u.facing != null ? u.facing : a;
       for (let i = 0; i < n; i++) {
         const sp = rnd(-0.5, 0.5);
-        P.spawn({ x: u.x + Math.cos(f) * 50, y: u.y + Math.sin(f) * 50, z: z + rnd(-14, 14), life: [0.2, 0.4], size0: [6, 10], size1: 1, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', speed: 0, vel: [Math.cos(f + sp) * 340, Math.sin(f + sp) * 340, 0], drag: 2 });
+        P.spawn(c.pix(pal, { x: u.x + Math.cos(f) * 50, y: u.y + Math.sin(f) * 50, z: z + rnd(-14, 14), life: [0.2, 0.4], speed: 0, vel: [Math.cos(f + sp) * 340, Math.sin(f + sp) * 340, 0], drag: 2 }));
       }
     });
   });

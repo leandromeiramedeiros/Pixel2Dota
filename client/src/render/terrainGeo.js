@@ -37,12 +37,50 @@ export function tileName(map, tx, ty) {
   }
   switch (t) {
     case TT.GRASS: return 'grass_' + d + '_' + (h < 0.78 ? (h * 1000 | 0) % 3 : 3 + (h * 1000 | 0) % 3);
-    case TT.ROAD: { const m = sameMask(map, tx, ty, TT.ROAD); return m === 15 ? 'road_' + ((h * 4) | 0) : 'road_e' + m; }
-    case TT.WATER: { const m = sameMask(map, tx, ty, TT.WATER); return m === 15 ? 'water' : 'water_e' + m; }   // animated entries
+    // road / water always use the interior variant: edges are blended per art pixel in the terrain shader (no baked rims)
+    case TT.ROAD: return 'road_' + ((h * 4) | 0);
+    case TT.WATER: return 'water';
     case TT.TREE: return 'forest_' + d;
     case TT.WALL: return 'rock_top_' + (side ? 'd_' : '') + ((h * 4) | 0);
     default: return 'void';
   }
+}
+
+/** True when tileName() resolves to a stairs entry. */
+export const isStairs = (map, tx, ty) => tileName(map, tx, ty).startsWith('stairs_');
+
+/** Chamfer distance (in tiles) from every water tile to the nearest non-water tile; 0 for non-water. Capped at 7.9. */
+export function waterDepth(map) {
+  const w = map.w, h = map.h, d = new Float32Array(w * h), INF = 99;
+  for (let i = 0; i < d.length; i++) d[i] = map.type[i] === TT.WATER ? INF : 0;
+  const R = 1.4142;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const j = y * w + x; if (!d[j]) continue; let v = d[j];
+    if (x > 0) v = Math.min(v, d[j - 1] + 1); if (y > 0) v = Math.min(v, d[j - w] + 1);
+    if (x > 0 && y > 0) v = Math.min(v, d[j - w - 1] + R); if (x < w - 1 && y > 0) v = Math.min(v, d[j - w + 1] + R);
+    d[j] = v;
+  }
+  for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+    const j = y * w + x; if (!d[j]) continue; let v = d[j];
+    if (x < w - 1) v = Math.min(v, d[j + 1] + 1); if (y < h - 1) v = Math.min(v, d[j + w] + 1);
+    if (x < w - 1 && y < h - 1) v = Math.min(v, d[j + w + 1] + R); if (x > 0 && y < h - 1) v = Math.min(v, d[j + w - 1] + R);
+    d[j] = v;
+  }
+  return d;
+}
+
+/**
+ * Per-tile RGBA8 data for the terrain shader (one texel per tile, row 0 = north):
+ * R = type + 8*side(0 Radiant / 1 Dire) + 16*ramp + 32*stairs, G = elev, B = water depth * 32 (0 for land), A = 255.
+ */
+export function buildTileData(map) {
+  const n = map.w * map.h, out = new Uint8Array(n * 4), wd = waterDepth(map);
+  for (let ty = 0; ty < map.h; ty++) for (let tx = 0; tx < map.w; tx++) {
+    const j = ty * map.w + tx, o = j * 4, ramp = map.ramp[j] ? 1 : 0;
+    out[o] = map.type[j] + 8 * tileSide(map, tx, ty) + 16 * ramp + (ramp && isStairs(map, tx, ty) ? 32 : 0);
+    out[o + 1] = map.elev[j]; out[o + 2] = Math.min(252, Math.round(Math.min(wd[j], 7.9) * 32)); out[o + 3] = 255;
+  }
+  return out;
 }
 
 export const wallName = (map, tx, ty, side) => 'cliff_' + (side ? 'd' : 'r') + '_' + (((hash2(tx, ty, 3) * 4) | 0) & 3);

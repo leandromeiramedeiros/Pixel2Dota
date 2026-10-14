@@ -17,7 +17,7 @@ export function register(c, R) {
       c.ring(x, y, z, PAL.gold, { R: 200, life: [0.5, 0.8] });
       c.blob(x, y, z + 70, PAL.sun, { count: 40, speed: [80, 300], size0: [26, 44] });
       c.embers(x, y, z + 40, PAL.gold, { count: 36 });
-      P.burst({ x, y, z: z + 20, count: 60, shape: 'disc', radius: 24, life: [1.0, 1.9], size0: [10, 18], size1: 2, col0: [3.6, 3.4, 4.6], col1: [0.8, 0.9, 1.6], a0: 1, a1: 0, speed: [0, 30], up: [140, 320], drag: 0.7, mode: 'glow' });
+      P.burst(c.pix(PAL.ice, { x, y, z: z + 20, count: 260, shape: 'disc', radius: 24, life: [1.0, 1.9], speed: [0, 30], up: [140, 320], drag: 0.7, settle: false, rampTint: [1.3, 1.3, 1.3] }));
       c.smoke(x, y, z + 30, { count: 16 });
       c.glow(x, y, z + 90, PAL.gold.lt, 520, 2.2, 0.8);
     } else if (BUILDING.test(k)) {
@@ -34,7 +34,7 @@ export function register(c, R) {
     } else {
       // creep / summon / ward: small soul puff
       c.sparks(x, y, z + 40, PAL.mana, { count: 8, speed: [60, 180] });
-      P.burst({ x, y, z: z + 20, count: 6, shape: 'disc', radius: 10, life: [0.5, 1.0], size0: [7, 11], size1: 1, col0: [1.6, 2, 3], col1: [0.4, 0.6, 1.2], a0: 0.9, a1: 0, speed: [0, 20], up: [60, 140], drag: 0.8, mode: 'glow' });
+      P.burst(c.pix(PAL.mana, { x, y, z: z + 20, count: 30, shape: 'disc', radius: 10, life: [0.5, 1.0], speed: [0, 20], up: [60, 140], drag: 0.8, settle: false }));
     }
   });
 
@@ -61,9 +61,9 @@ export function register(c, R) {
       if (r._a > 0) return;
       r._a = rnd(0.12, 0.3);
       const pal = pick(FIREWORK), ax = wx + rnd(-260, 260), ay = wy + rnd(-180, 180), az = c.zAt(wx, wy) + rnd(400, 640);
-      P.burst({ x: ax + rnd(-10, 10), y: ay, z: az - 380, count: 14, shape: 'point', life: [0.35, 0.45], size0: 8, size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: 0, up: [900, 1000], mode: 'glow' });
+      P.burst(c.pix(pal, { x: ax + rnd(-10, 10), y: ay, z: az - 380, count: 60, shape: 'point', life: [0.35, 0.45], speed: 0, up: [900, 1000], settle: false }));
       c.later(0.4, () => {
-        P.burst({ x: ax, y: ay, z: az, count: 90, shape: 'sphere', radius: 4, life: [0.9, 1.5], size0: [14, 22], size1: 2, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, speed: [220, 360], gravity: -160, drag: 1.6, mode: 'glow' });
+        P.burst(c.pix(pal, { x: ax, y: ay, z: az, count: 420, shape: 'sphere', radius: 4, life: [0.9, 1.5], speed: [220, 400], gravity: -460, drag: 1.4, linger: [0.6, 1.6] }));
         c.glow(ax, ay, az, pal.lt, 700, 2.2, 0.8);
       });
     });

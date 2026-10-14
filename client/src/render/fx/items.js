@@ -11,11 +11,11 @@ export function register(c, R) {
     c.ringDecal(x, y, r0 * 1.15, dur, [pal.mid[0] * 0.6, pal.mid[1] * 0.6, pal.mid[2] * 0.6], { emit: 1.2, spin: 0.9, pulse: 0.12, fadeOut: 0.15 });
     c.glow(x, y, z + 60, pal.lt, 340, lightInt || 1.3, dur, { mode: 'pulse' });
     c.run(dur, (r, dt) => {
-      const n = c.n(70 * dt);
+      const n = c.n(220 * dt);
       for (let i = 0; i < n; i++) {
         const a = c.T * 6 + Math.random() * TAU, rr = r0 * (0.35 + 0.65 * Math.random());
-        P.spawn({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 4, life: [0.5, 0.9], size0: [9, 15], size1: 2, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, mode: 'glow',
-          vel: [-Math.sin(a) * rr * 3.2, Math.cos(a) * rr * 3.2, 0], speed: 0, up: [140, 360], drag: 1.1 });
+        P.spawn(c.pix(pal, { x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 4, life: [0.5, 0.9],
+          vel: [-Math.sin(a) * rr * 3.2, Math.cos(a) * rr * 3.2, 0], speed: 0, up: [140, 360], drag: 1.1 }));
       }
     });
   }
@@ -27,7 +27,7 @@ export function register(c, R) {
     if (x0 == null) return;
     const z0 = c.zAt(x0, y0), z1 = c.zAt(x1, y1);
     const pal = PAL.arc;
-    P.burst({ x: x0, y: y0, z: z0 + 80, count: 50, shape: 'sphere', radius: 90, life: [0.25, 0.4], size0: [16, 26], size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [-260, -140], drag: 1.5, mode: 'glow' });
+    P.burst(c.pix(pal, { x: x0, y: y0, z: z0 + 80, count: 160, shape: 'sphere', radius: 90, settle: false, life: [0.25, 0.4], speed: [-260, -140], drag: 1.5 }));
     c.flash(x0, y0, z0 + 80, pal, 70, 0.22);
     c.line(x0, y0, z0 + 70, x1, y1, z1 + 70, pal, { life: [0.15, 0.4], size0: [10, 18] });
     c.later(0.05, () => {
@@ -75,10 +75,10 @@ export function register(c, R) {
         const sx = ev.x, sy = ev.y, id = su.id;
         c.run(0.5, (r, dt) => {
           const u = c.unit(id); if (!u) return false;
-          const n = c.n(80 * dt), cz = c.chest(u);
+          const n = c.n(200 * dt), cz = c.chest(u);
           for (let i = 0; i < n; i++) {
             const k = Math.random();
-            P.spawn({ x: sx + (u.x - sx) * k + rnd(-8, 8), y: sy + (u.y - sy) * k + rnd(-8, 8), z: z + 100 + (cz - z - 100) * k, life: [0.15, 0.3], size0: [8, 12], size1: 2, col0: g.hot, col1: g.mid, a0: 1, a1: 0, mode: 'glow', speed: 0 });
+            P.spawn(c.pix(g, { x: sx + (u.x - sx) * k + rnd(-8, 8), y: sy + (u.y - sy) * k + rnd(-8, 8), z: z + 100 + (cz - z - 100) * k, life: [0.15, 0.3], speed: 0 }));
           }
         });
       }
@@ -130,8 +130,8 @@ export function register(c, R) {
     const id = su.id, dur = Math.min(ev.dur || 3, 4);
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
-      const n = c.n(50 * dt);
-      for (let i = 0; i < n; i++) P.spawn({ x: u.x + rnd(-12, 12), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(4, 110), life: [0.3, 0.6], size0: [8, 14], size1: 2, col0: p.hot, col1: p.low, a0: 0.9, a1: 0, mode: 'glow', speed: 0, up: [0, 20] });
+      const n = c.n(160 * dt);
+      for (let i = 0; i < n; i++) P.spawn(c.pix(p, { x: u.x + rnd(-12, 12), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(4, 110), life: [0.3, 0.6], speed: 0, up: [0, 20] }));
     });
     c.glow(su.x, su.y, c.chest(su), p.lt, 260, 0.8, dur, { follow: id, dz: 80, mode: 'flat' });
   });

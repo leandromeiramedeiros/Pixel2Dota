@@ -6,55 +6,127 @@
 //   particles.emitter({ x,y,z, rate, duration, ... }) -> { set(x,y,z), stop(), alive }   continuous (rate = particles/s)
 //   particles.spawn(p)                              a single particle
 // Shared options (all optional; scalars or [min,max] ranges):
-//   speed, life, size0/size1 (world units), col0/col1 ([r,g,b], HDR), a0/a1 (alpha), gravity (accel along +z up, negative falls),
-//   drag (1/s), spin (rad/s), rot, shape 'point'|'sphere'|'disc'|'ring'|'cone'|'line', radius, dir [dx,dy,dz], spread (rad, cone),
-//   up (extra initial z speed), x2/y2/z2 (line end), mode 'glow'|'square'|'stamp', stamp ('p_spark', ... from the fx sheet), delay.
+//   speed, life, size0/size1 (world units), px/px1 (size in ART pixels), col0/col1 ([r,g,b], HDR), a0/a1 (alpha),
+//   gravity (accel along +z up, negative falls), drag (1/s), spin (rad/s), rot, shape 'point'|'sphere'|'disc'|'ring'|'cone'|'line',
+//   radius, dir [dx,dy,dz], spread (rad, cone), up (extra initial z speed), x2/y2/z2 (line end), mode 'glow'|'square'|'stamp',
+//   stamp ('p_spark', ... from the fx sheet), delay.
+// Pixel look (Noita):
+//   mode 'square' snaps the quad to whole art pixels (min 1 art px) on the render-target pixel grid, so small sparks are exact 1-2 px squares.
+//   o.px sets the size directly in art pixels (implies mode 'square' unless a mode / stamp is given).
+//   o.ramp: stepped cooling ramp name (see RAMPS): 5 colours hot -> cold picked by age, NO lerp, dithers out over the last fifth of life.
+//     o.rampTint [r,g,b] multiplies the ramp (e.g. a brighter or dimmer heat).
+//   o.settle: a particle with negative gravity lands on the terrain at its spawn xy (landing time solved on the CPU), freezes there
+//     ("settled grain"), keeps cooling and dithers away. Default ON for non-glow particles with negative gravity; o.settle=false disables.
+//     Lifetime is stretched to (landing + o.linger, default 0.35-0.9 s) when it would end earlier. o.bounce = one hop on landing
+//     (default: ~30% of square sparks). o.keep = never thinned by the pool budget.
 import * as THREE from 'three';
 import { COMMON_GLSL, UNIFORMS_GLSL } from './shaderlib.js';
 
 export const POOL = 32768;
-const STRIDE = 28;
+const STRIDE = 32;
+const GROUND_EPS = 1.5;      // settled grains sit this far above the terrain height (world units)
+const MAX_LIFE = 4.5;        // seconds: cap for settle-stretched lifetimes
+const BUDGET = 20000;        // decayed spawn count above which new particles are thinned (see density)
+
+/** Stepped cooling ramps, hot -> cold. Only the first two steps are HDR (they bloom); the rest sit below the bloom threshold. */
+export const RAMPS = {
+  fire:   [[5.0, 3.6, 1.6], [3.4, 1.7, 0.45], [1.25, 0.5, 0.1], [0.62, 0.12, 0.04], [0.2, 0.05, 0.03]],
+  spark:  [[5.4, 5.0, 3.8], [4.0, 2.9, 0.8], [1.3, 0.62, 0.12], [0.7, 0.14, 0.05], [0.24, 0.06, 0.04]],
+  ice:    [[4.4, 5.6, 6.2], [1.9, 3.6, 5.2], [0.55, 1.15, 1.2], [0.22, 0.5, 0.95], [0.08, 0.2, 0.42]],
+  arcane: [[5.0, 3.6, 6.2], [3.0, 1.5, 5.4], [1.15, 0.45, 1.25], [0.5, 0.18, 0.95], [0.16, 0.07, 0.4]],
+  poison: [[3.2, 5.8, 3.0], [1.9, 4.2, 0.9], [0.65, 1.2, 0.2], [0.28, 0.6, 0.12], [0.1, 0.22, 0.07]],
+  holy:   [[6.0, 5.6, 4.0], [5.0, 3.8, 1.2], [1.35, 0.95, 0.3], [0.8, 0.5, 0.12], [0.3, 0.2, 0.08]],
+  blood:  [[5.0, 1.7, 1.2], [3.4, 0.55, 0.4], [1.15, 0.2, 0.12], [0.58, 0.08, 0.06], [0.2, 0.03, 0.03]],
+  volt:   [[5.6, 5.9, 6.4], [2.6, 3.8, 6.0], [0.7, 1.15, 1.3], [0.3, 0.5, 1.0], [0.1, 0.18, 0.45]],
+  dark:   [[4.6, 2.0, 5.2], [2.9, 0.9, 4.2], [1.1, 0.3, 1.2], [0.5, 0.12, 0.85], [0.14, 0.04, 0.32]],
+  steel:  [[5.6, 6.0, 6.4], [3.4, 3.7, 4.6], [1.2, 1.3, 1.35], [0.6, 0.65, 0.8], [0.22, 0.24, 0.32]],
+  pink:   [[6.0, 3.6, 4.6], [4.0, 1.5, 3.0], [1.3, 0.4, 0.85], [0.65, 0.16, 0.45], [0.22, 0.06, 0.18]],
+  earth:  [[3.6, 3.0, 2.0], [2.2, 1.6, 0.8], [0.95, 0.7, 0.34], [0.5, 0.36, 0.2], [0.2, 0.15, 0.1]],
+};
+export const RAMP_NAMES = Object.keys(RAMPS);
+const RAMP_ID = Object.fromEntries(RAMP_NAMES.map((n, i) => [n, i]));
+// age fractions at which the ramp advances to the next colour (the hot colours are short-lived)
+const RT = [0.1, 0.26, 0.5, 0.76].map((v) => v.toFixed(3));
 
 const VERT = /* glsl */ `
 ${UNIFORMS_GLSL}
+uniform vec3 uRamp[${RAMP_NAMES.length * 5}];
 attribute vec2 corner;
 attribute vec4 aP0;      // birth pos xyz, birth time
 attribute vec4 aV0;      // birth vel xyz, life
 attribute vec4 aSz;      // size0, size1, rot0, spin
 attribute vec4 aPh;      // gravity, drag, mode, alpha0
 attribute vec4 aC0;      // rgb0, alpha1
-attribute vec4 aC1;      // rgb1, unused
+attribute vec4 aC1;      // rgb1 (ramp: tint), env flag
 attribute vec4 aUv;      // uv rect
+attribute vec4 aG;       // ground height (three y), flags (1 settle, 2 px-size, 4 bounce), ramp id (-1 none), landing time (-1 never)
 varying vec2 vQ;
 varying vec4 vC;
 varying vec4 vUv;
 varying float vMode;
 varying vec3 vWorld;
+varying float vD;
 void main(){
   float age = uTime - aP0.w;
   float life = aV0.w;
+  vD = 1.;
   if (age < 0. || age >= life) { gl_Position = vec4(2., 2., 2., 1.); vC = vec4(0.); vQ = vec2(0.); vUv = aUv; vMode = 0.; vWorld = vec3(0.); return; }
   float g = aPh.x, d = aPh.y;
+  float fl = aG.y;
+  bool settle = mod(fl, 2.) > .5, pxs = mod(floor(fl / 2.), 2.) > .5, bounce = mod(floor(fl / 4.), 2.) > .5;
+  float tl = aG.w;
   vec3 gv = vec3(0., g, 0.);
+  float ta = (settle && tl >= 0.) ? min(age, tl) : age;
   vec3 p;
-  if (d < 1e-3) p = aP0.xyz + aV0.xyz * age + .5 * gv * age * age;
+  if (d < 1e-3) p = aP0.xyz + aV0.xyz * ta + .5 * gv * ta * ta;
   else {
-    float e = exp(-d * age);
-    p = aP0.xyz + gv * (age / d) + (aV0.xyz - gv / d) * ((1. - e) / d);
+    float e = exp(-d * ta);
+    p = aP0.xyz + gv * (ta / d) + (aV0.xyz - gv / d) * ((1. - e) / d);
+  }
+  if (settle) {
+    if (bounce && tl >= 0. && age > tl && g < 0.) {              // one hop after landing, then freeze
+      vec3 v = d < 1e-3 ? aV0.xyz + gv * tl : (aV0.xyz - gv / d) * exp(-d * tl) + gv / d;
+      float vb = -v.y * .36;
+      float tb = min(age - tl, 2. * vb / -g);
+      p.xz += v.xz * .45 * tb;
+      p.y = aG.x + vb * tb + .5 * g * tb * tb;
+    }
+    p.y = max(p.y, aG.x);
   }
   float k = age / life;
   float size = mix(aSz.x, aSz.y, k);
+  vec3 col; float a;
+  if (aG.z > -.5) {                                   // stepped cooling ramp, no lerp
+    int st = k < ${RT[0]} ? 0 : k < ${RT[1]} ? 1 : k < ${RT[2]} ? 2 : k < ${RT[3]} ? 3 : 4;
+    col = uRamp[int(aG.z + .5) * 5 + st] * aC1.rgb;
+    a = aPh.w; vD = clamp((1. - k) / .2, 0., 1.);
+  } else {
+    col = mix(aC0.rgb, aC1.rgb, k);
+    a = mix(aPh.w, aC0.w, k);
+    if (aC1.w > .5) a *= sin(3.14159 * k);
+    if (settle) { a = aPh.w; vD = clamp((1. - k) / .25, 0., 1.); }
+  }
+  vC = vec4(col, a);
+  vUv = aUv; vMode = aPh.z; vWorld = p; vQ = corner;
+  bool pix = pxs || (aPh.z > .5 && aPh.z < 1.5);
+  if (pix) {                                          // pixel-grid snapped square, whole art pixels, min 1
+    p += normalize(uCamPos - p) * 2.5;
+    vec4 cp = projectionMatrix * viewMatrix * vec4(p, 1.);
+    if (cp.w <= 0.) { gl_Position = vec4(2., 2., 2., 1.); return; }
+    float apx = max(1., floor(uArtPx + .5));          // render-target px per art px
+    float n = pxs ? max(1., floor(size * 2. + .5)) : max(1., floor(size * 2. * uPxK / cp.w / apx + .5));
+    float wpx = n * apx;
+    vec2 c = (cp.xy / cp.w * .5 + .5) * uRT;
+    vec2 lo = floor(c - wpx * .5 + .5);
+    vec2 ndc = (lo + corner * wpx) / uRT * 2. - 1.;
+    gl_Position = vec4(ndc * cp.w, cp.z, cp.w);
+    return;
+  }
   float rot = aSz.z + aSz.w * age;
   vec2 q = corner * 2. - 1.;
   float cs = cos(rot), sn = sin(rot);
   vec2 qr = vec2(q.x * cs - q.y * sn, q.x * sn + q.y * cs);
   vec3 w = p + (uCamRight * qr.x + uCamUp * qr.y) * size;
-  vQ = corner;
-  vec3 col = mix(aC0.rgb, aC1.rgb, k);
-  float a = mix(aPh.w, aC0.w, k);
-  if (aC1.w > .5) a *= sin(3.14159 * k);
-  vC = vec4(col, a);
-  vUv = aUv; vMode = aPh.z; vWorld = p;
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.);
 }`;
 
@@ -67,10 +139,12 @@ varying vec4 vC;
 varying vec4 vUv;
 varying float vMode;
 varying vec3 vWorld;
+varying float vD;
 void main(){
   if (vC.a <= 0.002) discard;
   vec3 col = vC.rgb; float a = vC.a;
   vec2 dp = floor(gl_FragCoord.xy);
+  if (vD < 1. && bayer4(dp) >= vD) discard;     // ordered-dither fade-out (settled grains and ramp particles)
   if (vMode < .5) {                       // soft round glow, dithered to 5 steps
     float r = length(vQ * 2. - 1.);
     if (r >= 1.) discard;
@@ -92,6 +166,20 @@ void main(){
 const rnd = (a, b) => a + Math.random() * (b - a);
 const num = (v, d) => (v == null ? d : Array.isArray(v) ? rnd(v[0], v[1]) : v);
 
+/** Time (from birth) at which a particle starting at height z0 with vertical speed vz, gravity g (<0 falls) and drag d reaches height G; -1 = never within T. */
+function landTime(z0, vz, g, d, G, T) {
+  if (z0 <= G) return 0;
+  if (d < 1e-3) {
+    if (g < -1e-6) { const D = vz * vz - 2 * g * (z0 - G); return (-vz - Math.sqrt(D)) / g; }
+    return vz < -1e-6 ? (z0 - G) / -vz : -1;
+  }
+  const zf = (t) => z0 + g * (t / d) + (vz - g / d) * ((1 - Math.exp(-d * t)) / d);
+  if (zf(T) > G) return -1;
+  let a = 0, b = T;
+  for (let i = 0; i < 14; i++) { const m = (a + b) * 0.5; if (zf(m) > G) a = m; else b = m; }
+  return b;
+}
+
 export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
   const geo = new THREE.InstancedBufferGeometry();
   geo.setAttribute('corner', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
@@ -99,13 +187,15 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
   geo.setIndex([0, 1, 2, 0, 2, 3]);
   const data = new Float32Array(POOL * STRIDE);
   const buf = new THREE.InstancedInterleavedBuffer(data, STRIDE, 1); buf.setUsage(THREE.DynamicDrawUsage);
-  const names = ['aP0', 'aV0', 'aSz', 'aPh', 'aC0', 'aC1', 'aUv'];
+  const names = ['aP0', 'aV0', 'aSz', 'aPh', 'aC0', 'aC1', 'aUv', 'aG'];
   names.forEach((n, i) => geo.setAttribute(n, new THREE.InterleavedBufferAttribute(buf, 4, i * 4)));
   geo.instanceCount = POOL;
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e7);
+  const rampData = new Float32Array(RAMP_NAMES.length * 15);
+  RAMP_NAMES.forEach((n, i) => RAMPS[n].forEach((c, j) => rampData.set(c, i * 15 + j * 3)));
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    uniforms: { ...uniforms, tAtlas: { value: atlas.texture } },
+    uniforms: { ...uniforms, tAtlas: { value: atlas.texture }, uRamp: { value: rampData } },
   });
   const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 20; mesh.name = 'particles';
   scene.add(mesh);
@@ -119,30 +209,56 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
   }
 
   let head = 0, live = 0, now = 0, spawnedFrame = 0, dirtyFrom = -1, dirtyTo = -1;
-  const total = { spawned: 0 };
+  const total = { spawned: 0, thinned: 0 };
   const emitters = [];
   const scale = { v: 1 };      // global density multiplier (setting "particles")
+  let win = 0, density = 1;    // decayed spawn counter -> density (1 = full, <1 = thin new non-keep particles so the ring never eats live ones)
+  let gx = 1e9, gy = 1e9, gz = 0;
+  const ground = (x, y) => {     // terrain height with a tiny memo (bursts spawn clustered)
+    if (!heightAt) return 0;
+    if (Math.abs(x - gx) < 30 && Math.abs(y - gy) < 30) return gz;
+    gx = x; gy = y; gz = heightAt(x, y); return gz;
+  };
 
   function mark(i) { if (dirtyFrom < 0) { dirtyFrom = i; dirtyTo = i + 1; } else { if (i < dirtyFrom) dirtyFrom = i; if (i + 1 > dirtyTo) dirtyTo = i + 1; } }
 
   /** Write one particle. Position/velocity in WORLD coords (x east, y north, z up); stored as three coords. */
   function put(x, y, z, vx, vy, vz, o) {
+    if (density < 1 && !o.keep && Math.random() > density) { total.thinned++; return; }
+    win++;
     const i = head; head = (head + 1) % POOL;
     if (head === 0) { /* wrapped: a single dirty span would cover the whole pool; flush the pair as two ranges */ flushRange(); }
     const b = i * STRIDE;
-    const life = num(o.life, 1);
-    const mode = o.mode === 'stamp' || o.stamp ? 2 : o.mode === 'square' ? 1 : 0;
+    const pxMode = o.px != null;
+    let mode = o.mode === 'stamp' || o.stamp ? 2 : o.mode === 'square' || (pxMode && !o.mode) ? 1 : 0;
     const uv = mode === 2 ? stampUv(o.stamp || 'p_spark') : null;
-    const s0 = num(o.size0 != null ? o.size0 : o.size, 12), s1 = num(o.size1 != null ? o.size1 : o.size0 != null ? o.size0 : o.size, s0);
-    const c0 = o.col0 || o.col || [1, 1, 1], c1 = o.col1 || c0;
+    const g = o.gravity == null ? 0 : o.gravity, drag = o.drag || 0;
+    let s0, s1;
+    if (pxMode) { s0 = num(o.px, 1); s1 = o.px1 != null ? num(o.px1, s0) : s0; }
+    else { s0 = num(o.size0 != null ? o.size0 : o.size, 12); s1 = num(o.size1 != null ? o.size1 : o.size0 != null ? o.size0 : o.size, s0); }
+    // ground settling
+    const settle = o.settle != null ? !!o.settle : g < 0 && mode !== 0;
+    let life = num(o.life, 1), flags = pxMode ? 2 : 0, gy0 = 0, tl = -1;
+    if (settle) {
+      flags |= 1;
+      const G = ground(x, y) + GROUND_EPS; gy0 = G;
+      tl = landTime(z, vz, g, drag, G, MAX_LIFE);
+      if (tl >= 0) {
+        if (g < 0 && (o.bounce != null ? o.bounce : mode === 1 && Math.random() < 0.3)) flags |= 4;
+        const want = tl + num(o.linger, [0.35, 0.9]);
+        if (want > life) life = Math.min(want, Math.max(life, MAX_LIFE));
+      }
+    }
+    const ramp = o.ramp != null ? RAMP_ID[o.ramp] : undefined;
+    const c0 = o.col0 || o.col || [1, 1, 1], c1 = ramp != null ? (o.rampTint || [1, 1, 1]) : (o.col1 || c0);
     data[b] = x; data[b + 1] = z; data[b + 2] = -y; data[b + 3] = now + (o.delay || 0);
     data[b + 4] = vx; data[b + 5] = vz; data[b + 6] = -vy; data[b + 7] = life;
-    const sz = mode === 2 ? s0 * 0.5 : s0 * 0.5;
-    data[b + 8] = sz; data[b + 9] = s1 * 0.5; data[b + 10] = num(o.rot, 0); data[b + 11] = num(o.spin, 0);
-    data[b + 12] = o.gravity == null ? 0 : o.gravity; data[b + 13] = o.drag || 0; data[b + 14] = mode; data[b + 15] = o.a0 == null ? 1 : o.a0;
+    data[b + 8] = s0 * 0.5; data[b + 9] = s1 * 0.5; data[b + 10] = num(o.rot, 0); data[b + 11] = num(o.spin, 0);
+    data[b + 12] = g; data[b + 13] = drag; data[b + 14] = mode; data[b + 15] = o.a0 == null ? 1 : o.a0;
     data[b + 16] = c0[0]; data[b + 17] = c0[1]; data[b + 18] = c0[2]; data[b + 19] = o.a1 == null ? 0 : o.a1;
     data[b + 20] = c1[0]; data[b + 21] = c1[1]; data[b + 22] = c1[2]; data[b + 23] = o.env ? 1 : 0;
     if (uv) { data[b + 24] = uv[0]; data[b + 25] = uv[1]; data[b + 26] = uv[2]; data[b + 27] = uv[3]; } else { data[b + 24] = 0; data[b + 25] = 0; data[b + 26] = 1; data[b + 27] = 1; }
+    data[b + 28] = gy0; data[b + 29] = flags; data[b + 30] = ramp != null ? ramp : -1; data[b + 31] = tl;
     mark(i);
     if (live < POOL) live++;
     spawnedFrame++; total.spawned++;
@@ -153,7 +269,6 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
     buf.needsUpdate = true; dirtyFrom = -1; dirtyTo = -1;
   }
 
-  const TMP = [0, 0, 0];
   function dirVec(o) {
     const d = o.dir || [0, 0, 1];
     let l = Math.hypot(d[0], d[1], d[2]) || 1;
@@ -211,6 +326,8 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
     /** advance emitters; time = renderer clock (the same value as uTime) */
     update(dt, time) {
       now = time;
+      win *= Math.exp(-dt / 1.5);
+      density = win > BUDGET ? BUDGET / win : 1;
       for (let i = emitters.length - 1; i >= 0; i--) {
         const e = emitters[i], o = e.o;
         if (!e.alive) { emitters.splice(i, 1); continue; }
@@ -218,7 +335,7 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
         e.t += dt;
         if (o.duration != null && e.t > o.duration) { e.alive = false; continue; }
         e.acc += (o.rate || 20) * scale.v * dt;
-        let n = Math.floor(e.acc); e.acc -= n; if (n > 400) n = 400;
+        let n = Math.floor(e.acc); e.acc -= n; if (n > 600) n = 600;
         for (let k = 0; k < n; k++) spawn(o, e.x, e.y, e.z);
       }
     },
@@ -228,8 +345,11 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
     get time() { return now; },
     get emitterCount() { return emitters.length; },
     get spawned() { return total.spawned; },
+    get thinned() { return total.thinned; },
+    get density() { return density; },
+    get pressure() { return win / BUDGET; },     // 1 = thinning starts
     get capacity() { return POOL; },
-    clear() { data.fill(0); buf.addUpdateRange(0, data.length); buf.needsUpdate = true; emitters.length = 0; live = 0; },
+    clear() { data.fill(0); buf.addUpdateRange(0, data.length); buf.needsUpdate = true; emitters.length = 0; live = 0; win = 0; density = 1; },
     dispose() { geo.dispose(); mat.dispose(); },
   };
   // first upload: whole buffer
@@ -251,13 +371,13 @@ export function createAmbient(particles, getHeight) {
           if (Math.random() < 0.85) particles.spawn({ x, y, z, life: [4, 9], size0: [10, 16], size1: 10, col0: [2.6, 3.2, 0.7], col1: [0.8, 2.2, 0.3], a0: 1, a1: 1, env: true, speed: [4, 14], gravity: 0, drag: 0.4, mode: 'glow', jitter: 6, delay: 0 });
           else particles.spawn({ x, y, z: z - 40, life: [6, 11], size0: [3, 5], size1: 3, col0: [0.5, 1.6, 1.8], col1: [0.2, 0.6, 0.8], a0: 1, a1: 1, env: true, speed: [3, 9], drag: 0.2, mode: 'glow', flat: true });
         } else {
-          particles.spawn({ x, y, z, life: [5, 10], size0: [5, 9], size1: 6, col0: [1.0, 0.92, 0.7], col1: [0.8, 0.75, 0.55], a0: 1, a1: 1, env: true, speed: [2, 8], drag: 0.3, mode: 'square', jitter: 3 });
+          particles.spawn({ x, y, z, life: [5, 10], size0: [5, 9], size1: 6, col0: [1.0, 0.92, 0.7], col1: [0.8, 0.75, 0.55], a0: 1, a1: 1, env: true, speed: [2, 8], drag: 0.3, mode: 'square', jitter: 3, keep: true });
         }
       }
       let m = Math.floor(accL); accL -= m; if (m > 6) m = 6;
       for (let i = 0; i < m; i++) {
         const x = cx + rnd(-halfW, halfW), y = cy + rnd(-halfH, halfH);
-        particles.spawn({ x, y, z: getHeight(x, y) + rnd(120, 260), life: [5, 9], size0: 16, size1: 16, col0: [0.45, 0.62, 0.28], col1: [0.5, 0.55, 0.25], a0: 0.9, a1: 0.9, vel: [rnd(15, 40), rnd(-15, 15), 0], speed: 0, gravity: -9, drag: 0.5, spin: rnd(-2, 2), stamp: 'p_leaf', rot: rnd(0, 6) });
+        particles.spawn({ x, y, z: getHeight(x, y) + rnd(120, 260), life: [5, 9], size0: 16, size1: 16, col0: [0.45, 0.62, 0.28], col1: [0.5, 0.55, 0.25], a0: 0.9, a1: 0.9, vel: [rnd(15, 40), rnd(-15, 15), 0], speed: 0, gravity: -9, drag: 0.5, spin: rnd(-2, 2), stamp: 'p_leaf', rot: rnd(0, 6), settle: false, keep: true });
       }
     },
   };

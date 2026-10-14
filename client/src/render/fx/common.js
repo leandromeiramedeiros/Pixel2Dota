@@ -29,6 +29,9 @@ export const PAL = {
   smoke: { hot: [0.7, 0.66, 0.62], mid: [0.45, 0.42, 0.4], low: [0.18, 0.17, 0.17], dim: [0.1, 0.1, 0.1], lt: [0.6, 0.55, 0.5] },
 };
 // Overdraw of many additive HDR particles saturates to white; keep cores around 3-4 and volume colours around 2-3.
+// stepped cooling ramp per palette (particles.js RAMPS): every pixel spark steps hot -> cold through it
+const RAMP_OF = { fire: 'fire', sun: 'holy', ice: 'ice', volt: 'volt', arc: 'arcane', dark: 'dark', blood: 'blood', green: 'poison', mana: 'ice', gold: 'holy', steel: 'steel', pink: 'pink', earth: 'earth' };
+for (const k in PAL) { if (RAMP_OF[k]) PAL[k].ramp = RAMP_OF[k]; }
 for (const k in PAL) { if (k === 'smoke') continue; const p = PAL[k]; p.hot = p.hot.map((v) => v * 0.66); p.mid = p.mid.map((v) => v * 0.8); }
 /** Invoker orbs: Q cyan (Quas), W violet (Wex), E orange (Exort). */
 export const ORB = { Q: { pal: PAL.ice, lt: [0.35, 0.68, 1], frame: 'invoker_orb_q' }, W: { pal: PAL.arc, lt: [0.66, 0.36, 1], frame: 'invoker_orb_w' }, E: { pal: PAL.fire, lt: [1, 0.6, 0.2], frame: 'invoker_orb_e' } };
@@ -148,35 +151,50 @@ export function createCtx(args) {
   };
 
   // ---------------------------------------------------------------------------------------------------------------- particle recipes
+  // Noita look: MANY 1-2 art-px square sparks (stepped cooling ramp) on ballistic arcs that land and settle. Soft 'glow' is only for small light cores.
+  // Recipe counts are in "old units": each recipe multiplies them (sparks x6, embers x6, blob x5, pillar x2.5 ...) so call sites stay readable.
   const burst = (d, o) => { if (o) Object.assign(d, o); P.burst(d); return d; };
   const gmode = 'glow';
+  const PXD = [0.8, 2];     // art px size range (rounded to whole art pixels in the shader: about 60% 1 px, 40% 2 px)
+  const K = (o, k) => (o && o.count != null ? Object.assign({}, o, { count: Math.round(o.count * k) }) : o);
+  /** Pixel-spark spawn options for a palette: square 1-2 art px, stepped cooling ramp (pal.ramp). o overrides. */
+  c.pix = (pal, o) => Object.assign({ mode: 'square', px: PXD, ramp: pal.ramp, col0: pal.hot, col1: pal.low, a0: 1, a1: 0 }, o);
+  /** Small soft glow core (light blob). */
+  c.core = (x, y, z, pal, o) => burst({ x, y, z, count: 3, life: [0.15, 0.35], size0: [16, 26], size1: 4, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: 0, mode: gmode, noScale: true }, o);
 
-  /** Glowing spherical pop. */
-  c.blob = (x, y, z, pal, o) => burst({ x, y, z, count: 30, shape: 'sphere', radius: 10, life: [0.3, 0.8], size0: [22, 40], size1: 5, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, speed: [60, 240], drag: 3, up: 40, mode: gmode }, o);
-  /** Flat shock ring that ends at radius R (o.R). */
+  /** Spark pop: a small glow core and a ball of ballistic sparks. */
+  c.blob = (x, y, z, pal, o) => { c.core(x, y, z, pal); return burst(c.pix(pal, { x, y, z, count: 150, shape: 'sphere', radius: 10, life: [0.5, 1.1], speed: [60, 300], gravity: -420, drag: 1.2, up: 60 }), K(o, 5)); };
+  /** Flat shock ring that ends at radius R (o.R): a ring of 1-2 px sparks (cooling as they expand). */
   c.ring = (x, y, z, pal, o) => {
     const R = (o && o.R) || 120, life = (o && o.life) || [0.5, 0.8], drag = (o && o.drag) || 3;
     const lm = Array.isArray(life) ? (life[0] + life[1]) / 2 : life;
     const sp = R * drag / (1 - Math.exp(-drag * lm));
-    return burst({ x, y, z: z + 4, count: Math.max(24, Math.round(R * 0.5)), shape: 'ring', radius: 8, life, size0: [14, 22], size1: 6, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [sp * 0.92, sp * 1.08], flat: true, drag, mode: gmode }, o);
+    return burst(c.pix(pal, { x, y, z: z + 4, count: Math.max(60, Math.round(R * 1.4)), shape: 'ring', radius: 8, life, speed: [sp * 0.92, sp * 1.08], flat: true, drag, settle: false }), o);
   };
-  c.embers = (x, y, z, pal, o) => burst({ x, y, z, count: 30, shape: 'sphere', radius: 8, life: [0.6, 1.4], size0: 9, size1: 3, col0: pal.hot, col1: pal.low, a0: 1, a1: 0, speed: [120, 420], gravity: -480, up: 180, drag: 0.9, stamp: 'p_ember' }, o);
-  c.sparks = (x, y, z, pal, o) => burst({ x, y, z, count: 24, shape: 'sphere', radius: 6, life: [0.25, 0.6], size0: 10, size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [120, 380], gravity: -300, drag: 1, stamp: 'p_spark' }, o);
+  /** Embers: sparks thrown up and out that fall, land and cool on the ground. */
+  c.embers = (x, y, z, pal, o) => burst(c.pix(pal, { x, y, z, count: 180, shape: 'sphere', radius: 8, life: [0.6, 1.3], speed: [120, 420], gravity: -480, up: 180, drag: 0.9, px: [0.8, 2.4], linger: [0.6, 1.6] }), K(o, 6));
+  /** Sparks: faster, brighter, shorter. */
+  c.sparks = (x, y, z, pal, o) => burst(c.pix(pal, { x, y, z, count: 144, shape: 'sphere', radius: 6, life: [0.35, 0.8], speed: [120, 400], gravity: -520, drag: 1, px: [0.8, 1.8] }), K(o, 6));
   c.smoke = (x, y, z, o, pal) => { const p = pal || PAL.smoke; return burst({ x, y, z, count: 14, shape: 'sphere', radius: 12, life: [0.9, 1.8], size0: [30, 48], size1: [70, 100], col0: p.mid, col1: p.low, a0: 0.8, a1: 0, speed: [20, 90], up: [10, 60], gravity: 30, drag: 1.5, mode: gmode }, o); };
-  /** Vertical column (disc radius o.radius, o.up speed). */
-  c.pillar = (x, y, z, pal, o) => burst({ x, y, z: z + 2, count: 120, shape: 'disc', radius: 50, life: [0.5, 1.0], size0: [18, 30], size1: 12, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [0, 20], up: [700, 2200], drag: 1.4, mode: gmode }, o);
-  c.shards = (x, y, z, pal, o) => burst({ x, y, z, count: 26, shape: 'sphere', radius: 8, life: [0.6, 1.2], size0: [16, 26], size1: 10, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [160, 420], up: [60, 240], gravity: -380, drag: 1.4, stamp: 'p_shard_ice', spin: [-6, 6], rot: [0, TAU] }, o);
-  c.stars = (x, y, z, pal, o) => burst({ x, y, z, count: 10, shape: 'sphere', radius: 14, life: [0.5, 1.1], size0: [10, 18], size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [40, 160], gravity: -60, drag: 1.2, stamp: 'p_star', spin: [-4, 4] }, o);
+  /** Vertical column of rising sparks (disc radius o.radius, o.up speed). */
+  c.pillar = (x, y, z, pal, o) => burst(c.pix(pal, { x, y, z: z + 2, count: 300, shape: 'disc', radius: 50, life: [0.5, 1.0], speed: [0, 20], up: [700, 2200], drag: 1.4, settle: false }), K(o, 2.5));
+  /** Ice-like debris: shard sprites that land and settle, plus a spray of sparks in the same ramp. */
+  c.shards = (x, y, z, pal, o) => {
+    const d = burst({ x, y, z, count: 26, shape: 'sphere', radius: 8, life: [0.6, 1.2], size0: [16, 26], size1: 10, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [160, 420], up: [60, 240], gravity: -380, drag: 1.4, stamp: 'p_shard_ice', spin: [-6, 6], rot: [0, TAU] }, o);
+    c.sparks(x, y, z, pal, { count: Math.max(4, Math.round(d.count * 0.4)), speed: [100, 380] });
+    return d;
+  };
+  c.stars = (x, y, z, pal, o) => burst({ x, y, z, count: 10, shape: 'sphere', radius: 14, life: [0.5, 1.1], size0: [10, 18], size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [40, 160], gravity: -60, drag: 1.2, stamp: 'p_star', spin: [-4, 4], settle: false }, o);
   c.dust = (x, y, z, o, pal) => { const p = pal || PAL.earth; return burst({ x, y, z: z + 4, count: 20, shape: 'disc', radius: 20, life: [0.5, 1.1], size0: [20, 34], size1: [40, 66], col0: p.low, col1: p.dim, a0: 0.8, a1: 0, speed: [30, 140], flat: true, up: 14, drag: 2.2, mode: gmode }, o); };
   c.leaves = (x, y, z, o) => burst({ x, y, z, count: 14, shape: 'sphere', radius: 14, life: [0.9, 1.8], size0: 14, size1: 12, col0: [0.9, 1.2, 0.45], col1: [0.6, 0.9, 0.3], a0: 0.95, a1: 0.4, speed: [60, 190], up: [40, 160], gravity: -170, drag: 1.2, stamp: 'p_leaf', spin: [-5, 5], rot: [0, TAU] }, o);
-  /** Flash: bright glow and a short light. */
+  /** Flash: bright glow core and a short light. */
   c.flash = (x, y, z, pal, size, dur) => {
-    P.burst({ x, y, z, count: 3, life: [dur || 0.18, (dur || 0.18) * 1.5], size0: size, size1: size * 1.8, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: gmode, noScale: true });
+    P.burst({ x, y, z, count: 3, life: [dur || 0.18, (dur || 0.18) * 1.5], size0: size * 0.75, size1: size * 1.4, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: gmode, noScale: true });
     c.glow(x, y, z, pal.lt, Math.min(560, size * 5 + 80), 1.5, (dur || 0.18) * 3, { mode: 'fade' });
   };
-  /** Line of glow along a→b (o.count density, o.width). */
-  c.line = (x0, y0, z0, x1, y1, z1, pal, o) => burst({ x: x0, y: y0, z: z0, x2: x1, y2: y1, z2: z1, count: Math.max(8, Math.round(Math.hypot(x1 - x0, y1 - y0) * 0.5)), shape: 'line', life: [0.2, 0.5], size0: [14, 24], size1: 4, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [0, 30], mode: gmode }, o);
-  /** Jagged lightning a→b. */
+  /** Line of pixel sparks along a->b (o.count density). */
+  c.line = (x0, y0, z0, x1, y1, z1, pal, o) => burst(c.pix(pal, { x: x0, y: y0, z: z0, x2: x1, y2: y1, z2: z1, count: Math.max(16, Math.round(Math.hypot(x1 - x0, y1 - y0) * 0.45)), shape: 'line', life: [0.2, 0.5], speed: [0, 30], settle: false }), o);
+  /** Jagged lightning a->b: pixel sparks along every segment plus the bolt sprites. */
   c.bolt = (x0, y0, z0, x1, y1, z1, pal, o) => {
     o = o || {};
     const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0), segs = Math.max(3, Math.min(9, Math.round(len / 90))), jit = o.jag == null ? Math.min(60, len * 0.12) : o.jag;
@@ -188,8 +206,8 @@ export function createCtx(args) {
       let qx = x0 + (x1 - x0) * k, qy = y0 + (y1 - y0) * k, qz = z0 + (z1 - z0) * k;
       if (i < segs) { const j = rnd(-jit, jit); qx += nx * j; qy += ny * j; qz += rnd(-jit, jit) * 0.5; }
       const segLen = Math.hypot(qx - px, qy - py, qz - pz);
-      P.burst({ x: px, y: py, z: pz, x2: qx, y2: qy, z2: qz, count: Math.max(6, Math.round(segLen * 0.5)), shape: 'line', life: [0.1, 0.32], size0: [12 * thick, 22 * thick], size1: 3, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [0, 30], mode: gmode });
-      P.burst({ x: px, y: py, z: pz, x2: qx, y2: qy, z2: qz, count: Math.max(1, Math.round(segLen / 36)), shape: 'line', life: [0.1, 0.22], size0: [26 * thick, 38 * thick], size1: 16, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, stamp: 'p_bolt_' + ((Math.random() * 3) | 0), speed: [0, 20], rot: [0, TAU] });
+      P.burst(c.pix(pal, { x: px, y: py, z: pz, x2: qx, y2: qy, z2: qz, count: Math.max(10, Math.round(segLen * 0.7)), shape: 'line', life: [0.1, 0.34], px: [0.8, 1.8 * thick], speed: [0, 40], settle: false }));
+      P.burst({ x: px, y: py, z: pz, x2: qx, y2: qy, z2: qz, count: Math.max(1, Math.round(segLen / 60)), shape: 'line', life: [0.1, 0.22], size0: [26 * thick, 38 * thick], size1: 16, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, stamp: 'p_bolt_' + ((Math.random() * 3) | 0), speed: [0, 20], rot: [0, TAU] });
       px = qx; py = qy; pz = qz;
     }
     if (!o.noLights) {
@@ -210,16 +228,16 @@ export function createCtx(args) {
     return c.run(dur, (rec, dt) => {
       const u = unitById(id); if (!u) return false;
       if (u.visible === false) return;
-      const n = c.n(rate * dt), z0 = u.z || 0;
+      const n = c.n(rate * 2.5 * dt), z0 = u.z || 0;
       for (let i = 0; i < n; i++) {
         const a = c.T * spd + (i / Math.max(1, n)) * TAU + Math.random() * 0.6, hk = Math.random();
         const rr = r0 * (o.cone ? 0.4 + 0.6 * (1 - hk) : 1);
-        P.spawn({ x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr, z: z0 + h0 + (h1 - h0) * hk, life: [0.45, 0.9], size0: size, size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: gmode, stamp: o.stamp,
-          vel: [-Math.sin(a) * r0 * spd * 0.8, Math.cos(a) * r0 * spd * 0.8, 0], speed: 0, up: o.up == null ? 40 : o.up, drag: 1.2 });
+        P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr, z: z0 + h0 + (h1 - h0) * hk, life: [0.45, 0.9], stamp: o.stamp, px: [0.8, 1.8], settle: false,
+          vel: [-Math.sin(a) * r0 * spd * 0.8, Math.cos(a) * r0 * spd * 0.8, 0], speed: 0, up: o.up == null ? 40 : o.up, drag: 1.2 }));
       }
     });
   };
-  c.rise = (x, y, z, pal, o) => burst({ x, y, z, count: 20, shape: 'disc', radius: 40, life: [0.8, 1.6], size0: [8, 14], size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, speed: [0, 20], up: [60, 160], drag: 0.6, mode: gmode }, o);
+  c.rise = (x, y, z, pal, o) => burst(c.pix(pal, { x, y, z, count: 80, shape: 'disc', radius: 40, life: [0.8, 1.6], speed: [0, 20], up: [60, 160], drag: 0.6, settle: false }), K(o, 4));
 
   c.unitPos = (id) => { const u = unitById(id); return u || null; };
   /** world→{x,y} from an event: explicit x,y, else target unit, else source unit. */

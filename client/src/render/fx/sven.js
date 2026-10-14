@@ -64,8 +64,8 @@ export function register(c, R) {
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
       if (u.visible === false || !c.vis(u.x, u.y)) return;
-      const n = c.n(30 * dt), zz = u.z || 0;
-      for (let i = 0; i < n; i++) P.spawn({ x: u.x + rnd(-20, 20), y: u.y + rnd(-12, 12), z: zz + rnd(10, 170), life: [0.25, 0.5], size0: [8, 14], size1: 2, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', speed: [0, 20], up: [30, 100] });
+      const n = c.n(100 * dt), zz = u.z || 0;
+      for (let i = 0; i < n; i++) P.spawn(c.pix(pal, { x: u.x + rnd(-20, 20), y: u.y + rnd(-12, 12), z: zz + rnd(10, 170), life: [0.25, 0.5], speed: [0, 20], up: [30, 100] }));
       if (Math.random() < dt * 4) { const a = rnd(0, TAU); c.bolt(u.x, u.y, zz + rnd(60, 150), u.x + Math.cos(a) * 55, u.y + Math.sin(a) * 40, zz + rnd(10, 140), pal, { jag: 10, noLights: true, thick: 0.6 }); }
       if (r.t < 1.2) c.lightNow(u.x, u.y, zz + 110, pal.lt, 380, 1.4 * (1 - r.t / 1.2), 0);
     });

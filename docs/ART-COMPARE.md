@@ -1,5 +1,7 @@
 # Art direction: InvokerTrainer vs Pixel2Dota
 
+> **Superseded (2026-10-14).** The creative director rejected the trainer-matched v1 look ("the art looks ugly, the bloom is too strong"). The current brief is [ART-DIRECTION.md](ART-DIRECTION.md) (The Last Night + Noita, 3D buildings). This page is kept as a record of the v1 tuning.
+
 Reference frames (all in [shots/](shots/)):
 - Trainer, live captures from InvokerTrainer free play:
   - [trainer-ref-day.jpg](shots/trainer-ref-day.jpg): mid lane in daylight.
