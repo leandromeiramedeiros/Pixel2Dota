@@ -30,7 +30,5 @@
 - v3 next (after verdicts): 8-dir 2x sprites for the other 12 heroes (spec in tools/art/heroes/lina.mjs); remaining ~37 spells to 3D fx; richer spell icons; unit sprites casting shadows
 - Pudge / Mirana / Rubick use stand-in bodies (BODY_STANDIN in render/actors.js) and have no portraits yet
 - Fog of war quite dark
-- Lobby footer below the fold on short screens
-- Scoreboard overlap at HUD scale 2
 - Weak sniper_headshot and gold icons
 - Neutrals/Roshan/wards (server/src/sim/neutrals.js, wards.js): no neutral abilities, single Roshan pit, no HUD ward stock display; sentry true sight 1050 and observer restock 135 s are the baked values

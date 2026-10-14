@@ -158,16 +158,16 @@ const CSS = `
 .h-ctx div { padding:3u 4u 2u; cursor:pointer; } .h-ctx div:hover { background:#2a2312; color:var(--gold); } .h-ctx div.dis { color:#5a6278; cursor:not-allowed; }
 
 /* ---------- scoreboard ---------- */
-.h-sb { position:absolute; left:50%; top:40u; transform:translateX(-50%); width:344u; display:none; padding:4u; gap:3u; flex-direction:column; }
+.h-sb { position:absolute; left:50%; top:38u; transform:translateX(-50%); width:344u; display:none; padding:4u; gap:3u; flex-direction:column; }
 .h-sb.open { display:flex; }
 .h-sb .tm { display:flex; flex-direction:column; gap:1u; }
 .h-sb .th { display:grid; grid-template-columns:14u 1fr 14u 44u 36u 42u; gap:2u; align-items:center; padding:2u 3u; font-size:7u; }
 .h-sb .th.hd { color:var(--dim); } .h-sb .th.rad .n { color:var(--rad); } .h-sb .th.dire .n { color:var(--dire); }
-.h-sb .th.row { background:#0d1119; height:14u; }
+.h-sb .th.row { background:#0d1119; height:13u; }
 .h-sb .th.row.me { box-shadow:inset 0 0 0 1u var(--gold); }
 .h-sb .th.row.dead { opacity:.6; }
 .h-sb .th .k { font-family:'Press Start 2P',monospace; font-size:5u; text-align:right; }
-.h-sb .th .n { overflow:hidden; white-space:nowrap; text-overflow:clip; }
+.h-sb .th .n { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .h-sb .th canvas { display:block; }
 .h-sb .ttl { font-size:9u; display:flex; justify-content:space-between; padding:0 3u; }
 .h-sb .ttl.rad { color:var(--rad); } .h-sb .ttl.dire { color:var(--dire); }

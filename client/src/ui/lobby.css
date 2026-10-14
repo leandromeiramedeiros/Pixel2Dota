@@ -78,11 +78,20 @@
 .lb-msg b { color:#9fc0ff; }
 .lb-msg.sys { color:var(--gold); }
 .lb-msg.self b { color:#b5ffc8; }
-.lb-foot { display:flex; align-items:center; gap:12px; justify-content:flex-end; }
+.lb-foot { display:flex; align-items:center; gap:12px; justify-content:flex-end; position:sticky; bottom:-16px; z-index:2; margin:0 -20px -20px; padding:10px 20px; background:#10141e; box-shadow:0 -2px 0 #1d2538; }   /* always reachable: pinned to the bottom of the scrolling root */
 .lb-hint { color:var(--dim); font-size:12px; margin-right:auto; }
 .lb-foot .lb-hint:first-child { margin:0 auto 0 0; }
 .lb-start { padding:10px 26px; font-size:14px; }
 
+/* short screens (laptops at 720-900 px): compact slots and hero cards so the room fits without scrolling */
+@media (max-height:900px) and (min-width:721px) {
+  .lb-brand { margin:1vh 0 8px; } .lb-brand h1 { font-size:24px; } .lb-brand p { display:none; }
+  .lb-room { gap:10px; padding:14px; } .lb-foot { margin:0 -14px -14px; padding:8px 14px; }
+  .lb-slot { height:36px; } .lb-team { gap:4px; padding:8px; }
+  .lb-grid { grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; }
+  .lb-hero { padding:4px 2px; gap:2px; } .lb-pt3 { width:48px; height:63px; }
+  .lb-log { max-height:150px; min-height:90px; } .lb-chat { min-height:0; }
+}
 @media (max-width:720px) {
   .lb-teams, .lb-bottom { grid-template-columns:1fr; }
   .lb-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
