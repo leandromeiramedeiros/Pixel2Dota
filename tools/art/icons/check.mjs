@@ -23,7 +23,7 @@ function checkSheet(name, sh, size) {
 
 const icons = await imp('client/src/art/sheets/icons.js');
 const fx = await imp('client/src/art/sheets/fx.js');
-checkSheet('icons', icons, 20); checkSheet('fx', fx, 0);
+checkSheet('icons', icons, 40); checkSheet('fx', fx, 0);
 
 const { HEROES } = await import(pathToFileURL(path.join(ROOT, 'shared/heroes.js')).href);
 const need = new Set(['gold', 'lock', 'empty', 'attr_str', 'attr_agi', 'attr_int', 'attr_all', 'skillpoint', 'item_recipe']);

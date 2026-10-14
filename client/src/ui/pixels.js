@@ -4,6 +4,9 @@
 //   paintInto(el, def, key, scale)      -> repaint an existing canvas
 //   frameURL(def, key, scale, crop?)    -> data URL
 // Sheet format: { pal:{ch:'#rrggbb[aa]'}, frames:{key:[rows]} }, '.' transparent.
+// Icon sheet frames are ICON_PX x ICON_PX (2x density: 40px). Icons keep their on-screen size: CSS (e.g. 20 * var(--u)) sets the display size,
+// the canvas bitmap is just ICON_PX so every icon pixel is half as big on screen as it used to be.
+export const ICON_PX = 40;
 const cache = new Map();
 let uid = 0;
 const ids = new WeakMap();

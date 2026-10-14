@@ -129,7 +129,7 @@ Same ASCII format as the trainer: `export default { pal: {ch: '#rrggbb'|'#rrggbb
 - Optional emissive: a second palette map `emit: { ch: strength }` for glowing pixels (eyes, orbs, weapons) — renderer boosts those into HDR for bloom.
 - World: `tiles.js` (terrain tile atlas frames), `trees.js`, `buildings.js` (tower_radiant/dire, rax_melee/ranged per team, ancient per team, fountain, shop), `creeps.js`, `icons.js` (ability + item icons 16x16 or 24x24), `fx.js` (projectiles, small particle stamps).
 - Generators live in `tools/art/*.mjs`; generated files say so in their header.
-- `icons.js`: 20x20, keys = ability keys, `item_*` keys, `gold lock empty attr_str|agi|int|all skillpoint item_recipe`. `fx.js`: NO anchor — centre fx frames on their own w/h. Projectiles point +x (rotate to travel dir); multi-frame = `key`, `key_1`, `key_2`...; tint-friendly white stamps: p_spark p_ember p_snow p_smoke_0..3 p_ring p_star p_bolt_0..2 p_leaf p_glow p_hit_0..3 (p_coin / p_shard_ice keep colour); decals decal_scorch decal_frost decal_ring_target.
+- `icons.js`: 40x40 (2x density: 1px outline + 1px bevel + 36x36 art; the HUD still shows them at the old size via CSS, see `ICON_PX` in `ui/pixels.js`), keys = ability keys, `item_*` keys, `gold lock empty attr_str|agi|int|all skillpoint item_recipe`. `fx.js`: NO anchor — centre fx frames on their own w/h. Projectiles point +x (rotate to travel dir); multi-frame = `key`, `key_1`, `key_2`...; tint-friendly white stamps: p_spark p_ember p_snow p_smoke_0..3 p_ring p_star p_bolt_0..2 p_leaf p_glow p_hit_0..3 (p_coin / p_shard_ice keep colour); decals decal_scorch decal_frost decal_ring_target.
 
 ## Client code interfaces
 ```

@@ -7,7 +7,7 @@ import { injectStyle, hudScale } from './style.js';
 import {
   fmtClock, fmtCd, fmtRespawn, fmtGold, fmtNum, fmtRegen, fmtBar, clamp01, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText,
 } from './format.js';
-import { pixelEl, paintInto } from './pixels.js';
+import { pixelEl, paintInto, ICON_PX } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
 import { heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo } from './targeting.js';
 import { inShopRange, sellValue } from './shopdata.js';
@@ -168,7 +168,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       const slot = h('div', 'h-slot');
       const learn = h('div', 'h-learn', '+');
       const ico = h('div', 'h-ico');
-      const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = 20;
+      const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = ICON_PX;
       const sweep = h('div', 'h-sweep'), cdt = h('div', 'h-cdt'), key = h('div', 'h-key', letters[i] || ''), mc = h('div', 'h-mc');
       ico.append(cv, sweep, cdt, key, mc);
       const pips = h('div', 'h-pips');
@@ -194,7 +194,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       if (!ab) continue;
       if (s.key !== ab.key) {
         s.key = ab.key;
-        if (icons) { if (!paintInto(s.cv, icons, ab.key, 1)) { const g = s.cv.getContext('2d'); g.clearRect(0, 0, 20, 20); } }
+        if (icons) { if (!paintInto(s.cv, icons, ab.key, 1)) { const g = s.cv.getContext('2d'); g.clearRect(0, 0, s.cv.width, s.cv.height); } }
         const n = pipCount(ab.key); if (n !== s.pipN) {
           s.pipN = n; s.pips.textContent = '';
           for (let k = 0; k < n; k++) s.pips.append(h('div', 'h-pip'));
@@ -235,7 +235,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
 
   for (let i = 0; i < INV_SLOTS; i++) {
     const el = h('div', 'h-is'); el.draggable = true;
-    const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = 20;
+    const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = ICON_PX;
     const sweep = h('div', 'h-sweep'), cdt = h('div', 'h-cdt'), key = h('div', 'h-key', ITEM_LETTERS[i]), ch = h('div', 'h-ch');
     el.append(cv, sweep, cdt, key, ch); inv.append(el);
     const s = { el, cv, sweep, cdt, ch, key: '' };
@@ -430,7 +430,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
         const k = it && it.key ? it.key : '';
         if (s.key !== k) {
           s.key = k;
-          const g = s.cv.getContext('2d'); g.clearRect(0, 0, 20, 20);
+          const g = s.cv.getContext('2d'); g.clearRect(0, 0, s.cv.width, s.cv.height);
           if (k && icons) paintInto(s.cv, icons, k, 1);
           itemSeen[i] = k ? { key: k, t: state.time } : null;
         }

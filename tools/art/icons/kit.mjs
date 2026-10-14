@@ -1,5 +1,7 @@
-// Tiny pixel-art toolkit for 20x20 framed icons. Glyphs are drawn in a 16x16 box (0..15) inside the frame.
+// Tiny pixel-art toolkit for framed icons. Legacy glyphs: 20x20 frame, 16x16 art box. HD glyphs ("2x density"): 40x40 frame, 36x36 art box.
+// Every Glyph carries its own size (new Glyph(theme, 40)); the frame is always 1px dark outline + 1px bevel + art box at offset 2.
 export const S = 20, GB = 16, OFF = 2;
+export const HD_S = 40;
 export const OUT = '#06060c';
 const key = (x, y) => (y + 8) * 64 + (x + 8);
 const unkey = k => [(k & 63) - 8, (k >> 6) - 8];
@@ -37,7 +39,7 @@ export const THEMES = {   // bg bands [top, mid, bottom], bevel [light, dark]
 const FR = '#08080e';
 
 export class Glyph {
-  constructor(theme) { this.theme = THEMES[theme]; this.col = new Map(); this.sil = new Set(); this.top = new Map(); this.bgx = new Map(); this.outline = true; }
+  constructor(theme, size = S) { this.S = size; this.GB = size - 4; this.OFF = OFF; this.theme = THEMES[theme]; this.col = new Map(); this.sil = new Set(); this.top = new Map(); this.bgx = new Map(); this.outline = true; }
   // ---- masks
   static ell(cx, cy, rx, ry) { const s = new Set(); for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) { const a = (x - cx) / rx, b = (y - cy) / ry; if (a * a + b * b <= 1.0) s.add(key(x, y)); } return s; }
   static rect(x0, y0, x1, y1) { const s = new Set(); for (let y = Math.round(y0); y <= Math.round(y1); y++) for (let x = Math.round(x0); x <= Math.round(x1); x++) s.add(key(x, y)); return s; }
@@ -54,7 +56,7 @@ export class Glyph {
   static sub(a, ...bs) { const s = new Set(a); for (const b of bs) for (const k of b) s.delete(k); return s; }
   static and(a, b) { const s = new Set(); for (const k of a) if (b.has(k)) s.add(k); return s; }
   static move(m, dx, dy) { const s = new Set(); for (const k of m) { const [x, y] = unkey(k); s.add(key(x + dx, y + dy)); } return s; }
-  static flip(m) { const s = new Set(); for (const k of m) { const [x, y] = unkey(k); s.add(key(15 - x, y)); } return s; }
+  static flip(m, w = 16) { const s = new Set(); for (const k of m) { const [x, y] = unkey(k); s.add(key(w - 1 - x, y)); } return s; }
   // ---- painting
   paint(mask, ramp, mode = 'e', o = {}) {
     if (typeof ramp === 'string') ramp = R[ramp];
@@ -62,7 +64,7 @@ export class Glyph {
     for (const k of mask) { const [x, y] = unkey(k); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = (x1 - x0) / 2 + 0.8, ry = (y1 - y0) / 2 + 0.8;
     for (const k of mask) {
-      const [x, y] = unkey(k); if (x < 0 || y < 0 || x >= GB || y >= GB) continue;
+      const [x, y] = unkey(k); if (x < 0 || y < 0 || x >= this.GB || y >= this.GB) continue;
       const u = mask.has(key(x, y - 1)), l = mask.has(key(x - 1, y)), d = mask.has(key(x, y + 1)), r = mask.has(key(x + 1, y));
       let c;
       if (mode === 'f') c = ramp[o.lv ?? 1];
@@ -85,12 +87,12 @@ export class Glyph {
   line(x0, y0, x1, y1, ramp, w = 1, mode = 'f') { return this.paint(Glyph.line(x0, y0, x1, y1, w), ramp, mode); }
   poly(pts, ramp, mode = 'e') { return this.paint(Glyph.poly(pts), ramp, mode); }
   ring(cx, cy, r0, r1, ramp, mode = 'e') { return this.paint(Glyph.ring(cx, cy, r0, r1), ramp, mode); }
-  soft(mask, hex) { for (const k of mask) { const [x, y] = unkey(k); if (x >= 0 && y >= 0 && x < GB && y < GB) this.top.set(k, hex); } return this; }  // not in silhouette, drawn on top
-  dot(x, y, hex) { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < GB && y < GB) this.top.set(key(x, y), hex); return this; }
+  soft(mask, hex) { for (const k of mask) { const [x, y] = unkey(k); if (x >= 0 && y >= 0 && x < this.GB && y < this.GB) this.top.set(k, hex); } return this; }  // not in silhouette, drawn on top
+  dot(x, y, hex) { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < this.GB && y < this.GB) this.top.set(key(x, y), hex); return this; }
   dots(list, hex) { for (const [x, y] of list) this.dot(x, y, hex); return this; }
   spark(x, y, hex = '#ffffff', big = false) { this.dot(x, y, hex); this.dot(x - 1, y, hex); this.dot(x + 1, y, hex); this.dot(x, y - 1, hex); this.dot(x, y + 1, hex); if (big) { this.dot(x - 2, y, hex); this.dot(x + 2, y, hex); this.dot(x, y - 2, hex); this.dot(x, y + 2, hex); } return this; }
   halo(cx, cy, r, hex) { // soft glow into background (dithered levels)
-    for (let y = 0; y < GB; y++) for (let x = 0; x < GB; x++) { const d = Math.hypot(x - cx, y - cy) / r; if (d >= 1) continue; const t = 1 - d; let lv = t > 0.66 ? 3 : t > 0.4 ? 2 : t > 0.18 ? 1 : 0;
+    for (let y = 0; y < this.GB; y++) for (let x = 0; x < this.GB; x++) { const d = Math.hypot(x - cx, y - cy) / r; if (d >= 1) continue; const t = 1 - d; let lv = t > 0.66 ? 3 : t > 0.4 ? 2 : t > 0.18 ? 1 : 0;
       for (const th of [0.66, 0.4, 0.18]) if (Math.abs(t - th) < 0.07) lv = ((x + y) & 1) ? lv : Math.max(0, lv - 1);
       if (lv > 0) this.bgx.set(key(x, y), [hex, lv / 4.2]); }
     return this; }
@@ -103,14 +105,16 @@ export class Glyph {
     for (let i = 0; i + 1 < pts.length; i++) this.soft(Glyph.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 1), core); return this; }
   // ---- compose to 20x20 array of hex|null
   render() {
-    const T = this.theme, out = Array.from({ length: S }, () => Array(S).fill(null));
+    const T = this.theme, S = this.S, GB = this.GB, out = Array.from({ length: S }, () => Array(S).fill(null));
     const mix = (a, b, t) => { const pa = [1, 3, 5].map(i => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map(i => parseInt(b.slice(i, i + 2), 16)); return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       if ((x === 0 || x === S - 1) && (y === 0 || y === S - 1)) continue;
       if (x === 0 || y === 0 || x === S - 1 || y === S - 1) { out[y][x] = FR; continue; }
       if (x === 1 || y === 1 || x === S - 2 || y === S - 2) { const lit = (y === 1 && x < S - 2) || (x === 1 && y < S - 2); out[y][x] = lit ? T.bev[0] : T.bev[1]; continue; }
-      const gx = x - OFF, gy = y - OFF; let b = gy < 5 ? 0 : gy < 11 ? 1 : 2;
-      if ((gy === 5 || gy === 11) && ((gx + gy) & 1)) b--; if ((gy === 4 || gy === 10) && ((gx + gy) & 1)) b++;
+      const gx = x - OFF, gy = y - OFF; let b;
+      if (S === 20) { b = gy < 5 ? 0 : gy < 11 ? 1 : 2;
+        if ((gy === 5 || gy === 11) && ((gx + gy) & 1)) b--; if ((gy === 4 || gy === 10) && ((gx + gy) & 1)) b++; }
+      else b = gy < GB * 5 / 16 ? 0 : gy < GB * 11 / 16 ? 1 : 2;   // HD: flat bands, no dither
       out[y][x] = T.bg[Math.max(0, Math.min(2, b))];
     }
     for (const [k, [hex, a]] of this.bgx) { const [gx, gy] = unkey(k); const o = out[gy + OFF]?.[gx + OFF]; if (o) out[gy + OFF][gx + OFF] = mix(o, hex, a); }
@@ -144,13 +148,47 @@ Object.assign(THEMES, {
 
 // Hand-placed 16x16 pixel art. rows = 16 strings, map: char -> '#hex' (painted + outlined, like any shape)
 // or ['#hex'] (soft: drawn on top, never outlined -- glows, streaks, background rays). '.' / unmapped = untouched.
-export function pix(g, rows, map) {
-  if (process.env.PIXLEN) rows.forEach((r, y) => { if ([...r].length !== 16) console.warn(`pix row ${y} has ${[...r].length} chars: ${r}`); });
+// HD: pix(g, rows, map, x0, y0) stamps a patch whose top-left lands on art-box pixel (x0, y0); without x0/y0 rows must span the whole box.
+export function pix(g, rows, map, x0 = 0, y0 = 0) {
+  const W = g.GB - x0;
+  if (process.env.PIXLEN && x0 === 0) rows.forEach((r, y) => { if ([...r].length !== g.GB) console.warn(`pix row ${y} has ${[...r].length} chars: ${r}`); });
   const solid = {}, soft = {};
-  rows.forEach((r, y) => [...r].slice(0, 16).forEach((c, x) => { const m = map[c]; if (!m) return; (Array.isArray(m) ? (soft[m[0]] ||= []) : (solid[m] ||= [])).push([x, y]); }));
+  rows.forEach((r, y) => [...r].slice(0, W).forEach((c, x) => { const m = map[c]; if (!m) return; (Array.isArray(m) ? (soft[m[0]] ||= []) : (solid[m] ||= [])).push([x + x0, y + y0]); }));
   for (const [h, pts] of Object.entries(solid)) g.paint(Glyph.pts(pts), [h, h, h, h], 'f');
   for (const [h, pts] of Object.entries(soft)) g.dots(pts, h);
   return g;
 }
 Object.assign(THEMES, { sun: { bg: ['#f2c458', '#d49424', '#8e5c14'], bev: ['#fff4b0', '#3a2006'] } });   // Gods Strength: blazing gold
 Object.assign(THEMES, { coal: { bg: ['#3c120c', '#22080a', '#10040a'], bev: ['#ff9a60', '#0a0204'] } });   // Blade Fury / Omni Slash: near-black red
+
+// ---- HD (40x40) helpers: hard-edged flat planes, no dither. Masks use art-box coordinates 0..35.
+Object.assign(Glyph, {
+  // pixels of m whose neighbour at (dx, dy) lies outside m (rim light / shade edge)
+  rim(m, dx, dy) { const s = new Set(); for (const k of m) { const [x, y] = unkey(k); if (!m.has(key(x + dx, y + dy))) s.add(k); } return s; },
+  grow(m, n = 1) { let s = m; for (let i = 0; i < n; i++) { const t = new Set(s); for (const k of s) { const [x, y] = unkey(k); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) t.add(key(x + dx, y + dy)); } s = t; } return s; },
+  shrink(m, n = 1) { let s = m; for (let i = 0; i < n; i++) { const t = new Set(); for (const k of s) { const [x, y] = unkey(k); if ([[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => s.has(key(x + dx, y + dy)))) t.add(k); } s = t; } return s; },
+  // stroke along a quadratic bezier p0 -> p2 (control p1) with radius tapering r0 -> r1
+  taper(p0, p1, p2, r0, r1) { const s = new Set(); const n = 60; for (let i = 0; i <= n; i++) { const t = i / n, a = (1 - t) * (1 - t), b = 2 * t * (1 - t), c = t * t;
+      const x = a * p0[0] + b * p1[0] + c * p2[0], y = a * p0[1] + b * p1[1] + c * p2[1], r = r0 + (r1 - r0) * t;
+      for (let yy = Math.floor(y - r); yy <= Math.ceil(y + r); yy++) for (let xx = Math.floor(x - r); xx <= Math.ceil(x + r); xx++) if (Math.hypot(xx - x, yy - y) <= r + 0.01) s.add(key(xx, yy)); } return s; },
+  // multi-segment line (w px thick, square brush)
+  path(pts, w = 1) { const s = new Set(); for (let i = 0; i + 1 < pts.length; i++) for (const k of Glyph.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w)) s.add(k); return s; },
+  has(m, x, y) { return m.has(key(x, y)); },
+  list(m) { return [...m].map(unkey); },
+});
+Object.assign(Glyph.prototype, {
+  // flat colour; sil=true joins the outlined silhouette, false keeps whatever silhouette membership the pixel already has, null leaves the silhouette
+  fill(mask, hex, sil = false) { for (const k of mask) { const [x, y] = unkey(k); if (x < 0 || y < 0 || x >= this.GB || y >= this.GB) continue; this.col.set(k, hex); if (sil === true) this.sil.add(k); else if (sil === null) this.sil.delete(k); } return this; },
+  // erase colour (back to the themed background) for a mask
+  clear(mask) { for (const k of mask) { this.col.delete(k); this.sil.delete(k); this.top.delete(k); } return this; },
+  // directional hard bands: ramp[0..3] = light..dark, light comes from (lx, ly) (unit-ish), cuts split the lit value; no dither
+  bands(mask, ramp, lx = -0.6, ly = -0.8, cuts = [0.55, 0.05, -0.45], sil = true) {
+    let x0 = 99, x1 = -99, y0 = 99, y1 = -99; for (const k of mask) { const [x, y] = unkey(k); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = (x1 - x0) / 2 + 0.8, ry = (y1 - y0) / 2 + 0.8;
+    for (const k of mask) { const [x, y] = unkey(k); if (x < 0 || y < 0 || x >= this.GB || y >= this.GB) continue;
+      const v = -(lx * (x - cx) / rx + ly * (y - cy) / ry); const lv = v > cuts[0] ? 0 : v > cuts[1] ? 1 : v > cuts[2] ? 2 : 3;
+      this.col.set(k, ramp[lv]); if (sil) this.sil.add(k); }
+    return this; },
+  // stamp a patch of pixel rows at (x0, y0) of the art box; map char -> '#hex' (solid, in silhouette) | ['#hex'] (top layer, not outlined)
+  stamp(rows, map, x0 = 0, y0 = 0) { return pix(this, rows, map, x0, y0); },
+});

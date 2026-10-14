@@ -9,7 +9,7 @@
 import { MSG, ORDER, TEAM, ST, KIND } from '../../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
 import { GLYPHS } from './glyphs.js';
-import { pixelEl, paintInto } from './pixels.js';
+import { pixelEl, paintInto, ICON_PX } from './pixels.js';
 import { fmtCd, sweepDeg, prettyName } from './format.js';
 import { h } from './panels.js';
 import {
@@ -283,7 +283,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   // ---- ability / item buttons
   let abBtns = [], abKey = '';
   const itBtns = [];
-  const mkIcon = () => { const cv = h('canvas', 'px t-ico'); cv.width = cv.height = 20; return cv; };
+  const mkIcon = () => { const cv = h('canvas', 'px t-ico'); cv.width = cv.height = ICON_PX; return cv; };
   for (let i = 0; i < 6; i++) {
     const el = h('div', 't-btn t-it empty');
     const cv = mkIcon(), sweep = h('div', 't-sweep'), cdt = h('div', 't-cdt'), key = h('div', 't-key', ITEM_LETTERS[i]), ch = h('div', 't-ch');
@@ -355,7 +355,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (key !== abKey) { abKey = key; buildAbilities(u); }
     for (const b of abBtns) {
       const ab = u.abilities[b.slot]; if (!ab) continue;
-      if (b.k !== ab.key) { b.k = ab.key; if (!(icons && paintInto(b.cv, icons, ab.key, 1))) b.cv.getContext('2d').clearRect(0, 0, 20, 20); }
+      if (b.k !== ab.key) { b.k = ab.key; if (!(icons && paintInto(b.cv, icons, ab.key, 1))) b.cv.getContext('2d').clearRect(0, 0, b.cv.width, b.cv.height); }
       const info = targetInfo('ability', ab.key, ab.level);
       tc(b.el, 'off', ab.level < 1); tc(b.el, 'passive', info.mode === 'passive');
       tc(b.el, 'nomana', ab.level > 0 && u.mana < (ab.mana || 0));
@@ -367,7 +367,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     }
     for (const b of itBtns) {
       const it = u.items[b.slot], k = it && it.key ? it.key : '';
-      if (b.k !== k) { b.k = k; const g = b.cv.getContext('2d'); g.clearRect(0, 0, 20, 20); if (k && icons) paintInto(b.cv, icons, k, 1); }
+      if (b.k !== k) { b.k = k; const g = b.cv.getContext('2d'); g.clearRect(0, 0, b.cv.width, b.cv.height); if (k && icons) paintInto(b.cv, icons, k, 1); }
       tc(b.el, 'empty', !k);
       tc(b.el, 'passive', !!k && targetInfo('item', k, 1).mode === 'passive');
       const cd = !!(it && it.cd > 0.05); tc(b.el, 'cd', cd);
