@@ -212,6 +212,14 @@ float bayer4(vec2 p){
   float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
   return (v + .5) / 16.;
 }
+// hue-preserving roll-off: compress the brightest channel above knee k towards 1 and scale the others with it, so stacked
+// additive colour (fire + frost + arcane) stays coloured instead of clipping channel by channel to white (Noita look)
+vec3 tmHue(vec3 c, float k){
+  float m = max(c.r, max(c.g, c.b));
+  if (m <= k) return c;
+  float t = k + (1. - k) * (1. - exp(-(m - k) / (1. - k)));
+  return mix(c * (t / m), vec3(t), smoothstep(3., 10., m) * .25);   // only extreme cores whiten a little
+}
 void main(){
   // v2 look (docs/ART-DIRECTION.md): tilt-shift DOF, bloom normalised + screen-composited, low-key exposure, teal shadows /
   // warm highlights, water SSR, light scatter in the haze, far (top) of the frame dissolves into tinted haze.
@@ -243,11 +251,12 @@ void main(){
   c = mix(vec3(l), c, 1. - .38 * far);
   c = mix(c * vec3(.72, .95, 1.), c, smoothstep(.15, .7, l));
   c += vec3(.05, .025, -.02) * smoothstep(.45, 1., l);
-  vec3 b = texture2D(tBloom, vUv).rgb * (.2 * bx);
+  vec3 b = texture2D(tBloom, vUv).rgb * (.14 * bx);   // subtle bloom (art refs: The Last Night, Noita)
   vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
   float hz = smoothstep(.4, 1., vUv.y) * .55;
   c = mix(c, haze + b * .6, hz);
   // light scatter in the haze: soft halo around the strongest on-screen lights, screen-composited (the directional shafts are cone meshes, beams.js)
+  c = tmHue(c, .7);   // before the screen composites below (they clamp to 1 and would clip each channel)
   if (uRays > .001 && uGN > 0) {
     float asp = uOut.x / uOut.y;
     vec3 sct = vec3(0.);
@@ -260,15 +269,14 @@ void main(){
       float halo = 1. / (1. + r * r * 5.) * (1. - smoothstep(1.2, 2.2, r));
       sct += uGC[i] * halo;
     }
-    sct *= uRays * mix(.35, 1.1, uNight) * mix(.75, 1.1, vUv.y);
+    sct *= uRays * mix(.35, 1.1, uNight) * mix(.75, 1.1, vUv.y) * ex;
     c = 1. - (1. - min(c, 1.)) * (1. - min(sct, vec3(.95)));
     c += max(sct - .95, 0.) * .2;
   }
   c += b * uBloom * (1. - min(c, 1.));
-  vec3 bb = min(b, vec3(1.5)); c += bb * bb * .15;   // bounded: a stacked core must not add unbounded white
+  vec3 bb = min(b, vec3(1.)); c += bb * bb * .1;   // bounded: a stacked core must not add unbounded white
   // soft knee above 0.85 so HDR highlights roll off instead of clipping
-  vec3 hi = max(c - .85, 0.);
-  c = min(c, vec3(.85)) + .15 * (1. - exp(-hi / .15));
+  c = tmHue(c, .85);
   vec2 q = vUv - .5;
   float v = 1. - uVig * smoothstep(.25, .95, dot(q, q) * 2.2);
   c *= v;
