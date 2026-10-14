@@ -28,3 +28,13 @@ Buildings become simple 3D meshes. Sprite buildings resize unevenly and look wro
 3. **Particles:** crisp 1-art-pixel squares by default. Colour cools along a stepped ramp (white, yellow, orange, red, dark). Particles fall under gravity, land on the terrain and linger briefly as cooling grains. Spells spawn many small sparks rather than a few big soft blobs. Soft glow blobs are used only for small cores and very faint haze.
 4. **Buildings:** simple low-poly 3D meshes with flat or vertex colour, lit by the same lights as the scene (ambient, key light, point lights, rim, fog). They render into the same low-res target, so they pixelate exactly like the terrain. Emissive parts (crystals, windows, braziers) feed the bloom and act as practical lights.
 5. **Gameplay readability:** units, HP bars and spell telegraphs stay readable over the darker grade.
+
+## Hero reference (creative director: "ITS BEAUTIFUL")
+
+The reference is a The Last Night street frame: a character on a bridge, a hover-car with yellow headlights, a neon city behind, and a wet street in front. What to copy from it:
+- **Atmospheric perspective:** distant things dissolve into teal-green haze. Contrast and saturation fall off with depth. For us, the far (top) part of the screen fades into tinted haze.
+- **Volumetric beams:** warm yellow light cones cut through the haze from practical lights. For us: towers, the fountain, the ancient, lanterns and spells.
+- **Wet reflective ground:** light sources reflect in the foreground as blurred, coloured bokeh discs. For us: river and water tiles first, then rain-wet lanes at night.
+- **Depth of field:** the foreground (bottom of the screen) and the far background are soft, and the gameplay band in the middle stays crisp. This is a tilt-shift band on our angled camera.
+- **Palette:** teal and green ambient against saturated warm yellow and orange, with magenta and cyan neon accents. Emissive colours are the only fully saturated colours.
+- **Pixels stay crisp in the gameplay band.** The lighting and atmosphere are smooth and high-resolution over them.
