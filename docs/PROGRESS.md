@@ -26,7 +26,7 @@
 - Bot-only matches are slow (~45-50 min); bots push buildings timidly
 - Invoker bot levels slowly
 - Art v2 awaiting creative-director verdict (docs/ART-DIRECTION.md; shots docs/shots/v2-final-*.jpg)
-- Art v2 leftovers: Sun Strike impact blows out white; ramp/stair tiles still old striped art; no directional beam cones; water bokeh is glints not discs
+- Art v2 leftovers: Sun Strike impact blows out white; ramp/stair tiles still old striped art; no directional beam cones; water bokeh is glints not discs; Dire broadleaf canopies read as flat blue blobs at night (v2-final-dire-night.jpg); unexplored fog at night is near-black (v2-final-forest-night-fog.jpg)
 - Fog of war quite dark
 - Lobby footer below the fold on short screens
 - Scoreboard overlap at HUD scale 2
