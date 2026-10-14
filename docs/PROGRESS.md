@@ -33,4 +33,4 @@
 - Lobby footer below the fold on short screens
 - Scoreboard overlap at HUD scale 2
 - Weak sniper_headshot and gold icons
-- Neutrals/Roshan/wards (server/src/sim/neutrals.js, wards.js): no neutral abilities, single Roshan pit, no ward/Aegis icons, no HUD ward stock display; sentry true sight 1050 and observer restock 135 s are the baked values
+- Neutrals/Roshan/wards (server/src/sim/neutrals.js, wards.js): no neutral abilities, single Roshan pit, no HUD ward stock display; sentry true sight 1050 and observer restock 135 s are the baked values

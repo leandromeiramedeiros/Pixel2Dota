@@ -203,6 +203,30 @@ export const ITEMS = {
     g.rect(4.5, 6.4, 10.5, 8.8, R.gold, 'e'); g.ell(7.5, 7.6, 1.3, 1.3, R.red, 'g'); g.dot(7, 7, W);
     g.spark(2, 4, '#ffe48a'); g.spark(13, 11, '#ffe48a');
   }],
+  item_ward_observer: ['gold', g => {   // golden eye totem on a stake
+    g.line(7.5, 9, 7.5, 15, R.wood, 2, 'h'); g.rect(5, 14, 10, 15, R.brown, 'f', { lv: 2 });
+    g.halo(7.5, 6, 7, '#fff0a0');
+    g.ell(7.5, 6, 5.6, 4.4, R.gold, 'g');
+    g.ell(7.5, 6, 3.4, 2.4, R.bone, 'g'); g.ell(7.5, 6, 1.6, 2, R.orange, 'g');
+    g.dots([[7, 6], [8, 6], [7, 5], [8, 5]], '#3a1a04'); g.dot(6, 4, W);
+    g.dots([[2, 3], [13, 3], [2, 9], [13, 9]], R.gold[3]);
+  }],
+  item_ward_sentry: ['ice', g => {   // blue true-sight eye totem
+    g.line(7.5, 9, 7.5, 15, R.wood, 2, 'h'); g.rect(5, 14, 10, 15, R.brown, 'f', { lv: 2 });
+    g.halo(7.5, 6, 7, '#b4ceff');
+    g.ell(7.5, 6, 5.6, 4.4, R.blue, 'g');
+    g.ell(7.5, 6, 3.4, 2.4, R.ice, 'g'); g.ell(7.5, 6, 1.6, 2, R.cyan, 'g');
+    g.dots([[7, 6], [8, 6], [7, 5], [8, 5]], '#0c1a48'); g.dot(6, 4, W);
+    g.spark(13, 12, '#d8f8ff'); g.spark(2, 1, '#d8f8ff');
+  }],
+  item_aegis: ['gold', g => {   // Aegis of the Immortal: gilded shield, red gem
+    g.halo(7.5, 8, 8, '#ffe48a');
+    g.poly([[1.5, 2], [13.5, 2], [13.5, 8], [7.5, 15], [1.5, 8]], R.gold, 'g');
+    g.poly([[4, 4], [11, 4], [11, 8], [7.5, 12], [4, 8]], R.steel, 'g');
+    g.paint(G.line(7.5, 4, 7.5, 12, 1), R.gold, 'f', { lv: 2 });
+    g.ell(7.5, 7, 1.8, 1.8, R.red, 'g'); g.dot(7, 6, W);
+    g.dots([[2, 2], [13, 2]], R.gold[0]); g.spark(13, 13, '#fff4a8');
+  }],
   item_recipe: ['gold', g => {
     g.poly([[2, 2], [11, 2], [14, 5], [14, 14], [2, 14]], R.bone, 'x'); g.poly([[11, 2], [11, 5], [14, 5]], R.leather, 'x');
     g.dots([[4, 6], [5, 6], [6, 6], [7, 6], [4, 8], [5, 8], [6, 8], [4, 10], [5, 10], [6, 10], [7, 10], [8, 10], [9, 10], [4, 12], [5, 12], [6, 12]], '#8c5c34');
