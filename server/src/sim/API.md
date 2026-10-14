@@ -1,0 +1,104 @@
+# Sim internal API (for abilities / items / bots agents)
+
+Pure JS, no colyseus. `import { World } from './world.js'`. Time unit = seconds, `dt = 1/30`. Coordinates: world units, x east, y north.
+Source of truth for the wire format is `shared/protocol.js`; for numbers `shared/constants.js` + `w.data` (shared/data.js).
+
+## World
+
+```js
+const w = new World({ seed, data?, pregame?, buildings? })  // buildings:false => empty arena (unit tests); data => inject fake DATA
+w.addHero({ pid, team, heroKey, bot, name, slot, isHost, connected }) -> hero unit
+w.order(pid, o) -> bool            // player order (wire shape, see below); w.orderUnit(u, o) pushes straight to a unit (bots, summons)
+w.step(dt = 1/30)                  // no-op once w.winner >= 0
+w.drainEvents() -> [ev]            // EV.* objects, clears the buffer
+w.units  Map<id,unit>   w.players Map<pid,player>   w.time (starts at -PREGAME)   w.tick   w.night   w.winner (-1 | TEAM)   w.treesDown Set<i>
+w.towers w.rax w.forts[team] w.fountains[team] w.buildings w.shops[team] = [{x,y},..]   w.waveNo
+w.rand() w.randInt(a,b)            // seeded; ALWAYS use these, never Math.random
+w.after(sec, fn)                   // one-shot timer, fn(w) called at the end of the first tick with time >= now+sec
+```
+
+Orders (`o`): `{t:'move',x,y,q?}` `{t:'attack',id,q?}` `{t:'amove',x,y,q?}` `{t:'stop'}` `{t:'hold'}`
+`{t:'cast',slot,id?,x?,y?,q?}` `{t:'item',slot,id?,x?,y?,q?}` `{t:'learn',slot}` `{t:'buy',item}` `{t:'sell',slot}` `{t:'swap',a,b}`.
+`q` = shift-queue (max 8). `learn/buy/sell/swap` apply immediately and return success.
+
+## Queries (all use the start-of-tick spatial grid; edge distance includes unit radius)
+
+```js
+opts = { dead:false, buildings:false?, heroes?, team?, enemyOf?: unit, allyOf?: unit, exclude?: unit, filter?: fn }
+w.unitsInRadius(x, y, r, opts) -> [unit]
+w.unitsInLine(x1, y1, x2, y2, width, opts)
+w.unitsInCone(x, y, dir, len, angleRad, opts)
+w.unitsInTrapezoid(x, y, dir, len, w0, w1, opts)     // cleave shape
+w.nearestUnit(x, y, r, opts) -> unit | null
+w.treesInRadius(x, y, r) -> [treeIdx]    w.cutTree(i)   // regrows after TREE_REGROW; navmesh updated
+```
+Blink/teleported units become visible to queries next tick. Invulnerable / dead / hidden units are filtered by default.
+
+## Effects
+
+```js
+w.damage(src, tgt, amount, 'phys'|'mag'|'pure', info?) -> dealt     // armor / magic resist / lifesteal hooks / kill handled
+   info: { attack, crit, ability:'key', dot, pierce, silent, noKill }   // INVULN blocks all; MAGIC_IMMUNE blocks non-phys unless pierce
+w.heal(tgt, amount, src?) -> healed        w.restoreMana(tgt, amount)
+w.addModifier(tgt, def) -> mod | null      // null when blocked (magic immune / invuln / building for debuffs unless def.pierce)
+w.removeModifier(tgt, key, srcId?, reason?)   w.hasModifier(tgt,key)   w.getModifier(tgt,key)   w.dispel(tgt, {strong?, buffs?, debuffs?})
+w.interrupt(u, clearQueue?)                // ends channel + cast windup
+w.killUnit(victim, killer, info?)
+w.knockback(u, { dir | dx,dy, dist, speed, onEnd? })    // force move; interrupts
+w.teleport(u, x, y)   w.blink(u, x, y)     // blink also emits EV.BLINK; caller checks range
+w.spawnSummon(owner, { key, x, y, hp, armor, dmgMin, dmgMax, atkRange, bat, projSpeed, ms, radius, dur, vision, kind?, think?(w,u,dt), noAttack?, noCollide? }) -> unit
+w.emit({e: EV.X, ...})   // or helpers from events.js (evBlink, evMsg, ...)
+```
+
+Modifier def:
+```js
+{ key, src: unit|id, dur: seconds (omit = permanent), debuff?: bool (default: src is an enemy),
+  status: ST.STUN|ST.ROOT|ST.SILENCE|..., stack?: 'unique' | 'stack' (+maxStacks), purge?: 'basic'|'strong'|'none', fade?: s,
+  // stat bonuses (summed): ms msPct as armor dmg str agi int mr hpRegen manaRegen hp mana range
+  dot?: { dps, interval=1, type='mag' },
+  aura?: { radius, interval=0.25, team:'enemy'|'ally', self?, def:{...modifier def...}, buildings? },
+  onTick(w,u,m,dt), onExpire(w,u,m,reason) }
+```
+Same key from the same source refreshes (unless `stack:'unique'` = one per key globally; `'stack'` adds a stack). Slows: the strongest negative `msPct` wins.
+
+## Projectiles
+
+```js
+// tracking (homes on tgt):
+w.spawnProjectile({ src, tgt, speed, k:'fx_key', onHit(w, p, tgtUnit) {...}, onEnd? })
+// linear (each unit hit at most once; enemies only unless hitAllies; pierce:true keeps flying, otherwise it ends on the first unit hit or at `range`):
+w.spawnProjectile({ src, x2, y2 | dir, range, speed, radius, pierce:true, hitAllies?, filter?(u), onHit(w, p, unit), onEnd(w,p), k })
+```
+Emits EV.PROJ / EV.PROJ_END (client draws it) unless `silent:true`. `p.data` is free for your state.
+
+## Abilities (`abilities/<short>.js`)
+
+Default export `{ [abilityKey]: handler }`; allowed imports: `shared/*` and `../events.js` ONLY. See header of `abilities/index.js` for the full hook list.
+`sven.js` is the worked sample (single-target projectile + stun, passive cleave, buff aura-on-cast, self buff).
+```js
+w.val('key', 'valueName', level)    // per-level value from DATA ability.values (1-based, clamped)
+w.field('key', 'castRange'|'cooldown'|'manaCost'|..., level)
+w.getAbility(u, 'key') -> ab {key, level, cd, ...}          w.castNow(u, slot, {unit, x, y})   // pays mana + cd, skips range/castpoint
+```
+Cast flow (orders.js `doCast`): validate (`canCast`, mana, cd, handler.canCast) -> walk into `castRange` -> face -> `castPoint` windup (interruptible by stun/stop) -> `executeAbility`
+(pay mana + cd, break invis, auto EV.SPELL merged with handler return, start channel if `{channel}` returned).
+Channel: return `{ channel: secs, tick(w,u,ch,dt), end(w,u,ch,interrupted), noInterruptOnOrder? }`.
+Attack hooks get `info = { dmg, final, type, crit, pierce, noCleave }` (mutable in `onAttack`).
+
+## Items (`items.js`) and Bots (`bots.js`)
+
+Stubs with the final export names; replace bodies, keep signatures (documented at file top). Item state: `u.items[i] = {key, charges, cd, cdMax}`; set `u._dirty = true` after changes.
+`useInfo(w,u,slot) -> null | {targeting, range, castPoint, ready, ...}` makes `{t:'item'}` orders work through the same cast flow as abilities.
+Bots: `update(w, dt)` runs once per tick before units think; use `w.order(pid, ...)`; stagger by `(w.tick + slot) % N`.
+
+## Useful unit fields
+
+Public (snapshotted): `id key kind team owner x y facing hp maxHp mana maxMana armor mr ms atkRange level status(ST bits) abilities[] items[]`.
+Private (`_` prefix, never serialized): `_dead _st _mods _tgt _mv _q _wind _kb _channel _dirty _protected _lane _tier _rax _lp _li _nid`.
+Derived stats (`maxHp maxMana armor dmgMin/dmgMax ms atkRange mr ...`) are recomputed by `recalc` whenever `u._dirty`: never assign them (a write is clamped/overwritten); use modifiers, ability `bonus()` hooks, or item `stats`. Only `hp`/`mana` are freely assignable.
+Hero: `xp skillPoints respawn str agi int` (+ `w.players.get(u.owner)`: `gold kills deaths assists lh dn`).
+
+## Rules implemented
+
+Tier protection / ancient win (DECISIONS), fountain heal+invuln, wave every WAVE_EVERY with siege every SIEGE_EVERY, creep aggro/leash, tower targeting, XP split, last-hit gold, kill streak, respawn timers, day/night, tree cutting.
+Not implemented: neutrals, Roshan, mega creeps, backdoor protection, denies on heroes, tower/building bounty (DATA gold = 0), creep stat scaling, item recipes/actives, bots.
