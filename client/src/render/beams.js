@@ -12,12 +12,12 @@ const SEG = 18;
 // Shaft presets. Offsets are from the light position (three-style: world x, y up = world z, z = -world y), signed lengths: negative = down.
 //   y0   start height relative to the light's z; len  signed axis length (world units); r0/r1 radius at the source / far end;
 //   dy   world-y shift to the real fixture (actors.js pulls building lights toward the camera by this much); k brightness gain.
-export const BEAM_KINDS = {
-  tower:    { y0: 0, len: -255, r0: 7, r1: 135, dy: 0, k: 1 },        // team crystal / brazier lamp casts a cone down onto the ground in front
-  lantern:  { y0: 0, len: -150, r0: 5, r1: 56, dy: 0, k: 0.85 },
-  barracks: { y0: 0, len: -165, r0: 5, r1: 64, dy: 0, k: 0.8 },
-  fountain: { y0: 40, len: 420, r0: 40, r1: 14, dy: 0, k: 0.85 },       // spray column rising from the basin
-  ancient:  { y0: 140, len: 520, r0: 52, r1: 12, dy: 200, k: 0.9 },     // beacon shaft rising from the keep top
+export const BEAM_KINDS = {   // fixture heights match buildings3d.js geometry * VSCALE 0.8; dy undoes actors.js pulling the light toward the camera
+  tower:    { y0: 20, len: 260, r0: 16, r1: 5, dy: 130, k: 0.6 },       // thin beacon rising from the team crystal (y 366 * .8); a down cone would wrap the tower body
+  lantern:  { y0: -64, len: -86, r0: 9, r1: 56, dy: 0, k: 0.85 },      // lamp box (y 94..122)
+  barracks: { y0: -10, len: -160, r0: 8, r1: 70, dy: 150, k: 0.8 },    // ridge crystal (y 200)
+  fountain: { y0: -9, len: 400, r0: 34, r1: 12, dy: 0, k: 0.85 },       // spray column rising from the spray head (y 176)
+  ancient:  { y0: 60, len: 520, r0: 52, r1: 12, dy: 200, k: 0.9 },      // beacon shaft rising from the tip of the core (y 340 + 124)
 };
 
 /** Pure: pick a shaft kind for a light, or null. Explicit l.beam (string kind, or a custom preset object) wins. */
@@ -27,7 +27,7 @@ export function beamFor(l) {
   if (R >= 600 && R <= 660 && l.b > l.r) return BEAM_KINDS.fountain;
   if (R >= 550 && R <= 600) return BEAM_KINDS.ancient;
   if (R >= 410 && R <= 450) return BEAM_KINDS.tower;
-  if (R >= 250 && R <= 280) return l.g < 0.66 ? BEAM_KINDS.lantern : BEAM_KINDS.barracks;
+  if (R >= 250 && R <= 280) return l.g < 0.66 ? BEAM_KINDS.lantern : null;   // barracks: a cone through the roof reads wrong, no shaft
   return null;
 }
 
