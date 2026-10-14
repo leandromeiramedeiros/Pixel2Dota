@@ -1,4 +1,4 @@
-// Compact event constructors (contract: docs/ARCHITECTURE.md "Server -> client"). All helpers push to w._ev.
+// Compact event constructors (contract: docs/ARCHITECTURE.md "Messages"). All helpers push to w._ev.
 import { EV } from '../../../shared/protocol.js';
 
 const r1 = (n) => Math.round(n * 10) / 10;

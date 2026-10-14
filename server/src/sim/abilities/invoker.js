@@ -5,7 +5,7 @@
 //   Cooldowns are PER SPELL: while a spell sits in D/F its slot `cd` is the truth (heroTick ticks it); unslotted spells are ticked here.
 //
 // Orb-level rule: an invoked spell's value arrays (9 entries) are indexed by the orb level the same way the orb's own arrays are,
-// i.e. orb level L (1..8) reads entry L-1 (that is what the game files and the trainer do). docs/ARCHITECTURE.md "Wave-2 rules" says
+// i.e. orb level L (1..8) reads entry L-1 (that is what the game files and the trainer do). server/src/sim/API.md "Invoker / Rubick slot rules" says
 // `level = orbLevel + 1` (one entry higher); flip ORB_SHIFT to 1 to follow that text literally. Everything funnels through V().
 import { ST, EV, ABF } from '../../../../shared/protocol.js';
 import { evMsg } from '../events.js';

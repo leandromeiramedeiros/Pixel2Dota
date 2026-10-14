@@ -1,4 +1,4 @@
-// createRenderer({ canvas, sheets }) -> contract in docs/ARCHITECTURE.md ("Client code interfaces").
+// createRenderer({ canvas, sheets }) -> contract: this file (docs/ARCHITECTURE.md "Render systems" for the rules).
 import * as THREE from 'three';
 import { getMap, heightAt } from '../../../shared/map.js';
 import { ART_UNITS_PER_PX, CAMERA } from '../../../shared/constants.js';

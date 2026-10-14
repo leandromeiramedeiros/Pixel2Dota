@@ -1,43 +1,29 @@
-# Art direction v2 (creative director brief, 2026-10-14)
+# Art direction
 
-The creative director's verdict on v1: "the art looks ugly, the bloom is too strong, and I don't see cool particles." The new direction is to take heavy inspiration from two games:
-- The Last Night: https://store.steampowered.com/app/612400/The_Last_Night/
-- Noita: https://store.steampowered.com/app/881100/Noita/
+The user is the creative director: every visual change gets a screenshot and a verdict. Never self-certify visuals.
 
-Buildings become simple 3D meshes. Sprite buildings resize unevenly and look wrong.
+## The look
+- **Base style: "Dota 2 Trainer"** (InvokerTrainer, `reference/trainer/`): chunky pixel sprites with a 1-px dark outline and 4-tone shading, pixel HUD in
+  the Trainer palette (dark purple panels, gold/pink frames), orb colours Quas cyan / Wex magenta / Exort orange, 9-level Bayer-quantised lighting on
+  terrain and sprites, strong rim light on units. The camera is the one deliberate departure: 3D terrain at the Dota distance/pitch, not the Trainer's top-down.
+- **Lighting and particles: The Last Night + Noita.** Low-key frame, cool teal/blue mid-tones, warm practical lights (towers, fountain, ancient, lanterns,
+  spells) with volumetric beams and a faint wide scatter. Bloom is a tight, high-threshold halo on emissive pixels only; **no whiteouts** (adaptive
+  exposure + hue-preserving roll-off, see ARCHITECTURE "Pipeline"). Particles are crisp 1-art-pixel squares that fly on arcs, land and cool white -> yellow
+  -> orange -> red -> dark; soft blobs only for small cores and haze. Saturated colour is reserved for emissive things.
+- **3D in the pixel target:** buildings, trees and ground clutter are low-poly flat-shaded meshes rendered into the same low-res target, so they pixelate
+  like the terrain. Spell fx use 3D geometry (tubes, discs, ribbon bolts) plus particles; ground telegraphs are shader discs (`c.ringDecal`), stepped bands, no dither.
+- **Readability first:** units, HP bars and telegraphs stay readable over the dark grade; the gameplay band stays crisp (tilt-shift DoF is minimal at play
+  distance and only ramps up toward the showcase close-up).
 
-## What we take from each reference (from their Steam screenshots)
+## Rules for new art (director, 2026-10-14)
+1. **Bodies:** every new hero body is 8 directions at 2x pixel density from day one (`px: 2`, dirs s/se/e/ne/n, west mirrored), grounded stance, Dota silhouette.
+   Lina is the pilot sheet (`tools/art/heroes/lina.mjs`).
+2. **Portraits and icons:** detailed and close to the Dota 2 portrait / ability / item art (likeness, composition, colour key), painted richer (shading ramps,
+   highlights, texture), still pixel art and readable at HUD size (icons are 20x20 frames; the portrait frame is shown at 32x42 in the HUD).
+3. **Hand-authored only.** Never copy, trace or extract Valve files (models, textures, icons, sounds). Procedural generators in `tools/art/` are the medium.
+4. **Lights, bloom and depth** follow the limits in [ARCHITECTURE.md](ARCHITECTURE.md) "Render systems": big lights only from spells and items, attacks/towers/creeps
+   under the bloom threshold, ground fx as 3D discs at terrain height.
 
-**The Last Night**
-- Low-key frame. Most of the image is dark, and the mid-tones lean cool (teal and blue).
-- Practical lights do the work: warm orange lamps against cool teal and magenta accents.
-- Volumetric haze and light shafts. Light scatters in the air around sources instead of blowing out to white.
-- Wet, reflective ground catches light sources.
-- The bloom is soft and local. It is a halo around a source, not a whole-screen wash.
-
-**Noita**
-- Unlit areas are near-black; emissive sources (fire, spells, lava, torches) provide the light.
-- Particles are single pixels. Explosions throw hundreds of 1-px sparks that fly on ballistic arcs, fall, land, and cool from white to yellow to orange to red to dark before they vanish.
-- Fire and embers flicker pixel by pixel. The glow around sparks is warm and small-radius.
-- Saturated emissive colour against desaturated, dark material colour.
-
-## Rules for Pixel2Dota
-
-1. **Bloom:** a tight, high-threshold glow for emissive pixels only. Atmospheric haze is a separate, faint, wide scatter tinted by the light colour. Nothing goes to flat white except the cores of sparks.
-2. **Grade:** darker base exposure, cool shadows and warm lights. Saturated colour is reserved for emissive things.
-3. **Particles:** crisp 1-art-pixel squares by default. Colour cools along a stepped ramp (white, yellow, orange, red, dark). Particles fall under gravity, land on the terrain and linger briefly as cooling grains. Spells spawn many small sparks rather than a few big soft blobs. Soft glow blobs are used only for small cores and very faint haze.
-4. **Buildings:** simple low-poly 3D meshes with flat or vertex colour, lit by the same lights as the scene (ambient, key light, point lights, rim, fog). They render into the same low-res target, so they pixelate exactly like the terrain. Emissive parts (crystals, windows, braziers) feed the bloom and act as practical lights.
-5. **Trees:** low-poly instanced 3D, lit like the buildings (the creative director: "TREES 3D TOO").
-6. **Terrain:** no hard grid seams. Tiles blend into each other with dithered, pixel-crisp organic edges. Add macro colour variation, cliff lips and cliff ambient occlusion, and shore foam.
-7. **Water:** screen-space reflections (SSR), with bright lights turning into bokeh.
-8. **Gameplay readability:** units, HP bars and spell telegraphs stay readable over the darker grade.
-
-## Hero reference (creative director: "ITS BEAUTIFUL")
-
-The reference is a The Last Night street frame: a character on a bridge, a hover-car with yellow headlights, a neon city behind, and a wet street in front. What to copy from it:
-- **Atmospheric perspective:** distant things dissolve into teal-green haze. Contrast and saturation fall off with depth. For us, the far (top) part of the screen fades into tinted haze.
-- **Volumetric beams:** warm yellow light cones cut through the haze from practical lights. For us: towers, the fountain, the ancient, lanterns and spells.
-- **Wet reflective ground:** light sources reflect in the foreground as blurred, coloured bokeh discs. For us: river and water tiles first, then rain-wet lanes at night.
-- **Depth of field:** the foreground (bottom of the screen) and the far background are soft, and the gameplay band in the middle stays crisp. This is a tilt-shift band on our angled camera.
-- **Palette:** teal and green ambient against saturated warm yellow and orange, with magenta and cyan neon accents. Emissive colours are the only fully saturated colours.
-- **Pixels stay crisp in the gameplay band.** The lighting and atmosphere are smooth and high-resolution over them.
+## Palette anchors
+Grass day ~RGB 43,81,36 (Trainer measured); fire orange-red, ice cyan-white, lightning blue-white, Sun Strike gold; fx palettes in `client/src/render/fx/common.js PAL`.
+Reference frames live in `docs/shots/` (`trainer-ref-*`, `v2-*`, `v3-*`).
