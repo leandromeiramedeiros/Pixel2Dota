@@ -42,11 +42,11 @@ function ward(g, body, iris, bg) {   // tentacle with big eyes
 export const ITEMS = {
   item_tango: ['nature', g => {   // glowing green leaf with three orbs
     g.halo(8, 8, 8, '#a8ff70');
-    g.poly([[0, 13], [2, 8], [5, 5], [7, 1], [9, 4], [13, 2], [15, 6], [15, 10], [11, 14], [5, 15]], LEAF, 'g');
+    g.poly([[0, 13], [3, 9], [4, 4], [7, 6], [9, 1], [11, 6], [14, 4], [15, 9], [12, 13], [6, 15], [2, 15]], LEAF, 'x');
     g.paint(G.line(1, 13, 14, 8, 1), LEAF, 'f', { lv: 3, soft: true });
-    g.paint(G.line(7, 3, 7, 5, 1), LEAF, 'f', { lv: 3, soft: true });
-    g.ell(8, 7, 2, 2, R.teal, 'g'); g.ell(5.5, 11, 2, 2, R.teal, 'g'); g.ell(10.5, 11, 2, 2, R.teal, 'g');
-    g.dots([[7, 6], [5, 10], [10, 10]], '#ffffff'); g.dots([[8, 7], [6, 11], [11, 11]], '#d8fff0');
+    g.paint(G.line(9, 2, 8, 6, 1), LEAF, 'f', { lv: 0, soft: true });
+    g.ell(8, 8, 2, 2, R.teal, 'g'); g.ell(5.5, 11.5, 2, 2, R.teal, 'g'); g.ell(10.5, 11.5, 2, 2, R.teal, 'g');
+    g.dots([[7, 7], [5, 11], [10, 11]], '#ffffff'); g.dots([[8, 8], [6, 12], [11, 12]], '#d8fff0');
   }],
   item_flask: ['item', g => {   // healing salve: round green flask, brown cork
     g.ell(8, 2.6, 2.4, 2.2, R.brown, 'g'); g.dot(7, 1, R.brown[0]);
@@ -197,12 +197,45 @@ export const ITEMS = {
     g.ell(6, 6, 3.6, 3.6, R.blue, 'g'); g.paint(G.ell(7, 7, 2, 2), R.cyan, 'f', { lv: 1, soft: true });
     g.dots([[4, 4], [5, 4], [4, 5]], W); g.poly([[1, 3], [3, 0.5], [3, 3.5]], R.wood, 'x');
   }],
-  item_boots: ['item', g => boot(g, R.leather, R.bone)],
-  item_gloves: ['nature', g => {   // green gauntlet with brown swirls
-    g.poly([[0, 5], [2, 3], [4, 4], [5, 2], [7, 4], [8, 3], [14, 8], [14, 14], [9, 13], [3, 9], [0, 8]], R.green, 'x');
-    g.poly([[0, 5], [2, 3], [4, 4], [5, 2], [7, 4], [4, 6], [1, 7]], R.leather, 'x');
-    g.rect(13, 8, 15, 15, R.leather, 'v'); g.paint(G.line(12, 9, 12, 13, 1), R.leather, 'f', { lv: 3 });
-    g.dots([[6, 7], [7, 7], [8, 8], [9, 9], [9, 10], [8, 11], [10, 11], [11, 10]], '#76421f');
+  item_boots: ['item', g => {   // Boots of Speed: slouchy brown leather boot, stitched cuff, toe to the right
+    pix(g, [
+      '..sssssssss.....',
+      '.sLLLLLLLLLs....',
+      '.dmmLmmmmmmd....',
+      '.dmmmmmmmmmd....',
+      '.dsmsmsmsmsd....',
+      '.dmmmmmmmmmd....',
+      '.dmmmmmmmmmmd...',
+      '.dmmmmmmmmmmmdd.',
+      'dLmmmmmmmmmmmmLd',
+      'dLLmmmmmmmmmmLLd',
+      'dkkkkkkkkkkkkkd.',
+      'dsmsmsmsmsmsmd..',
+      '.kkkkkkkkkkkk...',
+      '................',
+      '................',
+      '................'], { s: '#e0b070', L: '#e8b878', m: '#b87848', d: '#7c4c26', k: '#5e3a1c' });
+    g.dots([[3, 5], [5, 5], [7, 5], [9, 5]], '#e0b070'); g.dots([[12, 8], [13, 9]], '#f0d090');
+  }],
+  item_gloves: ['nature', g => {   // green gauntlet with brown swirls, fingers up-left
+    pix(g, [
+      '................',
+      '.bb.bb..........',
+      'bBBbBBb.........',
+      'bBcBBcBb........',
+      '.bBBBBBBb.......',
+      '..bgllgggb......',
+      '...bglgggggb....',
+      '....bgggBggggb..',
+      '.....bgggBBgggb.',
+      '......bgggBBggdb',
+      '.......bggggBgdb',
+      '........bgggggdb',
+      '.........bBBBBBb',
+      '..........bbbbbb',
+      '................',
+      '................'], { b: '#40220c', B: '#8c5c34', c: '#c89868', g: '#3c9c30', l: '#84e04c', d: '#1a5a24' });
+    g.dots([[9, 8], [10, 9], [11, 10]], '#76421f');
   }],
   item_ring_of_regen: ['blood', g => { ringShape(g, R.gold, R.red); }],
   item_sobi_mask: ['arcane', g => {   // purple-capped white mask
@@ -218,10 +251,12 @@ export const ITEMS = {
     g.rect(3.5, 9, 11.5, 14, R.steel, 'e'); g.rect(5, 10.4, 10, 12.6, R.red, 'f', { lv: 1 }); g.dots([[7, 11], [8, 11]], '#ffa898'); g.dots([[6, 12], [9, 12]], '#a42222');
     g.poly([[0, 9], [3, 8], [2, 12]], R.white, 'x'); g.poly([[15, 9], [12, 8], [13, 12]], R.white, 'x');
   }],
-  item_boots_of_elves: ['teal', g => {   // green leaf plate with etched pattern
+  item_boots_of_elves: ['teal', g => {   // green leaf plate with etched pattern, olive rim
     g.poly([[0, 14], [2, 8], [7, 3], [13, 0.5], [15, 2], [14, 8], [10, 12], [5, 15]], LEAF, 'g');
+    g.paint(G.line(1, 14, 5, 15, 1), R.brown, 'f', { lv: 2, soft: true });
     g.paint(G.line(2, 13, 12, 3, 1), LEAF, 'f', { lv: 3 });
     g.paint(G.or(G.line(5, 11, 8, 11, 1), G.line(7, 9, 10, 9, 1), G.line(9, 7, 12, 7, 1), G.line(6, 8, 6, 6, 1), G.line(9, 5, 9, 3, 1)), R.teal, 'f', { lv: 0 });
+    g.paint(G.line(4, 14, 11, 10, 1), R.green, 'f', { lv: 3, soft: true });
     g.dots([[13, 3], [12, 4]], '#ffffff');
   }],
   item_robe: ['nature', g => {   // teal robe, gold trim, flared collar
@@ -246,11 +281,13 @@ export const ITEMS = {
     g.line(4, 4, 2, 2, R.gold, 2, 'f');
     g.spark(2, 2, '#e8fff0', true); g.dots([[5, 1], [1, 5], [4, 6]], '#bffff0');
   }],
-  item_bracer: ['gold', g => {   // gold-and-red round bracer
-    g.ell(7.5, 8, 7, 6.6, R.gold, 'g');
-    g.paint(G.ell(10, 11.5, 3.6, 2.6), R.dark, 'f', { lv: 3 });
-    g.paint(G.poly([[1, 6], [5, 2], [11, 3], [14, 7], [10, 7], [7, 5], [4, 8]]), R.red, 'x');
-    g.ell(4.5, 9, 1.4, 1.4, R.gold, 'g'); g.ell(9.5, 4.5, 1.3, 1.3, R.gold, 'g'); g.dot(3, 4, '#fff4a8');
+  item_bracer: ['gold', g => {   // gold shell, red swirl band, two knobs, dark opening
+    g.ell(8, 8, 7, 6.6, R.gold, 'g');
+    g.paint(G.and(G.ell(8, 8, 7, 6.6), G.rect(0, 12, 15, 15)), R.gold, 'f', { lv: 2, soft: true });
+    g.paint(G.poly([[1, 7], [4, 3], [10, 2], [14, 6], [13, 9], [9, 7], [6, 7], [4, 10]]), R.red, 'x');
+    g.ell(5, 5.5, 1.5, 1.5, R.gold, 'g'); g.ell(10.5, 4.5, 1.4, 1.4, R.gold, 'g');
+    g.paint(G.ell(3.5, 11.5, 2.4, 2), R.dark, 'f', { lv: 3 });
+    g.dots([[3, 3], [4, 2]], '#fff4a8');
   }],
   item_wraith_band: ['night', g => {   // green leaf tiara, red gem
     sym(g, [[0, 3], [3, 1], [5, 5], [7.5, 8], [7.5, 12], [4, 10], [1, 6]], LEAF);
@@ -298,6 +335,15 @@ export const ITEMS = {
     g.poly(star(7.5, 7.5, 7.6, 3.4, 8, 0.2), IRONB, 'x');
     g.poly(star(7.5, 7.5, 5.4, 2.6, 8, 0.2 + Math.PI / 8), R.fire, 'g');
     g.ell(7.5, 7.5, 2.4, 2.4, R.yellow, 'g'); g.dots([[7, 7], [8, 7]], W);
+  }],
+  item_blink: ['teal', g => {   // Blink Dagger: blue hilt, pale crescent blade with cyan edge
+    g.dots([[2, 2], [5, 1], [1, 6], [14, 9], [12, 13], [9, 14], [4, 4]], '#38d0f0');
+    g.poly([[8, 3], [11, 5], [9.5, 7], [8.5, 10], [6.5, 12], [3, 14], [0, 15], [1, 12], [3, 9], [5, 6]], R.white, 'x');
+    g.paint(G.or(G.line(10, 5, 9, 7, 1), G.line(9, 8, 8, 10, 1), G.line(7, 11, 5, 13, 1), G.line(3, 14, 1, 15, 1)), R.cyan, 'f', { lv: 2 });
+    g.paint(G.line(6, 6, 3, 11, 1), R.cyan, 'f', { lv: 1, soft: true });
+    g.poly([[8, 3], [11, 0.5], [14.5, 0.5], [15, 3], [12, 6], [11, 5]], R.blue, 'x');
+    g.paint(G.line(10, 2, 13, 1, 1), R.cyan, 'f', { lv: 0 }); g.dot(14, 2, '#ffe48a');
+    g.poly([[7, 3.5], [9, 5], [12, 5.5], [10, 3]], R.steel, 'x');
   }],
   item_recipe: ['item', g => {   // torn parchment with a rune
     g.poly([[1, 1], [12, 1], [14, 3], [14, 11], [13, 14], [2, 15], [1, 9]], R.bone, 'x');

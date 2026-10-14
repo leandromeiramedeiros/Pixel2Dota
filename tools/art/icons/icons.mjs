@@ -13,7 +13,6 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..',
 export const REUSE = {
   invoker_quas: 'quas', invoker_wex: 'wex', invoker_exort: 'exort',
   invoker_ice_wall: 'icewall', invoker_sun_strike: 'sunstrike', invoker_chaos_meteor: 'chaosmeteor',
-  item_blink: 'blink',
 };
 
 const pb = new PalBuilder();
