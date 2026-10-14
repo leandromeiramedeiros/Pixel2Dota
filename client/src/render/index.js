@@ -95,7 +95,7 @@ export function createRenderer({ canvas, sheets }) {
     if (Math.abs(nightK - target) < 0.002) nightK = target;
     const k = nightK;
     const mix = (a, b) => a + (b - a) * k;
-    uniforms.uAmb.value.set(mix(0.74, 0.22), mix(0.75, 0.27), mix(0.78, 0.46));
+    uniforms.uAmb.value.set(mix(0.56, 0.22), mix(0.57, 0.27), mix(0.6, 0.46));   // day level matched to the trainer's on-screen grass (docs/ART-COMPARE.md)
     uniforms.uKeyCol.value.set(mix(0.40, 0.16), mix(0.36, 0.22), mix(0.28, 0.40));
     uniforms.uRimKey.value.set(mix(0.55, 0.28), mix(0.5, 0.42), mix(0.34, 0.75));
     uniforms.uKeyRimDir.value.set(mix(-0.6, 0.55), mix(0.8, 0.83));

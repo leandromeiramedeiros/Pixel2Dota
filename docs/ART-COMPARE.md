@@ -1,19 +1,31 @@
 # Art direction: InvokerTrainer vs Pixel2Dota
 
-Reference frames:
-- Trainer: [trainer-ref-midlane.webp](shots/trainer-ref-midlane.webp) (an in-game capture the user supplied to the trainer project as a target, from InvokerTrainer/reference/user/midlane_ingame.webp) and [trainer-ref-night-live.jpg](shots/trainer-ref-night-live.jpg) (a live free-play capture at night).
-- Pixel2Dota: [render-night-fx.jpg](shots/render-night-fx.jpg), [fx-invoker-emp-night.jpg](shots/fx-invoker-emp-night.jpg), [fx-lina-lsa-night.jpg](shots/fx-lina-lsa-night.jpg), [hud.png](shots/hud.png).
+Reference frames (all in [shots/](shots/)):
+- Trainer, live captures from InvokerTrainer free play:
+  - [trainer-ref-day.jpg](shots/trainer-ref-day.jpg): mid lane in daylight.
+  - [trainer-ref-cast-day.jpg](shots/trainer-ref-cast-day.jpg): the same view with meteors falling and ring FX.
+  - [trainer-ref-night-live.jpg](shots/trainer-ref-night-live.jpg): night.
+- Trainer target: [trainer-ref-midlane.webp](shots/trainer-ref-midlane.webp), an in-game capture the user gave the trainer project as a target (InvokerTrainer/reference/user/midlane_ingame.webp).
+- Pixel2Dota:
+  - [p2d-mid-day-before.jpg](shots/p2d-mid-day-before.jpg) / [p2d-mid-day-after.jpg](shots/p2d-mid-day-after.jpg): Radiant mid tier-1, before and after the tuning below.
+  - Night FX: [render-night-fx.jpg](shots/render-night-fx.jpg), [fx-invoker-emp-night.jpg](shots/fx-invoker-emp-night.jpg), [fx-invoker-sunstrike-day.jpg](shots/fx-invoker-sunstrike-day.jpg), [fx-lina-lsa-night.jpg](shots/fx-lina-lsa-night.jpg).
+  - HUD: [hud.png](shots/hud.png).
 
 | Trait | Trainer | Pixel2Dota | Match |
 |---|---|---|---|
-| Sprites | Chunky pixel chibi with a dark 1-px outline | Same sprite style; Invoker uses the trainer's sheet (ported generators in tools/art) | Yes |
-| Hero portraits and icons | Pixel portraits; orb icons in cyan, magenta and orange | Same portraits and orb colours; the 10 spell icons are ported | Yes |
-| HUD | Dark purple panels with gold and pink frames, pixel font, Invoker orb cluster | Same panel palette, frames and pixel font; the layout is Dota-style (top bar, minimap, shop) | Yes |
-| Lighting | Dark night tint, warm dithered pools around units (InvokerTrainer/js/render/gl.js: light grid with 9-level Bayer quantise) | Bayer-quantised light pass, warm point lights, night tint | Yes |
-| Spell FX | Glow-canvas bloom added over the scene (gl.js: col += .85*bloom); additive spell sprites in js/render/fx.js. Neither saved frame shows a cast, so this cell comes from the code | GPU particles plus bloom in the orb palette, plus per-hero colours | Yes, but stronger |
-| Rim light | Sprite rim pass (gl.js: uRimT / uRimOn) | Strong rim on sprites and trees (asked for in the goal) | Yes, but stronger by design |
-| Camera | Near top-down, flat tiles | 3D tile terrain with height, Dota camera at 1134 u and 60° pitch (asked for by the user) | Differs on purpose |
-| Terrain palette | Muted teal-green forest, brown dirt, deep blue water | Brighter, more saturated green grass and brown lanes | Partial |
-| Tree density | Dense canopy that fills the frame | Trees follow the real map tree list, so they are sparser near lanes | Partial |
+| Sprites | Chunky pixel chibi with a dark 1-px outline | Same sprite style. The Invoker sheet and spell icons come from the trainer (tools/art/icons/extract_trainer.mjs) | Yes |
+| Hero portraits and icons | Pixel portraits; orb icons in cyan, magenta and orange | Same portraits and orb colours | Yes |
+| HUD | Dark purple panels with gold and pink frames, pixel font, Invoker orb cluster | Same panel palette, frames and pixel font. The layout is Dota-style (top bar, minimap, shop) | Yes |
+| Lighting | Light grid with 9-level Bayer quantise (js/render/gl.js) and warm point lights | Bayer-quantised light pass and warm point lights | Yes |
+| Spell FX | Glowing fireballs and bright additive rings over the scene, with bloom (trainer-ref-cast-day.jpg; gl.js `col += .85*bloom`) | GPU particles plus bloom in the same orb palette | Yes (stronger glow, as the goal asked for "bloomy VFX") |
+| Rim light | Sprite rim pass (gl.js uRimT / uRimOn) | Rim on sprites and trees | Yes (stronger, as the goal asked for "lot of rimlight") |
+| Grass colour (day, measured) | RGB 43,81,36, saturation 0.57 | Before: 55,110,44, saturation 0.61. After: 45,82,35, saturation 0.58 | Yes, after tuning |
+| Tree size and canopy | Trees ~32-36 px wide; dense canopy along lanes | Before: 21-32 px wide, model scale ignored. After: 1.35x with the real model scale, so the canopy closes up (p2d-mid-day-after.jpg) | Yes, after tuning |
+| Camera | Near top-down, flat tiles | 3D tile terrain with height; Dota camera at 1134 u and 60° pitch | Differs on purpose (the user's 2.5D brief) |
 
-The camera difference comes from the user's 2.5D brief: 3D terrain, 2D sprites, 1134 units, angled view. The terrain palette and tree density are the remaining visual gaps. They are listed under Known issues in PROGRESS.md.
+How the colours were measured: mean colour and saturation of green-dominant pixels in matching grass areas of each screenshot.
+
+Changes that closed the gaps:
+- **Grass ramp:** a..e in tools/art/world/tiles.mjs now use the trainer's GRASS colours from InvokerTrainer js/render/terrain.js.
+- **Day ambient:** lowered from 0.74 to 0.56 (client/src/render/index.js).
+- **Tree sprites:** scaled 1.35x times the map's model scale (client/src/render/actors.js).

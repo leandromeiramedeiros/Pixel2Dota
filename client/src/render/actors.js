@@ -48,7 +48,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   const state = { selected: '', hover: '', myTeam: 0, myHero: '', simBuildings: false, simSeen: 0, frame: 0, treesDrawn: 0, unitsDrawn: 0, outlines: true };
 
   // tree spatial grid (512u cells)
-  const TREE_CELL = 512;
+  const TREE_CELL = 512, TREE_SCALE = 1.35;
   const gx0 = map.x0, gy1 = map.y1;
   const GW = Math.ceil((map.w * map.tile) / TREE_CELL), GH = Math.ceil((map.h * map.tile) / TREE_CELL);
   const grid = Array.from({ length: GW * GH }, () => []);
@@ -65,7 +65,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   const cellBoxes = grid.map((_, ci) => {
     const gx = ci % GW, gy = (ci / GW) | 0;
     const x0 = gx0 + gx * TREE_CELL, zN = -(gy1 - gy * TREE_CELL);
-    return new THREE.Box3(new THREE.Vector3(x0 - 80, -10, zN - 80), new THREE.Vector3(x0 + TREE_CELL + 80, 460, zN + TREE_CELL + 380));
+    return new THREE.Box3(new THREE.Vector3(x0 - 160, -10, zN - 160), new THREE.Vector3(x0 + TREE_CELL + 160, 620, zN + TREE_CELL + 460));
   });
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4();
 
@@ -132,8 +132,10 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
           if (!f) continue;
           const z = heightAt(t[0], t[1]);
           const tint = 0.9 + 0.1 * ((i * 7) % 5) / 4;
-          sprites.sprite(t[0], t[1], z, f, { tint: [tint, tint, tint], rim: cut ? 0.2 : 0.8, emit: 1, scale: 1 });
-          addPick(null, t[0], t[1], z, f, 1, i);
+          // trainer draws trees ~1.35x our sheet size; keep the real model scale so canopies close up like Dota's
+          const sc = cut ? 1 : TREE_SCALE * Math.max(0.8, t[2] || 1);
+          sprites.sprite(t[0], t[1], z, f, { tint: [tint, tint, tint], rim: cut ? 0.2 : 0.8, emit: 1, scale: sc });
+          addPick(null, t[0], t[1], z, f, sc, i);
           nTrees++;
         }
       }

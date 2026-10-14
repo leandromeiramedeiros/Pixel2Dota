@@ -3,8 +3,8 @@ import path from 'node:path';
 import { Cv, rng, writeSheet, SHEETS } from './lib.mjs';
 
 const pal = {
-  // Radiant grass ramp (dark..light) + tuft highlight + flowers
-  a: '#2a6027', b: '#397a31', c: '#4a913d', d: '#68b04f', e: '#92d168', f: '#f4f0d8', g: '#f0d050', h: '#ee86b8', i: '#86b4f4',
+  // Radiant grass ramp (dark..light; a..e = trainer GRASS ramp, InvokerTrainer js/render/terrain.js) + tuft highlight + flowers
+  a: '#2c5626', b: '#3a6e30', c: '#447e36', d: '#4f8c3c', e: '#64a64a',  f: '#f4f0d8', g: '#f0d050', h: '#ee86b8', i: '#86b4f4',
   // Dire ground (dead): dark..light, ash, red crack, dark red
   j: '#30231e', k: '#43322a', l: '#58412f', m: '#725540', n: '#8c847c', o: '#7a2e22', p: '#4a1c1a',
   // forest floor R / D
