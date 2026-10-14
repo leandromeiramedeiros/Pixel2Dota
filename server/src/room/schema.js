@@ -1,5 +1,8 @@
 // Colyseus schema (docs/ARCHITECTURE.md "Schema"). schema() builders, no decorators.
-import { schema, t } from '@colyseus/schema';
+import { schema, t, Encoder } from '@colyseus/schema';
+
+// ~170 synced units with neutrals + Roshan + wards: the full state no longer fits the default 8 KB encode buffer (it regrows with a warning)
+Encoder.BUFFER_SIZE = 64 * 1024;
 
 export const Ability = schema({
   key: t.string(), level: t.uint8(), cd: t.float32(), cdMax: t.float32(), mana: t.uint16(), flags: t.uint8(),
