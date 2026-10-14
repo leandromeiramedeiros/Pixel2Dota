@@ -9,6 +9,11 @@ import { SHOP_RANGE, TOWER_RANGE, armorMult } from '../../../shared/constants.js
 import { lanePath } from './creeps.js';
 
 const THINK = 6;
+const PUSH_AT = 22 * 60;                                  // from here on the whole team group-pushes one lane
+const PUSH_HOLD = 60;                                    // s before the team may switch lanes again
+const TP_BUY_GOLD = 150;                                 // rebuy a TP scroll once this rich
+const HERO_LANE_COST = 1.5;                              // lane score per enemy hero standing in it (lower = better lane to push)
+const PUSH_CREEPS = 3;                                   // allied creeps needed around a tower before bots go in with them
 const LANE5 = ['safe', 'mid', 'off', 'safe', 'off'];
 const START = {
   melee: ['item_tango', 'item_flask', 'item_quelling_blade', 'item_tpscroll'],
@@ -30,7 +35,8 @@ const BUILD = {
   npc_dota_hero_rubick: ['item_null_talisman', 'item_boots', 'item_magic_wand', 'item_black_king_bar', 'item_blink'],
 };
 const MELEE_CORE = { npc_dota_hero_sven: 1, npc_dota_hero_axe: 1, npc_dota_hero_juggernaut: 1, npc_dota_hero_sniper: 2, npc_dota_hero_drow_ranger: 2, npc_dota_hero_pudge: 1, npc_dota_hero_mirana: 2 };
-const JUNK = ['item_tango', 'item_flask', 'item_clarity', 'item_branches', 'item_faerie_fire', 'item_enchanted_mango', 'item_quelling_blade', 'item_tpscroll'];
+const JUNK = ['item_tango', 'item_flask', 'item_clarity', 'item_branches', 'item_faerie_fire', 'item_enchanted_mango', 'item_quelling_blade'];
+const INVOKER_SLOT = 2;
 const INVOKER_ORBS = [0, 1, 2], INVOKER_INVOKE = 5;
 const RECIPE = { invoker_cold_snap: 'QQQ', invoker_sun_strike: 'EEE', invoker_tornado: 'WWQ' };
 
@@ -52,8 +58,46 @@ export function update(w, dt) {
 }
 
 // ------------------------------------------------------------------------------------------------ helpers
+/** Lane a team group-pushes: the one where the enemy has the fewest buildings left (mid on ties), kept for PUSH_HOLD s. null = early game, stay in your own lane. */
+export function pushLane(w, team) {
+  if (w.time < PUSH_AT) return null;
+  const c = w._botPush || (w._botPush = {});
+  const cur = c[team];
+  if (cur && cur.until > w.time && cur.tick !== undefined) return cur.lane;
+  let best = 'mid', bs = Infinity;
+  for (const lane of ['mid', 'top', 'bot']) {
+    let n = 0;
+    for (const b of w.buildings) if (!b._dead && b.team !== team && b._lane === lane && (b.kind === KIND.TOWER || b.kind === KIND.RAX)) n++;
+    const path = lanePath(w, team, lane);
+    for (const h of w.units.values()) {                          // enemy heroes camping the lane count against it
+      if (h.kind !== KIND.HERO || h._dead || h.team === team) continue;
+      const i = nearestIdx(path, h.x, h.y, 0, path.length);
+      if (dist(path[i], h) < 1200) n += HERO_LANE_COST;
+    }
+    if (n < bs) { bs = n; best = lane; }
+  }
+  c[team] = { lane: best, until: w.time + PUSH_HOLD, tick: w.tick };
+  return best;
+}
+
+/** Lane slot of a bot: the team's bot Invoker plays lane slot INVOKER_SLOT (the "off" lane: no early double-team on him, farms safely), whoever had it takes his old lane. */
+function laneSlot(w, p) {
+  const slot = (p.slot | 0) % 5;
+  for (const [, q] of w.players) {
+    if (!q.isBot || q.team !== p.team) continue;
+    const h = w.units.get(q.heroId);
+    if (!h || !h.key.endsWith('_invoker')) continue;
+    const is = (q.slot | 0) % 5;
+    if (is === INVOKER_SLOT) return slot;
+    return slot === is ? INVOKER_SLOT : slot === INVOKER_SLOT ? is : slot;
+  }
+  return slot;
+}
+
 function laneName(w, p) {
-  const k = LANE5[(p.slot | 0) % 5];
+  const pl = pushLane(w, p.team);
+  if (pl) return pl;
+  const k = LANE5[laneSlot(w, p)];
   if (k === 'mid') return 'mid';
   const safe = p.team === TEAM.RADIANT ? 'bot' : 'top', off = p.team === TEAM.RADIANT ? 'top' : 'bot';
   return k === 'safe' ? safe : off;
@@ -105,6 +149,18 @@ function enemyTowerNear(w, u, r) {
     if (t._dead || t.team === u.team) continue;
     const d = dist(t, u);
     if (d < r && d < bd) { bd = d; best = t; }
+  }
+  return best;
+}
+
+/** nearest attackable (not tier-protected) enemy tower / barracks / ancient within r of its edge */
+function enemyStructNear(w, u, r) {
+  let best = null, bd = Infinity;
+  for (const b of w.buildings) {
+    if (b._dead || b.team === u.team || (b._st & ST.INVULN)) continue;
+    if (b.kind !== KIND.TOWER && b.kind !== KIND.RAX && b.kind !== KIND.ANCIENT) continue;
+    const d = dist(b, u) - b.radius;
+    if (d < r && d < bd) { bd = d; best = b; }
   }
   return best;
 }
@@ -183,6 +239,7 @@ function shopping(w, pid, p, u, st) {
     if (!w.order(pid, { t: 'buy', key: k }) && p.gold >= (w.data.items[k] ? w.data.items[k].cost : 0)) break;   // out of range: retry later
     st.startI = i + 1;
   }
+  if (!has(u, 'item_tpscroll') && st.startI >= set.length && p.gold >= TP_BUY_GOLD) w.order(pid, { t: 'buy', key: 'item_tpscroll' });   // always keep one: retreat / rejoin by TP
   for (let guard = 0; guard < 4; guard++) {
     const k = buyChoice(w, u, p);
     if (!k) return;
@@ -315,19 +372,26 @@ function think(w, pid, p, u, st) {
   if (q0 && (q0.t === 'cast' || q0.t === 'item') && w.time - st.cmdT < 2.5) return;   // let a cast finish
   const team = u.team, hpPct = u.hp / u.maxHp;
   const lane = laneName(w, p);
+  if (st.lane !== lane) { if (st.lane) st.tpTried = false; st.lane = lane; }   // lane switched (team push): TP to the new front once
   const path = lanePath(w, team, lane);
   const foes = foesNear(w, u, 1400);
   const fountain = w.fountains[team];
 
   // ---- mode switches
+  const hh = st.hh || (st.hh = []);                               // hp samples of the last 2.5 s: burst detection
+  hh.push({ t: w.time, hp: u.hp });
+  while (hh.length > 1 && w.time - hh[0].t > 2.5) hh.shift();
+  const burst = (Math.max(...hh.map((s) => s.hp)) - u.hp) / u.maxHp;
   if (st.mode === 'retreat') {
-    if ((hpPct > 0.85 && u.mana > u.maxMana * 0.5) || w.time - st.modeT > 70) st.mode = 'lane';
-  } else if (hpPct < 0.3) { st.mode = 'retreat'; st.modeT = w.time; }
+    if ((hpPct > 0.85 && u.mana > u.maxMana * 0.5) || w.time - st.modeT > 70) { st.mode = 'lane'; st.tpTried = false; }
+  } else if (hpPct < (foes.length >= 2 ? 0.45 : 0.3) || (burst > 0.3 && hpPct < 0.65 && foes.length)) { st.mode = 'retreat'; st.modeT = w.time; }
   if (st.mode === 'shop' && (nearShop(w, u) || w.time - st.modeT > 60)) { st.mode = 'lane'; st.shopT = w.time; }
 
   if (st.mode === 'retreat') {
     if (!foes.length || hpPct < 0.2) useItems(w, pid, u, st, hpPct, foes);
     if (foes.length && hpPct < 0.3) { const s = slotOf(u, 'item_blink'); if (s >= 0 && u.items[s].cd <= 0) { cmd(w, pid, u, st, { t: 'item', slot: s, x: fountain.x, y: fountain.y }); return; } }
+    const tp = slotOf(u, 'item_tpscroll');
+    if (!foes.length && tp >= 0 && u.items[tp].cd <= 0 && u.mana >= 75 && dist(u, fountain) > 2800) { cmd(w, pid, u, st, { t: 'item', slot: tp, x: fountain.x, y: fountain.y }); return; }
     cmd(w, pid, u, st, { t: 'move', x: fountain.x, y: fountain.y });
     return;
   }
@@ -347,10 +411,13 @@ function think(w, pid, p, u, st) {
   const farOff = dist(path[pi], u) > 1100;
   if (farOff) st.pi = nearestIdx(path, u.x, u.y, 0, path.length);
 
-  // ---- back off: under enemy tower without creeps, or heavily outnumbered
-  if (st.backUntil > w.time || (tw && allies === 0 && hpPct < 1.01) || foeHeroes - allyHeroes >= 2) {
+  // ---- back off: under enemy tower without creeps, outnumbered (or outnumbered and hurt) -> fall back behind our frontmost tower of the lane
+  const outnumbered = foeHeroes - allyHeroes >= 2 || (foeHeroes > allyHeroes && hpPct < 0.75);
+  if (st.backUntil > w.time || (tw && allies === 0) || outnumbered) {
     if (st.backUntil <= w.time) st.backUntil = w.time + 3;
-    const bi = Math.max(0, st.pi - 8), pt = path[bi];
+    let bi = Math.max(0, st.pi - 8);
+    if (outnumbered) { const t = frontTower(w, team, lane); if (t) bi = Math.min(bi, Math.max(0, nearestIdx(path, t.x, t.y, 0, path.length) - 2)); }
+    const pt = path[bi];
     cmd(w, pid, u, st, { t: 'move', x: pt.x, y: pt.y });
     return;
   }
@@ -370,7 +437,7 @@ function think(w, pid, p, u, st) {
   }
 
   // ---- far from the lane (after respawn): TP to it
-  const dest = laneDest(w, u, path, F, lane, st);
+  const dest = laneDest(w, u, path, F, lane, st, hpPct > 0.5);
   if (!st.tpTried && dist(u, dest) > 3800 && !foes.length) {
     const s = slotOf(u, 'item_tpscroll');
     st.tpTried = true;
@@ -390,27 +457,34 @@ function think(w, pid, p, u, st) {
   if (lh) { if (cmd(w, pid, u, st, { t: 'attack', id: lh.id })) return; if (u._q.length) return; }
 
   // ---- tower push with creeps
-  if (tw && hpPct > 0.5 && !(tw._st & ST.INVULN)) {
-    const cs = alliedCreepsNear(w, u, tw.x, tw.y, 700);
-    if (cs >= 2 && foeHeroes === 0) { cmd(w, pid, u, st, { t: 'attack', id: tw.id }); return; }
+  const bld = enemyStructNear(w, u, TOWER_RANGE + 140);
+  if (bld && hpPct > 0.5 && foeHeroes <= allyHeroes - 1) {
+    // towers need creeps to tank; barracks / ancient do not shoot back
+    if (bld.kind !== KIND.TOWER || alliedCreepsNear(w, u, bld.x, bld.y, 700) >= 2) { cmd(w, pid, u, st, { t: 'attack', id: bld.id }); return; }
   }
   if (u._q.length && u._q[0].t === 'attack' && u._q[0].id && !lh) {
     const t = w.units.get(u._q[0].id);
-    if (t && t._building) { const cs = alliedCreepsNear(w, u, t.x, t.y, 700); if (cs >= 2) return; }
+    if (t && t._building && !(t._st & ST.INVULN) && (t.kind !== KIND.TOWER || alliedCreepsNear(w, u, t.x, t.y, 700) >= 2)) return;
   }
 
   // ---- walk the lane
   cmd(w, pid, u, st, { t: 'amove', x: dest.x, y: dest.y });
 }
 
-function laneDest(w, u, path, F, lane, st) {
+function frontTower(w, team, lane) {
+  let t = null;
+  for (const b of w.towers) if (!b._dead && b.team === team && b._lane === lane && (!t || b._tier < t._tier)) t = b;
+  return t;
+}
+
+function laneDest(w, u, path, F, lane, st, brave) {
   const team = u.team;
   let idx;
   if (F !== undefined) {
-    // join the wave nearest to us (not one already under an enemy tower)
+    // join the wave nearest to us (not one that is alone under an enemy tower: with 3+ creeps and a healthy hero, go in with it)
     let b = null, bd = Infinity;
     for (const c of fronts(w).L[team + lane] || []) {
-      if (enemyTowerNear(w, c, TOWER_RANGE + 100)) continue;
+      if (enemyTowerNear(w, c, TOWER_RANGE + 100) && !(brave && alliedCreepsNear(w, u, c.x, c.y, 600) >= PUSH_CREEPS)) continue;
       const d = dist(c, u);
       if (d < bd) { bd = d; b = c; }
     }
@@ -418,8 +492,7 @@ function laneDest(w, u, path, F, lane, st) {
     idx = Math.max(1, Math.min(F, path.length - 1) - 3);
   } else {
     // no creeps yet: wait at our frontmost standing tower of the lane
-    let t = null;
-    for (const b of w.towers) if (!b._dead && b.team === team && b._lane === lane && (!t || b._tier < t._tier)) t = b;
+    const t = frontTower(w, team, lane);
     idx = t ? nearestIdx(path, t.x, t.y, 0, path.length) : 1;
     idx = Math.max(1, idx - 2);
   }
