@@ -233,9 +233,17 @@ export const ITEMS = {
     g.ell(11, 11, 1.7, 1.7, R.gold, 'g');
   }],
   // ---------------------------------------------------------------- misc UI
-  gold: ['gold', g => {
-    for (const cy of [11.5, 8.5, 5.5]) { g.rect(2, cy, 13, cy + 2, R.gold, 'v'); g.ell(7.5, cy, 5.8, 2.4, R.gold, 'g'); g.paint(G.ell(7.5, cy, 3.4, 1.2), R.gold, 'f', { lv: 2, soft: true }); }
-    g.dots([[4, 5], [5, 5]], '#fff4a8'); g.dots([[3, 8], [3, 11]], '#fff4a8'); g.spark(13, 2, '#fff4a8');
+  gold: ['item', g => {
+    g.halo(9, 8, 9, '#ffc840');
+    // stack of coins on the left (dark seams between them), one big coin standing in front
+    for (const cy of [13, 10.5, 8]) { g.rect(0.5, cy, 8.5, cy + 1.6, R.gold, 'v'); g.ell(4.5, cy, 4, 1.6, R.gold, 'g'); }
+    g.soft(G.or(G.line(1, 12, 8, 12, 1), G.line(1, 9.6, 8, 9.6, 1)), '#7a4a0e');
+    g.soft(G.ring(10.5, 8.5, 5.6, 6.6), '#06060c');
+    g.ell(10.5, 8.5, 5.4, 5.4, R.gold, 'g');
+    g.paint(G.ring(10.5, 8.5, 3.2, 4.2), R.gold, 'f', { lv: 2, soft: true });
+    g.paint(G.rect(10, 6, 11, 11), R.gold, 'f', { lv: 3, soft: true });
+    g.soft(G.pts([[8, 4], [9, 4], [7, 5], [7, 6]]), '#ffffff');
+    g.spark(14, 1, '#fff4a8');
   }],
   lock: ['night', g => {
     g.paint(G.sub(G.ring(7.5, 6, 2.6, 4.6), G.rect(0, 6.5, 15, 15)), R.steel, 'e');

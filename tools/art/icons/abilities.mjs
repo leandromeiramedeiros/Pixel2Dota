@@ -15,7 +15,8 @@ export const ABILITIES = {
     g.zig([[13, 9], [11, 11], [13, 12], [11, 15]], R.cyan, W, 1);
     g.spark(14, 2, '#bfe4ff');
   }],
-  sven_great_cleave: ['phys', g => {
+  sven_great_cleave: ['steel', g => {
+    g.halo(8, 8, 9, '#9ac0ff');
     g.paint(G.arc(8, 9, 5.2, 7.2, -2.7, -0.2), R.white, 'f', { lv: 0 });
     g.paint(G.line(3, 13, 12, 4, 3), R.steel, 'h');
     g.poly([[11, 2], [14, 5], [12.5, 6.5], [9.5, 3.5]], R.white, 'e');
@@ -178,19 +179,28 @@ export const ABILITIES = {
     for (let i = 0; i < 4; i++) { const [x, y] = pol(7.5, 8, 6.4, i * Math.PI / 2 + 0.2 + Math.PI / 4); g.paint(G.rect(x - 1, y - 1, x, y), R.steel, 'e'); }
   }],
   sniper_headshot: ['blood', g => {
-    g.ell(7.5, 6.8, 4.6, 4.4, R.bone, 'g'); g.rect(5, 10, 10, 12, R.bone, 'e');
-    g.rect(5, 6, 6, 8, R.dark, 'f'); g.rect(9, 6, 10, 8, R.dark, 'f'); g.dot(7, 9, '#3c3c52');
-    g.paint(G.ring(7.5, 7.5, 6, 7.2), R.red, 'f', { lv: 1, soft: true });
-    g.soft(G.or(G.line(7, 0, 8, 2, 1), G.line(7, 13, 8, 15, 1), G.line(0, 7, 2, 8, 1), G.line(13, 7, 15, 8, 1)), '#ff4a3a');
-    g.dot(7, 3, '#ff4a3a'); g.dot(8, 3, '#ff4a3a');
+    g.halo(7.5, 7.5, 9, '#ff5a40');
+    // skull fills the frame: cranium, cheekbones, jaw
+    g.ell(7.5, 6.4, 6, 5.6, R.bone, 'g'); g.rect(3.5, 9, 11.5, 12, R.bone, 'g'); g.rect(4.5, 12, 10.5, 14, R.bone, 'e');
+    g.ell(5, 8, 1.8, 1.8, R.dark, 'f'); g.ell(10, 8, 1.8, 1.8, R.dark, 'f');   // eye sockets
+    g.soft(G.pts([[7, 10], [8, 10], [7, 11]]), '#262634');                     // nose
+    g.soft(G.pts([[5, 13], [7, 13], [9, 13]]), '#6e6244');                     // teeth gaps
+    // bullet hole high on the forehead, cracks radiating, spray out the back (right)
+    g.soft(G.pts([[9, 3], [10, 3], [9, 4], [10, 4]]), '#12121c');
+    g.soft(G.pts([[11, 2], [12, 1], [8, 2], [11, 5]]), '#6e6244');
+    g.soft(G.pts([[13, 2], [14, 1], [15, 3], [14, 4], [15, 0], [13, 5]]), '#ff3a2a');
+    // crosshair brackets in the corners
+    g.soft(G.pts([[0, 0], [1, 0], [2, 0], [0, 1], [0, 2], [15, 15], [14, 15], [13, 15], [15, 14], [15, 13], [0, 15], [1, 15], [0, 14], [15, 0]]), '#ffd0c0');
   }],
-  sniper_take_aim: ['night', g => {
-    g.ell(7.5, 7.5, 7, 7, R.iron, 'g');
-    g.paint(G.ell(7.5, 7.5, 5, 5), R.dark, 'f', { lv: 2 });
-    g.soft(G.ell(7.5, 7.5, 4.6, 4.6), '#1c3a2c');
-    g.soft(G.or(G.line(7, 3, 8, 12, 1), G.line(3, 7, 12, 8, 1)), '#9ad8a8');
-    g.soft(G.pts([[7, 7], [8, 7], [7, 8], [8, 8]]), '#ff4a3a');
-    g.soft(G.pts([[4, 4], [5, 4], [4, 5]]), '#6ea880');
+  sniper_take_aim: ['nature', g => {
+    g.halo(7.5, 7.5, 9, '#a8ff80');
+    // scope seen end-on: brass rim, green lens with reticle and a glint
+    g.ell(7.5, 7.5, 7.2, 7.2, R.gold, 'g');
+    g.paint(G.ell(7.5, 7.5, 5.2, 5.2), R.dark, 'f', { lv: 3 });
+    g.soft(G.ell(7.5, 7.5, 4.6, 4.6), '#1c5a3c'); g.soft(G.ell(6.5, 6.5, 2.6, 2.6), '#2c8a54');
+    g.soft(G.or(G.line(7, 3, 7, 12, 1), G.line(3, 7, 12, 7, 1)), '#dcffa0');
+    g.soft(G.pts([[7, 7]]), '#ff4a3a'); g.soft(G.pts([[6, 7], [8, 7], [7, 6], [7, 8]]), '#ff8a6a');
+    g.soft(G.pts([[4, 4], [5, 4], [4, 5]]), '#ffffff');
   }],
   sniper_assassinate: ['blood', g => {
     g.halo(8, 8, 8, '#ff3a30');
@@ -244,7 +254,7 @@ export const ABILITIES = {
     g.rect(0, 5, 2, 10, R.purple, 'e');
     g.soft(G.line(7, 5, 11, 10, 1), '#ff5a5a'); g.soft(G.line(11, 5, 7, 10, 1), '#ff5a5a');
   }],
-  drow_ranger_multishot: ['night', g => {
+  drow_ranger_multishot: ['ice', g => {
     g.halo(11, 5, 8, '#7ac8ff');
     for (const [x, y] of [[13, 0.5], [15, 6.5], [7.5, 0.5]]) {
       g.paint(G.line(2, 14, x, y, 1), R.steel, 'f', { lv: 1 });
@@ -263,8 +273,8 @@ export const ABILITIES = {
     g.paint(G.line(0, 12, 2, 14, 1), R.purple, 'f', { lv: 0 });
   }],
   // ---------------------------------------------------------------- Juggernaut
-  juggernaut_blade_fury: ['phys', g => {
-    g.halo(7.5, 7.5, 8, '#9ab4ff');
+  juggernaut_blade_fury: ['exort', g => {
+    g.halo(7.5, 7.5, 9, '#ffc060');
     g.paint(G.ring(7.5, 7.5, 6, 7.2), R.steel, 'f', { lv: 2, soft: true });
     for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.3; g.poly([pol(7.5, 7.5, 1.5, a), pol(7.5, 7.5, 7, a + 0.55), pol(7.5, 7.5, 5, a + 0.95), pol(7.5, 7.5, 2.4, a + 1.1)], R.steel, 'x'); }
     g.ell(7.5, 7.5, 1.8, 1.8, R.gold, 'g');
@@ -277,7 +287,8 @@ export const ABILITIES = {
     g.paint(G.rect(7, 0, 8, 3), R.green, 'f', { lv: 1 }); g.paint(G.rect(6, 1, 9, 2), R.green, 'f', { lv: 1 });
     g.spark(2, 8, '#bfffa0'); g.spark(13, 9, '#bfffa0');
   }],
-  juggernaut_blade_dance: ['phys', g => {
+  juggernaut_blade_dance: ['steel', g => {
+    g.halo(7.5, 8, 8, '#ffe27a');
     g.paint(G.line(2, 13, 12, 3, 2), R.steel, 'h'); g.paint(G.line(13, 13, 3, 3, 2), R.steel, 'h');
     g.poly([[11, 1], [14, 1], [14, 4], [12, 4]], R.white, 'e'); g.poly([[4, 1], [1, 1], [1, 4], [3, 4]], R.white, 'e');
     g.paint(G.line(1, 9, 5, 13, 2), R.gold, 'f', { lv: 1 }); g.paint(G.line(14, 9, 10, 13, 2), R.gold, 'f', { lv: 1 });
@@ -298,8 +309,8 @@ export const ABILITIES = {
     g.ell(7.5, 7.5, 3, 3, R.blue, 'g'); g.ell(7.5, 7.5, 1.4, 1.4, R.white, 'f');
     g.dots([[1, 1], [14, 1], [1, 14], [14, 14]], W);
   }],
-  invoker_ghost_walk: ['night', g => {
-    g.halo(7.5, 7, 8, '#7a90ff');
+  invoker_ghost_walk: ['moon', g => {
+    g.halo(7.5, 7, 9, '#b0c4ff');
     g.poly([[3, 14], [2, 7], [4, 2], [7.5, 1], [11, 2], [13, 7], [12, 14], [10.5, 12], [9, 14], [7.5, 12], [6, 14], [4.5, 12]], R.white, 'g');
     g.rect(4, 5, 6, 8, R.dark, 'f'); g.rect(9, 5, 11, 8, R.dark, 'f'); g.dot(5, 6, '#7ab0ff'); g.dot(10, 6, '#7ab0ff');
     g.soft(G.rect(7, 10, 8, 11), '#3c3c52');

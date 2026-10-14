@@ -31,6 +31,8 @@ export const THEMES = {   // bg bands [top, mid, bottom], bevel [light, dark]
   night: { bg: ['#34384c', '#222638', '#10121e'], bev: ['#8a90b0', '#080a12'] },
   item: { bg: ['#4c4440', '#322c2c', '#1c1818'], bev: ['#d8b890', '#100c0c'] },
   teal: { bg: ['#1c7078', '#104a58', '#082a34'], bev: ['#70e8d8', '#041a20'] },
+  moon: { bg: ['#3a4cb8', '#22307c', '#101848'], bev: ['#a8c0ff', '#080c30'] },   // Mirana / night spells: saturated indigo, never grey
+  steel: { bg: ['#4c74b0', '#2e4c84', '#16264a'], bev: ['#c8dcff', '#0a1228'] },  // physical abilities: cool blue steel (phys stays for items)
 };
 const FR = '#08080e';
 

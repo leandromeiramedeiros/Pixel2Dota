@@ -3,6 +3,8 @@ import { Glyph as G, R } from './kit.mjs';
 
 const W = '#ffffff';
 const pol = (cx, cy, r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+// hand-placed 16x16 pixels: rows of chars, map char -> hex; outlined like any painted shape
+const pix = (g, rows, map) => { const by = {}; rows.forEach((r, y) => [...r].slice(0, 16).forEach((c, x) => { if (map[c]) (by[c] ||= []).push([x, y]); })); for (const [c, pts] of Object.entries(by)) g.paint(G.pts(pts), [map[c], map[c], map[c], map[c]], 'f'); };
 
 export const ABILITIES_NH = {
   // ---------------------------------------------------------------- Pudge
@@ -50,47 +52,61 @@ export const ABILITIES_NH = {
     g.spark(14, 1, '#ff9a8a'); g.spark(1, 13, '#ff9a8a');
   }],
   // ---------------------------------------------------------------- Mirana
-  mirana_starfall: ['night', g => {
-    g.halo(8, 6, 8, '#9ad0ff');
-    // trail
-    g.paint(G.line(1, 0, 8, 7, 3), R.cyan, 'f', { lv: 2 });
-    g.paint(G.line(2, 0, 8, 6, 1), R.white, 'f', { lv: 0, soft: true });
-    // the star: four long points, two short
-    g.poly([[10, 1], [11.4, 8], [10, 14], [8.6, 8]], R.white, 'e');
-    g.poly([[3.5, 8.5], [10, 7], [16, 8.5], [10, 10]], R.ice, 'e');
-    g.poly([[5.5, 4.5], [10, 8.4], [14.5, 12], [10.4, 8.8]], R.cyan, 'f', { lv: 1 });
-    g.ell(10, 8.5, 1.4, 1.4, R.white, 'f');
-    g.dots([[14, 2], [2, 12], [14, 13], [4, 14]], '#cfe8ff');
+  mirana_starfall: ['moon', g => {
+    g.halo(9, 9, 10, '#d8ecff');
+    // a small falling star with a long streak, top-left
+    g.paint(G.line(0, 0, 4, 4, 2), R.cyan, 'f', { lv: 2, soft: true }); g.paint(G.line(0, 1, 3, 4, 1), R.ice, 'f', { lv: 1, soft: true }); g.spark(4, 4, W);
+    // the big four-point star filling the frame
+    const BR = ['#ffffff', '#fffbe0', '#ffe48a', '#c88a10'];
+    g.poly([[9, 0.5], [11.2, 6.8], [9, 15.5], [6.8, 6.8]], BR, 'x');
+    g.poly([[1.5, 9], [7.8, 6.8], [16, 9], [7.8, 11.2]], BR, 'x');
+    g.poly([[5, 4.5], [9.4, 8.6], [13.5, 13.5], [8.6, 9.4]], R.ice, 'f', { lv: 1 });
+    g.poly([[13.5, 4.5], [9.4, 9.4], [5, 13.5], [8.6, 8.6]], R.ice, 'f', { lv: 1 });
+    g.poly([[9, 0.5], [11.2, 6.8], [9, 15.5], [6.8, 6.8]], BR, 'x'); g.poly([[1.5, 9], [7.8, 6.8], [16, 9], [7.8, 11.2]], BR, 'x');
+    g.soft(G.ell(9, 9, 1.4, 1.4), W);
+    g.dots([[14, 2], [2, 14], [15, 15]], '#e0f0ff');
   }],
-  mirana_arrow: ['arcane', g => {
-    g.halo(10, 5, 9, '#a8c8ff');
-    // moonlit trail
-    g.paint(G.line(0, 15, 8, 7, 3), R.purple, 'f', { lv: 2, soft: true });
-    g.paint(G.line(0, 14, 9, 6, 1), R.magenta, 'f', { lv: 0, soft: true });
-    // shaft, head, fletching
-    g.paint(G.line(2, 14, 12, 4, 1), R.wood, 'f', { lv: 1 }); g.paint(G.line(3, 14, 13, 4, 1), R.wood, 'f', { lv: 2 });
-    g.poly([[15.5, 0.5], [9.5, 2.5], [13.5, 6.5]], R.white, 'e');
-    g.poly([[1, 14], [0, 10.5], [4, 11.5]], R.ice, 'x'); g.poly([[1, 14], [5, 15], [4.5, 11]], R.cyan, 'x'); g.poly([[4, 12], [7, 12.5], [6, 9.5]], R.ice, 'x');
-    g.spark(13, 11, '#e0d0ff'); g.spark(4, 3, '#e0d0ff');
+  mirana_arrow: ['moon', g => {
+    g.halo(11, 4.5, 9, '#e0d8ff');
+    // glowing moonlit trail behind the arrow
+    g.paint(G.line(0, 15, 9, 6, 3), R.purple, 'f', { lv: 1, soft: true });
+    g.paint(G.line(0, 14, 9, 5, 1), R.magenta, 'f', { lv: 0, soft: true });
+    // shaft (white-silver), big head, fletching
+    g.paint(G.line(2, 13, 12, 3, 2), R.white, 'f', { lv: 1 });
+    g.poly([[15.6, 0.4], [8.6, 2], [14, 7.4]], R.white, 'e'); g.poly([[14.6, 1.4], [11, 2.6], [13.4, 5]], R.ice, 'f', { lv: 0 });
+    g.poly([[0.5, 15], [0, 10.5], [4, 11.5]], R.magenta, 'x'); g.poly([[0.5, 15], [5, 15.5], [4.5, 11.5]], R.purple, 'x');
+    g.spark(6, 2, '#e8e0ff'); g.spark(13, 12, '#e8e0ff');
   }],
-  mirana_leap: ['teal', g => {
-    g.halo(8, 8, 9, '#5ce0c0');
-    // leaping sabertooth: stretched body, head up front, legs trailing
-    g.poly([[2, 11], [5, 7.5], [10, 6], [13, 7], [12.5, 9.5], [8, 10.5], [4, 13]], R.purple, 'g');
-    g.ell(12.6, 5.4, 2.3, 2, R.purple, 'g');
-    g.poly([[11.4, 3.8], [12, 2], [13, 3.6]], R.purple, 'e'); g.poly([[13.2, 3.6], [14.4, 2.2], [14.6, 4.4]], R.purple, 'e');
-    g.paint(G.line(10, 9, 14, 12, 2), R.purple, 'f', { lv: 1 }); g.paint(G.line(5, 11, 2, 14, 2), R.purple, 'f', { lv: 1 });
-    g.paint(G.arc(2, 8, 3, 4.2, 1.4, 4.4), R.purple, 'f', { lv: 2 });
-    g.soft(G.pts([[13, 5], [14, 5]]), '#fff4a0'); g.soft(G.pts([[14, 6], [14, 7]]), W);
-    g.paint(G.line(0, 15, 3, 15, 1), R.teal, 'f', { lv: 0, soft: true }); g.dots([[6, 14], [9, 14], [12, 14]], '#c8fff0');
+  mirana_leap: ['arcane', g => {
+    g.halo(9, 3, 8, '#e8d8ff');
+    // hand-placed: crescent moon, a jump arc that lands in a down-right arrowhead, dust where it took off
+    pix(g, [
+      '................',
+      '...........mm...',
+      '..........mM....',
+      '..........mM....',
+      '...........mm...',
+      '....wwwwww......',
+      '..wwcccccww.....',
+      '.wcc......cww...',
+      'wc..........cw..',
+      'wc...........cw.',
+      'wc.........wwwwww',
+      'wc..........wwww.',
+      'dd...........ww..',
+      'ddd..............',
+      '.ddd.............',
+      '................'], { w: '#ffffff', c: '#86e6ff', m: '#ece2c0', M: '#b8a880', d: '#a878f0' });
+    g.spark(3, 2, '#ffffff');
   }],
-  mirana_invis: ['night', g => {
-    g.halo(7.5, 7.5, 9, '#a888f0');
-    g.paint(G.sub(G.ell(7.5, 7.5, 6.4, 6.4), G.ell(10.4, 6, 5.2, 5.4)), R.bone, 'g');
-    g.paint(G.ring(7.5, 7.5, 7.4, 8.4), R.purple, 'f', { lv: 1, soft: true });
-    // shimmer: a faint column of violet dots
-    g.soft(G.pts([[11, 9], [12, 11], [11, 13], [13, 8], [13, 12]]), '#b490f0');
-    g.spark(12, 3, '#e0d0ff'); g.spark(3, 13, '#cdb8ff'); g.dots([[14, 6], [1, 2], [9, 14]], '#e8e0ff');
+  mirana_invis: ['arcane', g => {
+    g.halo(7, 7.5, 9, '#c8b0ff');
+    // big glowing crescent moon (Moonlight Shadow)
+    g.paint(G.sub(G.ell(7, 7.5, 6.8, 6.8), G.ell(10.4, 5.6, 5.6, 5.8)), R.bone, 'g');
+    g.paint(G.sub(G.ell(7, 7.5, 5.6, 5.6), G.ell(9.6, 6.2, 5.2, 5.4)), R.yellow, 'f', { lv: 1, soft: true });
+    // shimmer of a fading figure on the dark side
+    g.soft(G.pts([[11, 9], [12, 11], [11, 13], [13, 8], [13, 12], [12, 14]]), '#d8c4ff');
+    g.spark(13, 2, '#ffffff'); g.dots([[15, 6], [2, 1], [9, 15], [15, 15]], '#e8e0ff');
   }],
   // ---------------------------------------------------------------- Rubick
   rubick_telekinesis: ['arcane', g => {
@@ -102,14 +118,13 @@ export const ABILITIES_NH = {
     g.zig([[2, 12], [2, 9]], R.magenta, W, 1); g.zig([[13, 12], [13, 9]], R.magenta, W, 1);
     g.soft(G.pts([[2, 8], [1, 9], [3, 9], [13, 8], [12, 9], [14, 9]]), '#f2d8ff');
   }],
-  rubick_fade_bolt: ['arcane', g => {
-    g.halo(8, 8, 9, '#8ac0ff');
-    g.zig([[3, 12], [7, 10], [6, 7], [11, 5], [12, 3]], R.cyan, W, 1);
-    g.zig([[11, 5], [14, 8], [13, 12]], R.cyan, W, 1);
-    g.ell(3, 12, 2.8, 2.8, R.blue, 'g'); g.ell(11, 4.5, 2.4, 2.4, R.blue, 'g'); g.ell(13, 12, 1.8, 1.8, R.blue, 'g');
-    g.dots([[3, 11], [11, 4], [13, 11]], W);
-    g.ell(7, 8, 1.2, 1.2, R.magenta, 'g');
-    g.spark(2, 2, '#bfe4ff'); g.spark(14, 1, '#bfe4ff');
+  rubick_fade_bolt: ['bolt', g => {
+    g.halo(8, 8, 9, '#9ad0ff');
+    // a thick bolt chaining through three targets
+    g.zig([[2, 13], [6, 10], [5, 7], [10, 5], [11.5, 3.5]], R.cyan, W, 2);
+    g.zig([[11.5, 3.5], [14, 7], [12.5, 10], [13.5, 13]], R.cyan, W, 2);
+    for (const [x, y, r] of [[2.5, 12.5, 2.6], [11.5, 3.5, 2.4], [13.5, 13, 2]]) { g.ell(x, y, r, r, R.ice, 'g'); g.dot(x, y, W); }
+    g.spark(2, 2, '#e0f4ff'); g.spark(6, 14, '#e0f4ff');
   }],
   rubick_arcane_supremacy: ['arcane', g => {
     g.halo(7.5, 8, 9, '#c898ff');
