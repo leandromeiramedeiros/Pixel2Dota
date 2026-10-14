@@ -94,7 +94,10 @@
 }
 @media (max-width:720px) {
   .lb-teams, .lb-bottom { grid-template-columns:1fr; }
-  .lb-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .lb-grid { grid-template-columns:repeat(4, minmax(0, 1fr)); gap:4px; }
+  .lb-hero { padding:4px 2px; gap:2px; } .lb-pt3 { width:48px; height:63px; } .lb-hn { font-size:10px; }
+  .lb-room { padding:12px; gap:10px; }
+  .lb-log { max-height:140px; min-height:80px; } .lb-chat { min-height:0; }
   .lb-lobby { grid-template-columns:60px 1fr auto; }
   .lb-lcount { display:none; }
 }
@@ -108,3 +111,9 @@
 .lb-spec { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; }
 .lb-chk { display:flex; align-items:center; gap:6px; color:var(--text, #d8deea); cursor:pointer; }
 .lb-live { background:#c0392b; color:#fff; font-style:normal; }
+/* phones: the bottom of a fixed root sits under the browser toolbar (iOS Safari), so pin Start / Fill to the TOP instead */
+@media (max-width:720px), (max-height:500px) {
+  .lb-root { padding-bottom:calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .lb-foot { order:-1; top:-16px; bottom:auto; margin:-12px -12px 0; padding:8px 12px; box-shadow:0 2px 0 #1d2538; flex-wrap:wrap; }
+  .lb-foot .lb-hint { flex:1 1 100%; order:3; margin:0; }
+}
