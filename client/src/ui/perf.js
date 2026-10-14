@@ -1,5 +1,5 @@
 // Tiny ping / FPS readout, top-right corner (under the touch buttons on touch). Ping = Colyseus room round trip every 2 s.
-//   createPerf(parent, net) -> { frame(now), destroy() }
+//   createPerf(parent, net) -> { frame(now), setVisible(bool), destroy() }
 const CSS = `
 .p2d-perf { position:absolute; right:calc(6px + env(safe-area-inset-right, 0px)); top:calc(2px + env(safe-area-inset-top, 0px)); z-index:20;
   pointer-events:none; font:10px/1 'Silkscreen','Courier New',monospace; color:#8e99b3; text-shadow:0 1px 0 #000, 0 0 2px #000; white-space:nowrap; }
@@ -41,6 +41,7 @@ export function createPerf(parent, net) {
   const timer = setInterval(measure, 2000);
   draw();
   return {
+    setVisible(v) { el.style.display = v ? '' : 'none'; },
     frame(now) {
       frames++;
       if (now - since >= 500) { status(); fps = Math.round(frames * 1000 / (now - since)); frames = 0; since = now; draw(); }

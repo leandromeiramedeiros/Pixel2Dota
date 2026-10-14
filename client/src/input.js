@@ -165,7 +165,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   const typing = () => call('isTyping');
   function onKeyDown(e) {
     const tag = e.target && e.target.tagName;
-    if (typing() || tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (typing() || tag === 'INPUT' || tag === 'TEXTAREA' || call('isMenuOpen')) return;
     const code = e.code;
     if (ARROWS[code]) { held.add(code); e.preventDefault(); return; }
     if (e.repeat && code !== 'Tab') { if (/^Key|Space|F\d/.test(code)) e.preventDefault(); return; }
@@ -173,7 +173,11 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
 
     if (code === 'Tab') { e.preventDefault(); call('setScoreboard', true); return; }
     if (code === 'Enter') { e.preventDefault(); call('openChat'); return; }
-    if (code === 'Escape') { if (mode) setMode(null); else if (H.isShopOpen && H.isShopOpen()) call('closeShop'); else { renderer.setSelected && renderer.setSelected(null); call('select', null); } return; }
+    if (code === 'Escape') {   // targeting -> shop -> selection close first; with nothing left to close, Esc opens the game menu
+      if (mode) setMode(null); else if (H.isShopOpen && H.isShopOpen()) call('closeShop');
+      else if (H.selected) { renderer.setSelected && renderer.setSelected(null); call('select', null); } else call('toggleMenu');
+      return;
+    }
     if (code === 'F4') { e.preventDefault(); call('toggleShop'); return; }
     if (code === 'F1' || code === 'Space') { e.preventDefault(); const u = hero(); if (u) renderer.setTarget(u.x, u.y); return; }
     if (code === 'KeyY' && !e.ctrlKey && !e.altKey) { camLock = !camLock; call('message', camLock ? 'Camera lock: on' : 'Camera lock: off'); return; }

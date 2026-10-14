@@ -35,7 +35,9 @@ export const T = {
   ATK_EXTRA: 300,        // attack-button search radius = attack range + this
   SNAP: 380,             // world units: unit-target aim snaps to the nearest unit within this of the aim point
   SUPPRESS_MS: 320,      // joystick stays quiet this long after a cast / attack order so it is not overwritten
-  ZOOM_FAR: 1450,       // touch camera: starting + maximum distance (desktop 1134); pinch only zooms IN from there
+  ZOOM_FAR: 1450,       // touch camera: maximum distance (pinch out up to here)
+  ZOOM_START: 1300,     // starting distance: matches the free playfield of desktop at 1134 (phone HUD rings the edges: ~76% height x ~56% width
+                        // free vs desktop ~75% x 100%) -> ~1365, pulled in a bit so heroes stay readable on a 6" screen
   ZONE: 0.4,             // joystick zone = left 40% of the screen
 };
 
@@ -222,6 +224,10 @@ const OPEN_LOCK = {
   pal: LOCK.pal,
   rows: ['...kkkkk...', '..ksssssk..', '..ks...sk..', '..ks.......', '.kkkkkkkkk.', '.kyyyyyyyk.', '.kyyykyyyk.', '.kyyykyyyk.', '.koooooook.', '..kkkkkkk..'],
 };
+const MENU = {
+  pal: { k: '#10131c', w: '#dfe6f2' },
+  rows: ['kkkkkkkkkk', 'kwwwwwwwwk', 'kkkkkkkkkk', '..........', 'kkkkkkkkkk', 'kwwwwwwwwk', 'kkkkkkkkkk', '..........', 'kkkkkkkkkk', 'kwwwwwwwwk', 'kkkkkkkkkk'],
+};
 const BAG = {
   pal: { k: '#10131c', y: '#e8b83a', o: '#a77a1c', w: '#fff3b0' },
   rows: ['..kkkkkk..', '...kooyk..', '..kyyyyyk.', '.kyywyyyyk', 'kyywyyyyyk', 'kyyyyyyyok', 'kyyyyyyook', '.koooooook', '..kkkkkk..'],
@@ -269,7 +275,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const topBtn = (glyph, label, cls) => {
     const b = h('div', 't-btn t-sm ' + cls); const g = pixelEl(glyph, null, 1); g.classList.add('t-glyph'); b.append(g, h('i', null, label)); topEl.append(b); return b;
   };
-  const bShop = topBtn(BAG, 'SHOP', 't-shop'), bScore = topBtn(GLYPHS.skull, 'SCORE', 't-score'), bChat = topBtn(BUBBLE, 'CHAT', 't-chat'), bCam = topBtn(LOCK, 'CAM', 't-cam');
+  const bShop = topBtn(BAG, 'SHOP', 't-shop'), bScore = topBtn(GLYPHS.skull, 'SCORE', 't-score'), bChat = topBtn(BUBBLE, 'CHAT', 't-chat'), bCam = topBtn(LOCK, 'CAM', 't-cam'), bMenu = topBtn(MENU, 'MENU', 't-menu');
   const turn = h('div', 't-turn');
   { const ph = h('div', 't-phone'); ph.append(h('i')); turn.append(ph, h('b', null, 'TURN YOUR PHONE SIDEWAYS'), h('span', null, 'Pixel2Dota is played in landscape')); }
   let turnShown = false;
@@ -704,6 +710,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     act(bShop, () => { if (H.toggleShop) H.toggleShop(); });
     act(bScore, () => setSb(!sbOpen));
     act(bChat, () => { if (H.openChat) H.openChat(); });
+    act(bMenu, () => { if (H.toggleMenu) H.toggleMenu(); });
     act(bCam, () => { if (locked) setLocked(false); else { setLocked(true); recentre(); } });
     const sb = root.querySelector('.h-sb'); if (sb) on(sb, 'click', () => setSb(false));
     const port = root.querySelector('.h-port'); if (port) on(port, 'click', () => { setLocked(true); recentre(); });
@@ -769,7 +776,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     on(root, 'contextmenu', (e) => e.preventDefault());
     on(window, 'dragstart', (e) => e.preventDefault());
     if (input && input.setTouchMode) input.setTouchMode(true);
-    if (renderer.setCameraFar) renderer.setCameraFar(T.ZOOM_FAR);   // touch camera: starts and maxes at 1450 (desktop 1134)
+    if (renderer.setCameraFar) renderer.setCameraFar(T.ZOOM_FAR, T.ZOOM_START);   // touch camera: starts at 1300, pinch out to 1450
     checkOrientation();
     raf = requestAnimationFrame(frame);
   }
