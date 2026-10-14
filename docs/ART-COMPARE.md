@@ -23,6 +23,8 @@ Reference frames (all in [shots/](shots/)):
 | Tree size and canopy | Trees ~32-36 px wide; dense canopy along lanes | Before: 21-32 px wide, model scale ignored. After: 1.35x with the real model scale, so the canopy closes up (p2d-mid-day-after.jpg) | Yes, after tuning |
 | Camera | Near top-down, flat tiles | 3D tile terrain with height; Dota camera at 1134 u and 60° pitch | Differs on purpose (the user's 2.5D brief) |
 
+Night check after tuning: [p2d-mid-night-after.jpg](shots/p2d-mid-night-after.jpg), taken at the same spot during the 5:00 night with a live Blade Fury in frame. Ground, trees and units stay readable, so the night ambient is unchanged.
+
 How the colours were measured: mean colour and saturation of green-dominant pixels in matching grass areas of each screenshot.
 
 Changes that closed the gaps:
