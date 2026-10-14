@@ -5,7 +5,7 @@ import { DATA } from '../../shared/data.js';
 import { TEAM, KIND, ST } from '../../shared/protocol.js';
 import {
   T, touchWanted, isPortrait, castClass, selfCastTarget, arcLayout, angleDiff, joyShouldSend, dragVector, aimWorldOffset,
-  snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget,
+  snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget, touchScale, aimShape,
 } from '../src/ui/touch.js';
 
 const unit = (o) => Object.assign({ id: 'u', kind: KIND.CREEP, team: TEAM.DIRE, x: 0, y: 0, hp: 100, status: 0, respawn: 0 }, o);
@@ -139,4 +139,22 @@ test('pinchGoal: spreading fingers zooms in, clamped to the rig limits', () => {
 test('validTarget: respawning heroes are not targetable', () => {
   assert.equal(validTarget(unit({ respawn: 5 }), { team: 'ENEMY', myTeam: TEAM.RADIANT }), false);
   assert.equal(validTarget(unit({}), { team: 'ENEMY', myTeam: TEAM.RADIANT }), true);
+});
+
+test('touchScale: phone HUD ~20-25% smaller than before, tablet less; bk keeps buttons usable', () => {
+  const p = touchScale(844, 390), t = touchScale(1024, 600);
+  assert.ok(p.k >= 0.74 && p.k <= 0.82);
+  assert.ok(t.k > p.k && t.k <= 1.15);
+  assert.ok(88 * p.bk >= 76 && 59 * p.bk >= 48 && 47 * p.bk >= 40);
+  assert.ok(88 * t.bk >= 76 && 59 * t.bk >= 48 && 47 * t.bk >= 40);
+});
+
+test('aimShape: skill shots, cones, AoE circles, none', () => {
+  const info = (o) => Object.assign({ range: 1000, radius: 0 }, o);
+  const arrow = aimShape('ability', 'mirana_arrow', 1, info({ range: 3000 }));
+  assert.equal(arrow.type, 'line'); assert.ok(arrow.len > 0 && arrow.w0 > 0);
+  assert.equal(aimShape('ability', 'drow_ranger_multishot', 1, info()).type, 'cone');
+  assert.deepEqual(aimShape('ability', 'nonexistent', 1, info({ radius: 250 })), { type: 'circle', radius: 250 });
+  assert.equal(aimShape('ability', 'nonexistent', 1, info()).type, 'none');
+  assert.equal(aimShape('ability', 'lina_light_strike_array', 1, info({ radius: 250 })).type, 'circle');
 });

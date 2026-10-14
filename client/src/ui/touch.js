@@ -15,6 +15,7 @@ import { h } from './panels.js';
 import {
   heroKeyLetters, ITEM_LETTERS, targetInfo, abilityReady, itemReady, canLearn, orderMove, orderCast, orderAttack, orderAmove, teamOk,
 } from './targeting.js';
+import { DATA } from '../../../shared/data.js';
 import { injectTouchStyle } from './style.js';
 
 // ------------------------------------------------------------------------------------------------ tunables
@@ -26,6 +27,7 @@ export const T = {
   JOY_DEAD: 10,          // px
   JOY_R: 56,             // px, joystick base radius
   DOUBLE_MS: 320,        // double-tap window
+  LONG_MS: 450,          // press-and-hold that opens a tooltip
   TAP_MS: 220,           // a press shorter than this (and not dragged) is a tap
   TAP_MOVE: 14,          // px
   PAN_SLOP: 8,           // px before a one-finger drag pans
@@ -33,6 +35,7 @@ export const T = {
   ATK_EXTRA: 300,        // attack-button search radius = attack range + this
   SNAP: 380,             // world units: unit-target aim snaps to the nearest unit within this of the aim point
   SUPPRESS_MS: 320,      // joystick stays quiet this long after a cast / attack order so it is not overwritten
+  ZOOM_FAR: 1450,       // touch camera: starting + maximum distance (desktop 1134); pinch only zooms IN from there
   ZONE: 0.4,             // joystick zone = left 40% of the screen
 };
 
@@ -75,6 +78,48 @@ export function selfCastTarget(info, hero) {
     return { x: clampW(hero.x + Math.cos(f) * r), y: clampW(hero.y + Math.sin(f) * r) };
   }
   return { unitId: hero.id };
+}
+
+/** HUD scale for a viewport: k for panels/text, bk for the touch buttons.  844x390 -> k .78 / bk .88;  1024x600 -> k 1.09 / bk 1.09. */
+export function touchScale(w, hh) {
+  const raw = Math.max(1, Math.min(1.5, Math.min(w / 844, hh / 390)));
+  const t = Math.max(0, Math.min(1, (raw - 1) / 0.213));
+  const k = raw * (0.78 + 0.12 * t);
+  return { k, bk: k * (1.13 - 0.13 * t) };
+}
+
+const lvAt = (arr, level) => (Array.isArray(arr) ? arr[Math.min(Math.max((level | 0) || 1, 1), arr.length) - 1] : arr);
+// skill-shot shapes: widths / length come from the ability's value keys ('range' = cast range)
+const SHAPES = {
+  mirana_arrow: { type: 'line', w: 'arrow_width', len: 'arrow_range' },
+  pudge_meat_hook: { type: 'line', w: 'hook_width', len: 'range' },
+  drow_ranger_wave_of_silence: { type: 'line', w: 'wave_width', len: 'wave_length' },
+  lion_impale: { type: 'line', w: 'width', len: 'range', lenAdd: 'length_buffer' },
+  lina_dragon_slave: { type: 'line', w0: 'dragon_slave_width_initial', w1: 'dragon_slave_width_end', len: 'dragon_slave_distance' },
+  invoker_deafening_blast: { type: 'line', w0: 'radius_start', w1: 'radius_end', len: 'travel_distance' },
+  invoker_tornado: { type: 'line', w: 'area_of_effect', len: 'travel_distance' },
+  drow_ranger_multishot: { type: 'cone', angle: 'arrow_angle', len: 'arrow_range_base' },
+};
+const EXTRA_AOE = ['light_strike_array_aoe', 'spread_aoe', 'healing_ward_aura_radius'];
+/**
+ * World shape the rangefinder draws at the aim point.
+ *   { type:'circle', radius } | { type:'line', len, w0, w1 } | { type:'cone', len, angle } | { type:'none' }
+ */
+export function aimShape(kind, key, level, info, data = DATA) {
+  const d = kind === 'item' ? data.items[key] : data.abilities[key];
+  const v = (d && d.values) || {};
+  const num = (n) => Number(lvAt(v[n], level)) || 0;
+  const s = SHAPES[key];
+  if (s && s.type === 'line') {
+    const len = (s.len === 'range' ? info.range : num(s.len)) + (s.lenAdd ? num(s.lenAdd) : 0);
+    const w0 = s.w ? num(s.w) : num(s.w0), w1 = s.w ? w0 : num(s.w1);
+    if (len > 0 && w0 > 0) return { type: 'line', len, w0, w1: w1 || w0 };
+  }
+  if (s && s.type === 'cone') { const len = num(s.len), angle = num(s.angle); if (len > 0 && angle > 0) return { type: 'cone', len, angle }; }
+  let r = info.radius || 0;
+  if (!(r > 0)) for (const n of EXTRA_AOE) { const x = num(n); if (x > 0) { r = x; break; } }
+  if (r > 0) return { type: 'circle', radius: r };
+  return { type: 'none' };
 }
 
 /**
@@ -260,16 +305,17 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     layout();
   }
 
-  // ---- layout (px; scale k grows on tablets, never shrinks below phone size so buttons stay >= 56 px)
+  // ---- layout.  Two scales: --k (panels, text; ~0.78 on a 6" phone, ~1.1 on a 7" tablet) and K = --bk (touch buttons: shrink
+  //      less so they stay big enough: attack >= 76 px, abilities >= 50, items >= 40 on a phone).  Pure: see touchScale().
   let K = 1, W = 844, Hh = 390;
-  const SZ = { atk: 88, ab: 58, it: 46, lock: 44, sm: 46 };
+  const SZ = { atk: 88, ab: 59, it: 47, lock: 44, sm: 50 };
   function layout() {
     W = root.clientWidth || innerWidth; Hh = root.clientHeight || innerHeight;
-    K = Math.max(1, Math.min(1.5, Math.min(W / 844, Hh / 390)));
+    const sc = touchScale(W, Hh); K = sc.bk;
     const px = (v) => Math.round(v * K) + 'px';
-    const unit = Math.max(1.25, Math.round(1.25 * K * 4) / 4);   // fallback HUD unit (messages etc.); most panels set their own from --k
+    const unit = Math.max(1, Math.round(1.25 * sc.k * 4) / 4);   // fallback HUD unit (messages etc.); most panels set their own from --k
     document.documentElement.style.setProperty('--p2d-u', unit + 'px');
-    document.documentElement.style.setProperty('--k', String(K));
+    document.documentElement.style.setProperty('--k', String(sc.k)); document.documentElement.style.setProperty('--bk', String(sc.bk));
     const half = (SZ.atk * K) / 2;
     anchor.style.right = `calc(env(safe-area-inset-right, 0px) + ${px(10)} + ${half}px)`;
     anchor.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${px(10)} + ${half}px)`;
@@ -405,14 +451,54 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   // ---- casting
   let aim = null;      // { b, cls, info, key, name, dx, dy, snap, moved, ptr, down, cx, cy, inCancel, point:{x,y}|null, unitId }
   let rangeTimer = 0;
-  const targetingFor = (b, info, key, line) => ({ kind: b.kind, slot: b.slot, info, name: prettyName(key), line });
-  function clearRange() { clearTimeout(rangeTimer); rangeTimer = 0; if (!aim && H.setTargeting) H.setTargeting(null); }
-  function showRange(b, info, key, ms) {
-    clearTimeout(rangeTimer);
-    if (H.setTargeting) H.setTargeting(targetingFor(b, info, key, false));
-    if (H.setAim) { const u = heroU(); if (u) H.setAim(u.x, u.y); }
-    rangeTimer = setTimeout(() => { rangeTimer = 0; if (!aim && H.setTargeting) H.setTargeting(null); }, ms);
+  // rich = the touch rangefinder (range ring + AoE / line / cone at the aim point + target marker), drawn by hud.drawRings
+  const targetingFor = (b, info, key, line, lvl, ring) => ({ kind: b.kind, slot: b.slot, info, name: prettyName(key), line, rich: true, ring: ring == null ? info.range : ring, shape: aimShape(b.kind, key, lvl, info), unitId: '', unitOk: false });
+  // ---- tooltips (same content as desktop ui/tooltip.js); `.t-on` lets the touch HUD show them, hover-shows stay hidden
+  let tipEl = null, tipTimer = 0, longTimer = 0;
+  function tipDesc(b) {
+    const u = heroU(); if (!u) return null;
+    if (b.kind === 'item') { const it = u.items[b.slot]; return it && it.key ? { type: 'item', key: it.key, items: u.items } : null; }
+    const ab = u.abilities[b.slot]; if (!ab || !ab.key || (/empty/.test(ab.key) && !ab.level)) return null;
+    const a = u.abilities;
+    const orbs = a.length >= 3 && u.orbs !== undefined && /invoker/.test(u.key) ? { quaslevel: a[0].level, wexlevel: a[1].level, exortlevel: a[2].level } : null;
+    return { type: 'ability', key: ab.key, level: ab.level, orbs };
   }
+  function hideTip() {
+    clearTimeout(tipTimer); tipTimer = 0;
+    if (tipEl) { tipEl.classList.remove('t-on', 't-compact'); if (H.tooltip) H.tooltip.hide(); tipEl = null; }
+  }
+  function showTip(b, compact) {
+    const d = tipDesc(b); if (!d || !H.tooltip) return false;
+    hideTip();
+    H.tooltip.show(b.el, d);
+    tipEl = H.tooltip.el; tipEl.classList.add('t-on'); tipEl.classList.toggle('t-compact', !!compact);
+    const sa = (n) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(n)) || 0;
+    const w = tipEl.offsetWidth, hh = tipEl.offsetHeight, vw = root.clientWidth || innerWidth, vh = root.clientHeight || innerHeight, m = 8;
+    let x, y;
+    if (compact) { x = (vw - w) / 2; y = Math.max(topLimit() + 4, 44); }
+    else { const r = b.el.getBoundingClientRect(); x = r.left - w - 12; y = r.top + r.height / 2 - hh / 2; if (x < m) x = Math.min(vw - w - m, r.right + 12); }
+    x = Math.max(m, Math.min(vw - w - m, x)); y = Math.max(m, Math.min(vh - hh - m, y));
+    tipEl.style.left = Math.round(x) + 'px'; tipEl.style.top = Math.round(y) + 'px';
+    if (!compact) tipTimer = setTimeout(hideTip, 9000);
+    return true;
+  }
+  const clearLong = () => { clearTimeout(longTimer); longTimer = 0; };
+  let fadeRaf = 0;
+  function clearRange() { clearTimeout(rangeTimer); rangeTimer = 0; cancelAnimationFrame(fadeRaf); fadeRaf = 0; if (!aim && H.setTargeting) H.setTargeting(null); }
+  function fadeRange(tg) {                                                      // ~150 ms fade instead of vanishing
+    const t0 = now();
+    const step = () => { fadeRaf = 0; if (aim) return; const k = (now() - t0) / 150; if (k >= 1) { if (H.setTargeting) H.setTargeting(null); return; } tg.alpha = 1 - k; fadeRaf = requestAnimationFrame(step); };
+    fadeRaf = requestAnimationFrame(step);
+  }
+  function showRange(b, info, key, ms) {                                        // quick tap: finite-range spells flash the range ring only; global ones show their tooltip
+    clearRange();
+    const rr = realRange(info);
+    if (!(rr > 0)) { showTip(b, false); clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 2600); return; }
+    const tg = Object.assign(targetingFor(b, info, key, false, 1, rr), { preview: true, alpha: 1 });
+    if (H.setTargeting) H.setTargeting(tg);
+    rangeTimer = setTimeout(() => { rangeTimer = 0; if (!aim) fadeRange(tg); }, ms);
+  }
+  const realRange = (info) => (info.range > 0 && info.range < 2500 ? info.range : 0);
   const itemOrAbility = (u, b) => (b.kind === 'item' ? u.items[b.slot] : u.abilities[b.slot]);
   const issueCast = (b, target) => { order(orderCast(b.kind, b.slot, target, false)); noteOrder(); flash(b.el); };
 
@@ -424,11 +510,20 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const ent = itemOrAbility(u, b), key = ent && ent.key; if (!key) return;
     const lvl = b.kind === 'ability' ? ent.level : 1;
     const { cls, info } = castClass(b.kind, key, lvl);
-    if (cls === 'passive') return;
+    if (cls === 'passive') { clearRange(); showTip(b, false); return; }          // tap = read it
     const rdy = b.kind === 'item' ? itemReady(u, b.slot) : abilityReady(u, b.slot);
-    if (!rdy.ok) { if (rdy.reason !== 'empty') { warn(rdy.reason); flash(b.el, 'f-bad'); } return; }
+    if (!rdy.ok) {
+      if (rdy.reason === 'empty') return;
+      clearRange(); showTip(b, false);                                          // unlearned / cooling down / no mana: show what it is
+      warn(rdy.reason); flash(b.el, 'f-bad'); return;
+    }
     clearRange();
-    if (cls === 'instant') { issueCast(b, null); return; }
+    if (cls === 'instant') {                                                    // casts on touch-down; a hold still opens the tooltip
+      issueCast(b, null);
+      clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (b.ptr === e.pointerId) showTip(b, false); }, T.LONG_MS);
+      b.ptr = e.pointerId; pointers.set(e.pointerId, { id: e.pointerId, role: 'tip', b, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
+      return;
+    }
     const t = now();
     if (cls === 'self' && b.tapAt && t - b.tapAt <= T.DOUBLE_MS) {            // double tap = self cast
       b.tapAt = 0;
@@ -439,13 +534,15 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const r = b.el.getBoundingClientRect();
     const range = info.range > 0 ? info.range : info.mode === 'point' ? 1600 : 600;
     b.ptr = e.pointerId;
-    aim = { b, cls, info: Object.assign({}, info, { range }), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, inCancel: false, point: null, unitId: '' };
+    aim = { b, cls, info: Object.assign({}, info, { range }), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, inCancel: false, point: null, unitId: '' };
     pointers.set(e.pointerId, { id: e.pointerId, role: 'btn', b });
     try { b.el.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = pad.parentNode.getBoundingClientRect();
     pad.style.left = (aim.cx - rect.left) + 'px'; pad.style.top = (aim.cy - rect.top) + 'px';
     R.classList.add('aiming'); cancelEl.classList.remove('hot');
-    if (H.setTargeting) H.setTargeting(targetingFor(b, aim.info, key, true));
+    aim.tg = targetingFor(b, aim.info, key, true, lvl, realRange(info));
+    if (H.setTargeting) H.setTargeting(aim.tg);
+    clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (aim && aim.b === b) showTip(b, true); }, T.LONG_MS);   // still aiming after a beat: compact tooltip up top
     updateAim();
   }
 
@@ -457,14 +554,23 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const hasDrag = Math.hypot(a.dx, a.dy) > 6 * K;
     let ax, ay, unitId = '';
     const f = u.facing || 0;
-    if (hasDrag) { ax = u.x + off.x; ay = u.y + off.y; }
+    // the aim point is the thumb's screen position unprojected through the CURRENT camera every frame, so panning the camera
+    // (minimap / left hand) under a stationary thumb moves the aim; finite-range spells clamp to the ring, global ones reach map-wide
+    if (hasDrag && renderer.pick) {
+      const cr = canvas.getBoundingClientRect(), g = renderer.pick(a.ex - cr.left, a.ey - cr.top);
+      ax = g.x; ay = g.y;
+    } else if (hasDrag) { ax = u.x + off.x; ay = u.y + off.y; }
     else { ax = u.x + Math.cos(f) * a.info.range * 0.75; ay = u.y + Math.sin(f) * a.info.range * 0.75; }
-    if (a.info.mode === 'unit' || a.info.mode === 'unitpoint') {
+    const unit = a.info.mode === 'unit' || a.info.mode === 'unitpoint';
+    if (unit) {
       const o = { team: a.info.team, myTeam: myTeam(), visible, maxD: hasDrag ? T.SNAP : a.info.range + 400 };
       const s = snapUnit(unitList(), hasDrag ? ax : u.x, hasDrag ? ay : u.y, o);
       if (s) { unitId = s.id; ax = s.x; ay = s.y; }
     }
+    const rr = a.tg ? a.tg.ring : 0;
+    if (!unitId && rr > 0) { const dd = Math.hypot(ax - u.x, ay - u.y); if (dd > rr) { ax = u.x + (ax - u.x) * rr / dd; ay = u.y + (ay - u.y) * rr / dd; } }
     a.point = { x: clampW(ax), y: clampW(ay) }; a.unitId = unitId;
+    if (a.tg) { a.tg.unitId = unitId; a.tg.unitOk = !!unitId || a.info.mode === 'point' || a.info.mode === 'unitpoint'; a.tg.cancel = a.inCancel; }
     if (H.setAim) H.setAim(a.point.x, a.point.y);
     if (renderer.setHover) renderer.setHover(unitId || null);
     a.b.el.style.transform = `translate(${off.kx}px, ${off.ky}px)`;
@@ -472,6 +578,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   function aimMove(e) {
     if (!aim) return;
+    aim.ex = e.clientX; aim.ey = e.clientY;
     aim.dx = e.clientX - aim.cx; aim.dy = e.clientY - aim.cy;
     if (Math.hypot(aim.dx, aim.dy) > T.TAP_MOVE * K) aim.moved = true;
     const c = cancelEl.getBoundingClientRect(), m = 10;
@@ -483,7 +590,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   function endAim(cast) {
     const a = aim; if (!a) return;
-    aim = null;
+    aim = null; clearLong(); if (tipEl && tipEl.classList.contains('t-compact')) hideTip();
     pointers.delete(a.ptr); a.b.ptr = null;
     a.b.el.style.transform = '';
     a.b.el.classList.remove('bad');
@@ -525,13 +632,15 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = canvas.getBoundingClientRect();
     const p = { id: e.pointerId, role: 'pan', x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: now(), moved: false };
-    if (!isSpec() && !joy && e.clientX < rect.left + rect.width * T.ZONE && e.clientY > topLimit()) { p.role = 'joy'; startJoy(p, rect); }
+    if (aim) p.aimPan = true;                                           // left hand during a hold: pan the camera (no joystick, no taps)
+    else if (!isSpec() && !joy && e.clientX < rect.left + rect.width * T.ZONE && e.clientY > topLimit()) { p.role = 'joy'; startJoy(p, rect); }
     pointers.set(e.pointerId, p);
     const pans = [...pointers.values()].filter((q) => q.role === 'pan' || q.role === 'pinch');
     if (pans.length >= 2) {
       const [a, b] = pans; a.role = b.role = 'pinch';
       const r = rig();
-      pinch = { a, b, d0: Math.hypot(a.x - b.x, a.y - b.y), g0: r ? r.distanceGoal : 0 };
+      const dd = Math.hypot(a.x - b.x, a.y - b.y);
+      pinch = { a, b, d0: dd, last: dd, g0: r ? r.distanceGoal : 0 };
     }
   }
   function panBy(dx, dy) {
@@ -545,13 +654,15 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     p.x = e.clientX; p.y = e.clientY;
     if (Math.hypot(p.x - p.x0, p.y - p.y0) > T.TAP_MOVE) p.moved = true;
     if (p.role === 'btn') { aimMove(e); return; }
+    if (p.role === 'tip') { if (Math.hypot(p.x - p.x0, p.y - p.y0) > T.TAP_MOVE) clearLong(); return; }
     if (p.role === 'joy') { moveJoy(p); return; }
     if (p.role === 'pan') {
       if (!p.panning && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) { p.panning = true; if (locked) setLocked(false); panBy(p.x - p.x0, p.y - p.y0); return; }
       if (p.panning) panBy(dx, dy);
     } else if (p.role === 'pinch' && pinch) {
-      const r = rig(); if (!r) return;
       const d = Math.hypot(pinch.a.x - pinch.b.x, pinch.a.y - pinch.b.y);
+      if (renderer.zoomBy) { if (d > 0 && pinch.last > 0) renderer.zoomBy(pinch.last / d); pinch.last = d; return; }   // renderer clamps showcase..far
+      const r = rig(); if (!r) return;
       r.distanceGoal = pinchGoal(pinch.g0, pinch.d0, d, r.minDist, r.maxDist);
     }
   }
@@ -560,13 +671,14 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     pointers.delete(e.pointerId);
     const cancelled = e.type === 'pointercancel';
     if (p.role === 'btn') { endAim(!cancelled); return; }
+    if (p.role === 'tip') { clearLong(); if (p.b.ptr === p.id) p.b.ptr = null; return; }
     if (p.role === 'atk') { atkHeld = null; atk.classList.remove('down'); return; }
     if (p.role === 'joy') {
       const quick = now() - p.t0 < T.TAP_MS && !p.moved;
       endJoy();
       if (quick && !cancelled) worldTap(p, canvas.getBoundingClientRect());
     } else if (p.role === 'pan') {
-      if (!cancelled && !p.panning && !p.moved && now() - p.t0 < T.TAP_MS) worldTap(p, canvas.getBoundingClientRect());
+      if (!cancelled && !p.aimPan && !p.panning && !p.moved && now() - p.t0 < T.TAP_MS) worldTap(p, canvas.getBoundingClientRect());
     } else if (p.role === 'pinch') {
       pinch = null;
       for (const q of pointers.values()) if (q.role === 'pinch') q.role = 'dead';     // the remaining finger does nothing until lifted
@@ -612,7 +724,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (aim) endAim(false);
     endJoy(); atkHeld = null; atk.classList.remove('down');
     pointers.clear(); pinch = null;
-    clearRange();
+    clearRange(); clearLong(); hideTip();
   }
   // ---- frame
   let raf = 0;
@@ -644,6 +756,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     on(lockBtn, 'pointerdown', lockDown);
     for (const b of itBtns) on(b.el, 'pointerdown', (e) => btnDown(b, e));
     anchor.addEventListener('pointerdown', (e) => { const el = e.target.closest && e.target.closest('.t-ab'); const b = el && abBtns.find((x) => x.el === el); if (b) btnDown(b, e); });
+    on(window, 'pointerdown', () => { if (tipEl && !tipEl.classList.contains('t-compact')) hideTip(); }, true);
     on(window, 'pointermove', onMove);
     on(window, 'pointerup', onUp);
     on(window, 'pointercancel', onUp);
@@ -656,6 +769,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     on(root, 'contextmenu', (e) => e.preventDefault());
     on(window, 'dragstart', (e) => e.preventDefault());
     if (input && input.setTouchMode) input.setTouchMode(true);
+    if (renderer.setCameraFar) renderer.setCameraFar(T.ZOOM_FAR);   // touch camera: starts and maxes at 1450 (desktop 1134)
     checkOrientation();
     raf = requestAnimationFrame(frame);
   }
@@ -682,7 +796,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
         subs.length = 0;
         if (input && input.setTouchMode) input.setTouchMode(false);
         document.documentElement.classList.remove('p2d-touch', 'p2d-narrow');
-        document.documentElement.style.removeProperty('--p2d-u'); document.documentElement.style.removeProperty('--k');
+        document.documentElement.style.removeProperty('--p2d-u'); document.documentElement.style.removeProperty('--k'); document.documentElement.style.removeProperty('--bk');
       }
       R.remove(); turn.remove(); clearTimeout(rangeTimer);
     },

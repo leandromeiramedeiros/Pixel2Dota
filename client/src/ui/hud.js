@@ -309,9 +309,9 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
 
   // ---- range rings
   function drawRings(hero) {
-    ringCtx.clearRect(0, 0, ring.width, ring.height);
+    ringCtx.clearRect(0, 0, ring.width, ring.height); ringCtx.globalAlpha = 1;
     if (!targeting || !hero || !renderer.worldToScreen) return;
-    const circle = (cx, cy, r, color, fill) => {
+    const circle = (cx, cy, r, color, fill, lw) => {
       ringCtx.beginPath();
       for (let k = 0; k <= 64; k++) {
         const a = (k / 64) * Math.PI * 2; const p = renderer.worldToScreen(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
@@ -319,18 +319,49 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       }
       ringCtx.closePath();
       if (fill) { ringCtx.fillStyle = fill; ringCtx.fill(); }
-      ringCtx.strokeStyle = color; ringCtx.lineWidth = 2; ringCtx.stroke();
+      ringCtx.strokeStyle = color; ringCtx.lineWidth = lw || 2; ringCtx.stroke();
     };
+    if (targeting.rich) { drawRich(hero, circle); return; }
     const info = targeting.info || {};
     if (info.range > 0) circle(hero.x, hero.y, info.range, 'rgba(255,226,122,.85)', null);
     if (info.radius > 0 && aim) circle(aim.x, aim.y, info.radius, 'rgba(255,255,255,.9)', 'rgba(255,200,80,.12)');
-    if (targeting.line && aim) {            // touch rangefinder: hero -> aim line (clamped to range) with an end marker
-      const dx = aim.x - hero.x, dy = aim.y - hero.y, d = Math.hypot(dx, dy) || 1, m = info.range > 0 ? Math.min(1, info.range / d) : 1;
-      const a = renderer.worldToScreen(hero.x, hero.y), b = renderer.worldToScreen(hero.x + dx * m, hero.y + dy * m);
-      ringCtx.beginPath(); ringCtx.moveTo(a.x, a.y); ringCtx.lineTo(b.x, b.y);
-      ringCtx.strokeStyle = 'rgba(120,235,255,.95)'; ringCtx.lineWidth = 3; ringCtx.stroke();
-      ringCtx.beginPath(); ringCtx.arc(b.x, b.y, 5, 0, Math.PI * 2); ringCtx.fillStyle = 'rgba(120,235,255,.9)'; ringCtx.fill();
+  }
+
+  // touch rangefinder (targeting.rich): range ring around the hero + the spell's world shape at the aim point + target marker,
+  // fed by the same setTargeting / setAim path the desktop cursor uses.  Skill shots (line / cone) start at the hero.
+  function drawRich(hero, circle) {
+    const g = ringCtx, tg = targeting, sh = tg.shape || { type: 'none' };
+    const bad = !!tg.cancel;
+    const WARM = bad ? 'rgba(255,90,70,.3)' : 'rgba(255,120,60,.26)', EDGE = bad ? 'rgba(255,120,100,.95)' : 'rgba(255,255,255,.95)';
+    const wp = (x, y) => renderer.worldToScreen(x, y);
+    const poly = (pts, fill, stroke, lw) => {
+      g.beginPath(); pts.forEach((p, i) => { const q = wp(p[0], p[1]); if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); }); g.closePath();
+      if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw || 3; g.lineJoin = 'round'; g.stroke(); }
+    };
+    if (tg.alpha != null) g.globalAlpha = Math.max(0, Math.min(1, tg.alpha));       // tap preview fades out
+    if (tg.ring > 0) circle(hero.x, hero.y, tg.ring, 'rgba(255,226,122,.95)', 'rgba(255,226,122,.07)', 3);
+    if (tg.preview || !aim) return;                                                    // tap preview = the range ring only
+    const dx = aim.x - hero.x, dy = aim.y - hero.y, d = Math.hypot(dx, dy), ux = d > 1 ? dx / d : Math.cos(hero.facing || 0), uy = d > 1 ? dy / d : Math.sin(hero.facing || 0);
+    const nx = -uy, ny = ux;
+    // faint direction helper
+    const a0 = wp(hero.x, hero.y), a1 = wp(aim.x, aim.y);
+    g.save(); g.setLineDash([8, 7]); g.beginPath(); g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y); g.strokeStyle = 'rgba(120,235,255,.4)'; g.lineWidth = 2; g.stroke(); g.restore();
+    if (sh.type === 'line') {
+      poly([[hero.x + nx * sh.w0 / 2, hero.y + ny * sh.w0 / 2], [hero.x + ux * sh.len + nx * sh.w1 / 2, hero.y + uy * sh.len + ny * sh.w1 / 2],
+        [hero.x + ux * sh.len - nx * sh.w1 / 2, hero.y + uy * sh.len - ny * sh.w1 / 2], [hero.x - nx * sh.w0 / 2, hero.y - ny * sh.w0 / 2]], WARM, EDGE, 3);
+    } else if (sh.type === 'cone') {
+      const half = (sh.angle / 2) * Math.PI / 180, base = Math.atan2(uy, ux), pts = [[hero.x, hero.y]];
+      for (let k = 0; k <= 16; k++) { const a = base - half + (k / 16) * half * 2; pts.push([hero.x + Math.cos(a) * sh.len, hero.y + Math.sin(a) * sh.len]); }
+      poly(pts, WARM, EDGE, 3);
+    } else if (sh.type === 'circle') {
+      circle(aim.x, aim.y, sh.radius, EDGE, WARM, 3);
     }
+    // aim marker / snapped target highlight
+    const u = tg.unitId && ctxState.state ? ctxState.state.units.get(tg.unitId) : null;
+    const mx = u ? u.x : aim.x, my = u ? u.y : aim.y;
+    const col = bad ? 'rgba(255,110,90,.95)' : u ? (u.team !== ctxState.myTeam ? 'rgba(255,90,70,.98)' : 'rgba(110,255,140,.98)') : 'rgba(120,235,255,.95)';
+    if (u || sh.type === 'none' || sh.type === 'circle') circle(mx, my, u ? 85 : 38, col, u ? 'rgba(255,255,255,.1)' : null);
+    const c = wp(mx, my); g.beginPath(); g.arc(c.x, c.y, 4, 0, Math.PI * 2); g.fillStyle = col; g.fill();
   }
 
   // ---- selection card update
