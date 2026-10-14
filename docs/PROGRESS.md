@@ -30,3 +30,4 @@
 - Lobby footer below the fold on short screens
 - Scoreboard overlap at HUD scale 2
 - Weak sniper_headshot and gold icons
+- Terrain palette brighter and trees sparser than the trainer (see ART-COMPARE.md)

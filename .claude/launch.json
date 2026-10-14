@@ -29,6 +29,18 @@
         "server/src/index.js"
       ],
       "port": 2567
+    },
+    {
+      "name": "trainer",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "../InvokerTrainer",
+        "--port",
+        "5190",
+        "--strictPort"
+      ],
+      "port": 5190
     }
   ]
 }

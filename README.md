@@ -108,3 +108,4 @@ reference/trainer/  Read-only copies of InvokerTrainer code used for porting; no
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the contract between modules. Coordinates, camera, rendering pipeline, network messages, schema, simulation modules and shared data shapes.
 - [docs/DECISIONS.md](docs/DECISIONS.md): data sources, the hero roster and simplifications, the item set and match rules.
 - [docs/PROGRESS.md](docs/PROGRESS.md): milestone checklist and known issues.
+- [docs/ART-COMPARE.md](docs/ART-COMPARE.md): side-by-side art comparison with InvokerTrainer.
