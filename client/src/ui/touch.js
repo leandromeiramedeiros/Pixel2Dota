@@ -3,10 +3,14 @@
 //   LEFT   floating joystick (left 40%, below the top bar) -> move orders toward hero + dir * 300, ~8 Hz, stop on release.
 //   RIGHT  attack button: tap = target lock > nearest enemy hero > nearest enemy unit > attack-move forward; press-and-drag = aim (the enemy closest to the
 //          drag highlights, heroes first; release attacks it, drag back / onto CANCEL cancels).  LH = last-hit / structure button.  Ability arc, item row, lock/cycle button.
-//          Hold a spell button still for 3 s = rearrange the wheel (drag a button onto another slot; DONE or a tap outside exits; saved per hero).
+//          Hold a spell / item button still: 0.75 s = its tooltip (release without moving = NO cast), 1.75 s = rearrange the wheel (spells: drag a
+//          button onto another slot; DONE or a tap outside exits; saved per hero).  See holdPhase().
 //          instant spells: tap casts.  self-castable spells / items: double tap casts on self (blink = toward facing), hold to aim.
-//          other targeted spells: hold -> range finder + aim pad, drag aims, release casts, drag onto CANCEL cancels.  A short tap only previews the range.
-//   WORLD  one-finger drag pans (unlocks the camera), pinch zooms, tap an enemy attacks it.  Minimap tap moves the camera, portrait tap recentres + locks.
+//          other targeted spells: press -> range finder + aim ring; the ICON STAYS PUT, a small knob follows the finger; drag aims, release casts.
+//          Cancel: release on the CANCEL target above the wheel, or slide back onto the button.  A short tap only previews the range.
+//          The move joystick keeps working while a spell / attack is aimed (the other thumb), the rangefinder stays on the hero.
+//   WORLD  one-finger drag pans (unlocks the camera), pinch zooms, tap an enemy attacks it.  Minimap (bottom-left, next to the portrait) tap moves the camera,
+//          portrait tap recentres + locks, portrait hold shows the stats panel (hud.js).
 //   Portrait phones get a "turn your phone sideways" overlay that blocks input.
 import { MSG, ORDER, TEAM, ST, KIND } from '../../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
@@ -30,7 +34,8 @@ export const T = {
   JOY_DEAD: 10,          // px
   JOY_R: 56,             // px, joystick base radius
   DOUBLE_MS: 320,        // double-tap window
-  LONG_MS: 450,          // press-and-hold that opens a tooltip
+  LONG_MS: 450,          // (legacy) press-and-hold
+  TIP_MS: 750,           // spell / item button held still this long: tooltip (release does not cast)
   TAP_MS: 220,           // a press shorter than this (and not dragged) is a tap
   TAP_MOVE: 14,          // px
   PAN_SLOP: 8,           // px before a one-finger drag pans
@@ -49,7 +54,8 @@ export const T = {
   ATK_HERO_BIAS: 0.55,
   ATK_CONE: 35,          // degrees: with nothing near the aim point, the enemy closest to the drag DIRECTION within this cone
   LH_EXTRA: 200,         // last-hit button search radius = attack range + this
-  REORDER_MS: 3000,      // hold a spell button still this long to rearrange the wheel
+  REORDER_MS: 1750,      // hold a spell button still this long to rearrange the wheel
+  CANCEL_BACK: 0.9,      // sliding back within this x the button radius (after having left it) cancels the aim
   RECENTRE_SNAP: 1500,   // camera jumps further than this snap instead of gliding
 };
 
@@ -172,6 +178,37 @@ export function aimWorldOffset(dx, dy, R, range) {
   const len = Math.hypot(dx, dy), k = len > R ? R / len : 1;
   return { x: (dx * k / R) * range, y: (-dy * k / R) * range, mag: Math.min(1, len / R), kx: dx * k, ky: dy * k };
 }
+
+/**
+ * Spell / item button hold state machine.  heldMs = time since the press, moved = the finger left the tap radius.
+ *   tap      < TAP_MS, still        release = quick tap (range preview / self double-tap arm / instant cast)
+ *   hold     TAP_MS..TIP_MS, still  release = cast forward (as before)
+ *   tip      TIP_MS..REORDER_MS     tooltip is up; release does NOT cast
+ *   reorder  >= REORDER_MS          wheel reorder mode starts
+ *   drag     moved                  aiming; a tooltip that was up is hidden; release casts
+ */
+export function holdPhase(heldMs, moved, o = T) {
+  if (moved) return 'drag';
+  if (heldMs >= o.REORDER_MS) return 'reorder';
+  if (heldMs >= o.TIP_MS) return 'tip';
+  if (heldMs >= o.TAP_MS) return 'hold';
+  return 'tap';
+}
+/** What a release does in a given phase: 'none' | 'preview' (quick tap on an aimed spell) | 'cast'. */
+export function releaseAction(phase, cls) {
+  if (phase === 'tip' || phase === 'reorder') return 'none';
+  if (cls === 'instant') return 'cast';
+  return phase === 'tap' ? 'preview' : 'cast';
+}
+/**
+ * Aim cancel: the finger is over the CANCEL target, or it slid back onto the button after having left it.
+ * (dx, dy) = finger offset from the button centre, maxD = furthest it has been, btnR = button radius (px).
+ */
+export function aimCancelled(overCancel, dx, dy, maxD, btnR, o = T) {
+  return !!overCancel || (maxD > btnR && Math.hypot(dx, dy) < btnR * o.CANCEL_BACK);
+}
+/** Is (x, y) inside rect r grown by m? */
+export const inRect = (r, x, y, m = 0) => x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m;
 
 const alive = (u) => u && u.hp > 0 && !(u.respawn > 0) && !((u.status | 0) & ST.DEAD);
 const hiddenInvis = (u) => ((u.status | 0) & ST.INVIS) && !((u.status | 0) & ST.REVEALED);
@@ -361,6 +398,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const joyBase = h('div', 't-joy'), joyKnob = h('div', 't-knob'); joyBase.append(joyKnob); R.append(joyBase);
   const anchor = h('div', 't-anchor'); R.append(anchor);
   const pad = h('div', 't-pad'); anchor.append(pad);
+  const aimKnob = h('div', 't-aimknob'); anchor.append(aimKnob);                           // small aim stick at the finger (the spell icon itself never moves)
   const cancelEl = h('div', 't-cancel'); cancelEl.append(h('span', null, '✕'), h('em', null, 'CANCEL')); anchor.append(cancelEl);
   const atk = h('div', 't-btn t-atk'); const atkIco = pixelEl(GLYPHS.sword, null, 1); atkIco.classList.add('t-glyph'); atk.append(atkIco); anchor.append(atk);
   const lockBtn = h('div', 't-btn t-lock'); const lockIco = pixelEl(GLYPHS.reticle, null, 1); lockIco.classList.add('t-glyph'); lockBtn.append(lockIco); anchor.append(lockBtn);
@@ -433,6 +471,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     place(lhBtn, SZ.lh, Math.cos(ha) * hr, -Math.sin(ha) * hr);
     for (const b of abBtns) place(b.el, SZ.ab, Math.cos(b.polar.a * RAD) * b.polar.r, -Math.sin(b.polar.a * RAD) * b.polar.r);
     place(cancelEl, 58, 6, -252);
+    aimKnob.style.width = aimKnob.style.height = px(30); aimKnob.style.marginLeft = aimKnob.style.marginTop = -Math.round(15 * K) + 'px';
     const padD = T.AIM_R * 2 * K;
     pad.style.width = pad.style.height = padD + 'px'; pad.style.marginLeft = pad.style.marginTop = -padD / 2 + 'px';
     itemsEl.style.right = `calc(env(safe-area-inset-right, 0px) + ${px(10 + SZ.atk + 14)})`;
@@ -454,6 +493,12 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const k = ins.top.toFixed(3) + ',' + ins.bottom.toFixed(3);
     if (k === insetKey && !force) return;
     insetKey = k; renderer.setViewInset(ins);
+  }
+
+  /** Top edge (viewport px) of the bottom-left HUD cluster (minimap + portrait + bars), or the screen bottom when absent. */
+  function coverTop() {
+    const bp = root.querySelector('.h-bottom'), r = bp ? bp.getBoundingClientRect() : null;
+    return r && r.height > 0 ? r.top : (root.getBoundingClientRect().bottom || Hh);
   }
 
   // ---- per-button feedback
@@ -538,15 +583,18 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   function showJoy(on_) { joyBase.classList.toggle('on', on_); }
   function startJoy(p, rect) {
     const m = T.JOY_R * K + 6;
-    const ox = Math.max(rect.left + m, Math.min(p.x, rect.left + rect.width * T.ZONE + m)), oy = Math.max(topLimit() + m, Math.min(p.y, rect.bottom - m));
-    joy = { id: p.id, ox, oy, vec: dragVector(0, 0, T.JOY_R * K), last: null, sentAt: 0, moving: false };
+    // the base never sits on the bottom-left HUD cluster (minimap / portrait / bars): it is drawn above it, and the stick reads the drag from where the thumb
+    // actually went down (sx, sy), so a touch that began over the cluster still moves the hero without a jump
+    const lo = topLimit() + m, hi = Math.max(lo, Math.min(rect.bottom, coverTop()) - m);
+    const ox = Math.max(rect.left + m, Math.min(p.x, rect.left + rect.width * T.ZONE + m)), oy = Math.max(lo, Math.min(p.y, hi));
+    joy = { id: p.id, ox, oy, sx: p.x, sy: p.y, vec: dragVector(0, 0, T.JOY_R * K), last: null, sentAt: 0, moving: false };
     joyBase.style.left = ox + 'px'; joyBase.style.top = oy + 'px';
     joyKnob.style.transform = 'translate(-50%,-50%)';
     showJoy(true);
   }
   function moveJoy(p) {
     if (!joy) return;
-    joy.vec = dragVector(p.x - joy.ox, p.y - joy.oy, T.JOY_R * K);
+    joy.vec = dragVector(p.x - joy.sx, p.y - joy.sy, T.JOY_R * K);
     joyKnob.style.transform = `translate(calc(-50% + ${joy.vec.kx}px), calc(-50% + ${joy.vec.ky}px))`;
   }
   function joyTick(t) {
@@ -688,6 +736,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const itemOrAbility = (u, b) => (b.kind === 'item' ? u.items[b.slot] : u.abilities[b.slot]);
   const issueCast = (b, target) => { order(orderCast(b.kind, b.slot, target, false)); noteOrder(); flash(b.el); };
 
+  const t0Now = () => now();
   function btnDown(b, e) {
     if (turnShown || b.ptr != null) return;
     e.preventDefault();
@@ -705,9 +754,10 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       warn(rdy.reason); flash(b.el, 'f-bad'); return;
     }
     clearRange();
-    if (cls === 'instant') {                                                    // casts on RELEASE (so a 3 s reorder hold never casts); a hold still opens the tooltip
-      clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (b.ptr === e.pointerId) showTip(b, false); }, T.LONG_MS);
-      b.ptr = e.pointerId; pointers.set(e.pointerId, { id: e.pointerId, role: 'tip', cast: true, b, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
+    if (cls === 'instant') {                                                    // casts on RELEASE (so a reorder hold never casts); held still T.TIP_MS = tooltip, and that release does not cast
+      const tp = { id: e.pointerId, role: 'tip', cast: true, b, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: t0Now(), moved: false };
+      clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (b.ptr === e.pointerId && !tp.moved) showTip(b, false); }, T.TIP_MS);
+      b.ptr = e.pointerId; pointers.set(e.pointerId, tp);
       armReorder(b, e.pointerId);
       b.el.classList.add('down');
       return;
@@ -722,15 +772,16 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const r = b.el.getBoundingClientRect();
     const range = info.range > 0 ? info.range : info.mode === 'point' ? 1600 : 600;
     b.ptr = e.pointerId;
-    aim = { b, cls, info: Object.assign({}, info, { range }), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, inCancel: false, point: null, unitId: '' };
+    aim = { b, cls, info: Object.assign({}, info, { range }), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, inCancel: false, overX: false, maxD: 0, point: null, unitId: '' };
     pointers.set(e.pointerId, { id: e.pointerId, role: 'btn', b });
     try { b.el.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = pad.parentNode.getBoundingClientRect();
+    aim.ox = rect.left; aim.oy = rect.top;
     pad.style.left = (aim.cx - rect.left) + 'px'; pad.style.top = (aim.cy - rect.top) + 'px';
-    R.classList.add('aiming'); cancelEl.classList.remove('hot');
+    R.classList.add('aiming'); cancelEl.classList.remove('hot'); aimKnob.classList.add('t-on');
     aim.tg = targetingFor(b, aim.info, key, true, lvl, realRange(info));
     if (H.setTargeting) H.setTargeting(aim.tg);
-    clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (aim && aim.b === b) showTip(b, true); }, T.LONG_MS);   // still aiming after a beat: compact tooltip up top
+    clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (aim && aim.b === b && !aim.moved) showTip(b, false); }, T.TIP_MS);   // held still: the description tooltip (moving cancels it and keeps aiming)
     armReorder(b, e.pointerId);
     updateAim();
   }
@@ -762,36 +813,37 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (a.tg) { a.tg.unitId = unitId; a.tg.unitOk = !!unitId || a.info.mode === 'point' || a.info.mode === 'unitpoint'; a.tg.cancel = a.inCancel; }
     if (H.setAim) H.setAim(a.point.x, a.point.y);
     if (renderer.setHover) renderer.setHover(unitId || null);
-    a.b.el.style.transform = `translate(${off.kx}px, ${off.ky}px)`;
+    aimKnob.style.left = (a.ex - a.ox) + 'px'; aimKnob.style.top = (a.ey - a.oy) + 'px';   // the icon stays in its slot; only this knob follows the finger
   }
 
   function aimMove(e) {
     if (!aim) return;
     aim.ex = e.clientX; aim.ey = e.clientY;
     aim.dx = e.clientX - aim.cx; aim.dy = e.clientY - aim.cy;
-    if (Math.hypot(aim.dx, aim.dy) > T.TAP_MOVE * K) { aim.moved = true; clearReorderTimer(); }
-    const c = cancelEl.getBoundingClientRect(), m = 10;
-    aim.inCancel = e.clientX > c.left - m && e.clientX < c.right + m && e.clientY > c.top - m && e.clientY < c.bottom + m;
-    cancelEl.classList.toggle('hot', aim.inCancel);
+    const dist = Math.hypot(aim.dx, aim.dy);
+    if (dist > aim.maxD) aim.maxD = dist;
+    if (dist > T.TAP_MOVE * K && !aim.moved) { aim.moved = true; clearReorderTimer(); clearLong(); hideTip(); }   // past the threshold: no tooltip, no reorder, keep aiming
+    aim.overX = inRect(cancelEl.getBoundingClientRect(), e.clientX, e.clientY, 10);
+    aim.inCancel = aimCancelled(aim.overX, aim.dx, aim.dy, aim.maxD, SZ.ab * K / 2);
+    cancelEl.classList.toggle('hot', aim.overX);
     aim.b.el.classList.toggle('bad', aim.inCancel);
     updateAim();
   }
 
   function endAim(cast) {
     const a = aim; if (!a) return;
-    aim = null; clearLong(); clearReorderTimer(); if (tipEl && tipEl.classList.contains('t-compact')) hideTip();
+    aim = null; clearLong(); clearReorderTimer(); hideTip();
     pointers.delete(a.ptr); a.b.ptr = null;
-    a.b.el.style.transform = '';
-    a.b.el.classList.remove('bad');
+    a.b.el.classList.remove('bad'); aimKnob.classList.remove('t-on');
     R.classList.remove('aiming'); cancelEl.classList.remove('hot');
     if (renderer.setHover) renderer.setHover(null);
     if (H.setTargeting) H.setTargeting(null);
     try { a.b.el.releasePointerCapture(a.ptr); } catch { /* */ }
     if (!cast) return;
     const u = heroU(); if (!u || dead(u)) return;
-    const held = now() - a.down;
-    if (a.inCancel) return;
-    if (!a.moved && held < T.TAP_MS) {                                         // quick tap
+    const act = releaseAction(holdPhase(now() - a.down, a.moved), a.cls);
+    if (a.inCancel || act === 'none') return;                                  // cancelled, or released after the tooltip was up
+    if (act === 'preview') {                                                   // quick tap
       if (a.cls === 'self') a.b.tapAt = now();                                  // arms the double-tap
       showRange(a.b, a.info, a.key, a.cls === 'self' ? T.DOUBLE_MS + 180 : 600);
       return;
@@ -880,8 +932,9 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = canvas.getBoundingClientRect();
     const p = { id: e.pointerId, role: 'pan', x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: now(), moved: false };
-    if (aim || (atkS && atkS.aiming)) p.aimPan = true;                                           // left hand during a hold: pan the camera (no joystick, no taps)
-    else if (!isSpec() && !joy && e.clientX < rect.left + rect.width * T.ZONE && e.clientY > topLimit()) { p.role = 'joy'; startJoy(p, rect); }
+    // the joystick stays live while a spell / attack is being aimed (one thumb moves, the other aims); a touch outside the joystick zone during an aim only pans (no tap)
+    if (!isSpec() && !joy && e.clientX < rect.left + rect.width * T.ZONE && e.clientY > topLimit()) { p.role = 'joy'; startJoy(p, rect); }
+    else if (aim || (atkS && atkS.aiming)) p.aimPan = true;
     pointers.set(e.pointerId, p);
     const pans = [...pointers.values()].filter((q) => q.role === 'pan' || q.role === 'pinch');
     if (pans.length >= 2) {
@@ -904,7 +957,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (p.role === 'btn') { aimMove(e); return; }
     if (p.role === 'atk') { atkMove(e); return; }
     if (p.role === 'rdrag') { rdragMove(e); return; }
-    if (p.role === 'tip') { if (Math.hypot(p.x - p.x0, p.y - p.y0) > T.TAP_MOVE) { clearLong(); clearReorderTimer(); } return; }
+    if (p.role === 'tip') { if (p.moved) { clearLong(); clearReorderTimer(); hideTip(); } return; }
     if (p.role === 'joy') { moveJoy(p); return; }
     if (p.role === 'pan') {
       if (!p.panning && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) { p.panning = true; if (locked) setLocked(false); panBy(p.x - p.x0, p.y - p.y0); return; }
@@ -922,9 +975,9 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const cancelled = e.type === 'pointercancel';
     if (p.role === 'btn') { endAim(!cancelled); return; }
     if (p.role === 'tip') {
-      clearLong(); clearReorderTimer(); p.b.el.classList.remove('down');
+      clearLong(); clearReorderTimer(); p.b.el.classList.remove('down'); hideTip();
       if (p.b.ptr === p.id) p.b.ptr = null;
-      if (p.cast && !cancelled && !reorderOn) issueCast(p.b, null);
+      if (p.cast && !cancelled && !reorderOn && releaseAction(holdPhase(now() - p.t0, p.moved), 'instant') === 'cast') issueCast(p.b, null);
       return;
     }
     if (p.role === 'rdrag') { rdragEnd(!cancelled); return; }
@@ -967,7 +1020,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     act(bMenu, () => { if (H.toggleMenu) H.toggleMenu(); });
     act(bCam, () => { if (locked) setLocked(false); else { setLocked(true); recentre(); } });
     const sb = root.querySelector('.h-sb'); if (sb) on(sb, 'click', () => setSb(false));
-    const port = root.querySelector('.h-port'); if (port) on(port, 'click', () => { setLocked(true); recentre(); });
+    if (H.setPortraitCentre) H.setPortraitCentre(() => { setLocked(true); recentre(); });      // portrait tap/double-tap centres on the hero (hold = stats panel, in hud.js)
     const mm = root.querySelector('.h-mm'); if (mm) on(mm, 'pointerdown', () => { if (locked) setLocked(false); }, true);
   }
 

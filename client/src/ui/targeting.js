@@ -240,3 +240,11 @@ export function hudInset(topBottomPx, bottomTopPx, screenH) {
     bottom: bottomTopPx != null && bottomTopPx < screenH ? c((screenH - bottomTopPx) / screenH) : 0,
   };
 }
+
+/** Portrait gestures: press-and-hold HOLD_MS shows the stats panel while held; a short still tap (so also a double tap / click) centres on the hero. */
+export const PORTRAIT = { HOLD_MS: 500, MOVE: 12 };
+/** 'tap' (short, still) | 'stats' (held long enough, still) | 'cancel' (the pointer wandered off). */
+export function portraitPhase(heldMs, movedPx, o = PORTRAIT) {
+  if (movedPx > o.MOVE) return 'cancel';
+  return heldMs >= o.HOLD_MS ? 'stats' : 'tap';
+}

@@ -5,11 +5,11 @@ import { MSG, ORDER, EV, KIND, TEAM, INV_SLOTS } from '../../../shared/protocol.
 import { HEROES } from '../../../shared/heroes.js';
 import { injectStyle, hudScale } from './style.js';
 import {
-  fmtClock, fmtCd, fmtRespawn, fmtGold, fmtNum, fmtRegen, fmtBar, clamp01, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText,
+  fmtClock, fmtCd, fmtRespawn, fmtGold, fmtNum, fmtRegen, fmtBar, clamp01, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText, heroStats,
 } from './format.js';
 import { pixelEl, paintInto } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
-import { heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo, makeDepthFn, clipPolyNear, clipSegmentNear } from './targeting.js';
+import { PORTRAIT, portraitPhase, heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo, makeDepthFn, clipPolyNear, clipSegmentNear } from './targeting.js';
 import { inShopRange, sellValue } from './shopdata.js';
 import { createTooltip } from './tooltip.js';
 import { createMinimap } from './minimap.js';
@@ -129,10 +129,9 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   }
 
   // ================================================================ minimap
-  const minimap = createMinimap(hudRoot, { renderer, send });
-
-  // ================================================================ bottom bar
+  // ================================================================ bottom bar: [minimap][portrait][stats][abilities / bars / items]
   const bottom = h('div', 'h-bottom'); hudRoot.append(bottom);
+  const minimap = createMinimap(bottom, { renderer, send });
 
   // stats
   const stats = h('div', 'h-stats h-panel');
@@ -141,14 +140,67 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const r = h('div', 'r'); const l = h('span', 'l', label); const v = h('span', 'v', '0');
     r.append(l, v); stats.append(r); statRows[id] = { r, v };
   }
-  bottom.append(stats);
 
   // portrait
   const port = h('div', 'h-port h-panel'); const pimg = h('div', 'h-pimg'); const plv = h('div', 'h-plv', '1');
   const xpb = h('div', 'h-xp'); const xpi = h('i'); xpb.append(xpi); const resp = h('div', 'h-resp');
   port.append(pimg, plv, xpb, resp); bottom.append(port);
-  port.addEventListener('click', () => { if (ctxState.hero) focusUnit(ctxState.hero.id); });   // own portrait: centre on my hero
+  bottom.append(stats);                                                   // desktop only (touch shows the same numbers in the hold panel)
   let portKey = '';
+
+  // portrait gestures: tap / double tap / click = centre on my hero (touch.js overrides the action to also re-lock the camera);
+  // press-and-hold (PORTRAIT.HOLD_MS) = full stats panel while held, hidden on release
+  let portraitCentre = () => { if (ctxState.hero) focusUnit(ctxState.hero.id); };
+  const statP = h('div', 'h-statp h-panel'); hudRoot.append(statP);
+  let statOpen = false, statSig = '';
+  function renderStats() {
+    const hero = ctxState.hero; if (!hero) { closeStats(); return; }
+    const me = ctxState.state && ctxState.state.players ? ctxState.state.players.get(ctxState.mySid) : null;
+    const st = heroStats(hero, me, DATA); if (!st) return;
+    const sig = JSON.stringify(st); if (sig === statSig) return; statSig = sig;
+    statP.textContent = '';
+    const head = h('div', 'hd'); head.append(h('b', null, st.title), h('span', 'h-dim', st.sub)); statP.append(head);
+    const cols = h('div', 'cols'); const c1 = h('div', 'col'), c2 = h('div', 'col'); cols.append(c1, c2); statP.append(cols);
+    st.groups.forEach((g, i) => {
+      const box = h('div', 'grp'); box.append(h('div', 'gt', g.title));
+      for (const r of g.rows) { const row = h('div', 'r' + (r.pri ? ' pri' : '')); row.append(h('span', 'l', r.label), h('span', 'v', r.value)); box.append(row); }
+      (i < 2 ? c1 : c2).append(box);
+    });
+  }
+  function openStats() {
+    statOpen = true; statSig = ''; renderStats(); if (!statOpen) return;
+    const r = bottom.getBoundingClientRect(), hr = hudRoot.getBoundingClientRect();
+    statP.style.left = Math.max(0, r.left - hr.left) + 'px'; statP.style.bottom = Math.max(0, hr.bottom - r.top + 6) + 'px';
+    statP.classList.add('on');
+  }
+  function closeStats() { statOpen = false; statP.classList.remove('on'); }
+  {
+    let down = null, timer = 0;
+    const tNow = () => performance.now();
+    const clr = () => { clearTimeout(timer); timer = 0; };
+    port.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button > 0) return;
+      e.preventDefault(); e.stopPropagation();
+      down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: tNow(), moved: 0 };
+      try { port.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+      clr(); timer = setTimeout(() => { timer = 0; if (down && portraitPhase(tNow() - down.t, down.moved) === 'stats') openStats(); }, PORTRAIT.HOLD_MS);
+    });
+    port.addEventListener('pointermove', (e) => {
+      if (!down || e.pointerId !== down.id) return;
+      down.moved = Math.max(down.moved, Math.hypot(e.clientX - down.x, e.clientY - down.y));
+      if (portraitPhase(0, down.moved) === 'cancel') { clr(); }
+    });
+    const up = (e) => {
+      if (!down || e.pointerId !== down.id) return;
+      const d = down; down = null; clr();
+      try { port.releasePointerCapture(e.pointerId); } catch { /* */ }
+      const wasOpen = statOpen; closeStats();
+      if (wasOpen || e.type === 'pointercancel') return;
+      if (portraitPhase(tNow() - d.t, d.moved) === 'tap') portraitCentre();
+    };
+    port.addEventListener('pointerup', up); port.addEventListener('pointercancel', up);
+    port.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
 
   // main column
   const main = h('div', 'h-main'); bottom.append(main);
@@ -412,6 +464,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
 
     const has = !!hero;
     sty(bottom, 'visibility', has ? 'visible' : 'hidden');
+    sty(minimap.el, 'visibility', 'visible');                                      // the minimap also works for spectators (no hero)
+    if (!has) closeStats(); else if (statOpen) renderStats();
     if (has) {
       // portrait
       if (portKey !== hero.key) {
@@ -514,6 +568,9 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     isTyping: () => chat.isTyping(),
     openChat() { chat.open(); },
     setScoreboard(v) { sb.setOpen(v); },
+    /** touch.js: what a portrait double tap does (re-lock + recentre); default = focus the hero */
+    setPortraitCentre(fn) { if (typeof fn === 'function') portraitCentre = fn; },
+    isStatsOpen: () => statOpen,
     select(id) { selectedId = id || null; },
     get selected() { return selectedId; },
     shop, chat, tooltip,

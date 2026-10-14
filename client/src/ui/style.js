@@ -47,7 +47,17 @@ const CSS = `
 .h-stats .sep { height:1u; background:#2a3248; margin:1u 0; }
 .h-stats .r.pri .v { color:var(--gold); }
 .h-stats .b { color:#7fe08f; }
-.h-port { width:44u; height:56u; padding:3u; position:relative; }
+.h-port { width:44u; height:56u; padding:3u; position:relative; cursor:pointer; touch-action:none; user-select:none; -webkit-user-select:none; }
+/* hold-the-portrait stats panel (Dota-style); never takes pointer events so the held finger stays on the portrait */
+.h-statp { position:absolute; left:0; bottom:0; display:none; padding:4u 5u; pointer-events:none !important; z-index:25; min-width:200u; }
+.h-statp.on { display:block; }
+.h-statp .hd { display:flex; align-items:baseline; justify-content:space-between; gap:8u; margin-bottom:3u; padding-bottom:2u; border-bottom:1u solid #2a3248; font-size:8u; }
+.h-statp .hd b { color:var(--gold); font-weight:700; } .h-statp .hd span { color:var(--dim); font-size:7u; }
+.h-statp .cols { display:flex; gap:8u; } .h-statp .col { flex:1; min-width:0; display:flex; flex-direction:column; gap:3u; }
+.h-statp .gt { font-family:'Press Start 2P',monospace; font-size:5u; color:var(--dim); margin:1u 0 1u; }
+.h-statp .r { display:flex; justify-content:space-between; gap:6u; font-size:7u; line-height:1.35; }
+.h-statp .r .l { color:var(--dim); white-space:nowrap; } .h-statp .r .v { color:#fff; white-space:nowrap; font-weight:700; }
+.h-statp .r.pri .l, .h-statp .r.pri .v { color:var(--gold); }
 .h-port .h-pimg { position:absolute; left:3u; top:3u; width:38u; height:44u; background:#0a0d14; overflow:hidden; display:flex; justify-content:center; }
 .h-port.dead .h-pimg canvas { filter:grayscale(1) brightness(.55); }
 .h-port .h-plv { position:absolute; left:3u; top:3u; min-width:11u; height:10u; padding:2u 2u 0; background:rgba(5,7,11,.85); box-shadow:inset 0 0 0 1u var(--gold2); font-family:'Press Start 2P',monospace; font-size:6u; text-align:center; color:#fff; }
@@ -110,7 +120,7 @@ const CSS = `
 .h-tgtbar { position:absolute; left:50%; bottom:76u; transform:translateX(-50%); padding:2u 6u; background:rgba(5,7,11,.8); box-shadow:0 0 0 1u var(--gold2); color:var(--gold); font-size:8u; display:none; }
 
 /* ---------- minimap ---------- */
-.h-mm { position:absolute; left:2u; bottom:2u; padding:3u; pointer-events:auto; }
+.h-mm { position:relative; flex:0 0 auto; padding:3u; pointer-events:auto; }
 .h-mm .h-mmw { position:relative; background:#000; }
 .h-mm canvas { position:absolute; left:0; top:0; }
 .h-mm .h-mmcap { position:absolute; left:0; bottom:100%; margin-bottom:2u; display:none; }
@@ -198,7 +208,7 @@ const CSS = `
 .h-chat.typing input { display:block; }
 
 /* ---------- selection card ---------- */
-.h-sel { position:absolute; left:50%; bottom:62u; width:110u; padding:3u 4u; display:none; flex-direction:column; gap:2u; margin-left:-172u; }
+.h-sel { position:absolute; left:50%; bottom:104u; width:110u; padding:3u 4u; display:none; flex-direction:column; gap:2u; margin-left:-172u; }
 .h-sel.on { display:flex; }
 .h-sel .nm { font-size:8u; color:var(--gold); display:flex; justify-content:space-between; }
 .h-sel .nm.e { color:var(--dire); }
@@ -256,6 +266,7 @@ html.p2d-touch .h-hero .h-lv { font-size:max(11px, calc(11px * var(--k, 1))); }
 html.p2d-touch .h-bottom { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); bottom:calc(4px + env(safe-area-inset-bottom, 0px)); transform:none; padding-bottom:0; align-items:flex-end; gap:calc(4px * var(--k, 1)); }
 html.p2d-touch .h-bottom, html.p2d-touch .h-bottom * { pointer-events:none !important; }
 html.p2d-touch .h-bottom .h-port { pointer-events:auto !important; }
+html.p2d-touch .h-bottom .h-mm, html.p2d-touch .h-bottom .h-mm * { pointer-events:auto !important; }   /* minimap: tap / drag moves the camera */
 html.p2d-touch .h-port .h-plv { font-size:max(11px, calc(11px * var(--k, 1))); min-width:calc(18px * var(--k, 1)); height:calc(16px * var(--k, 1)); }
 html.p2d-touch .h-main { min-width:0; width:calc(156px * var(--k, 1)); }
 html.p2d-touch .h-bars { padding:calc(4px * var(--k, 1)); gap:calc(3px * var(--k, 1)); }
@@ -267,8 +278,16 @@ html.p2d-touch .h-inv, html.p2d-touch .h-shopbtn { display:none !important; }
 html.p2d-touch .h-invwrap { display:flex; }
 html.p2d-touch .h-goldrow { height:calc(26px * var(--k, 1)); min-width:calc(104px * var(--k, 1)); font-size:max(11px, calc(13px * var(--k, 1))); padding:calc(3px * var(--k, 1)) calc(7px * var(--k, 1)); gap:calc(6px * var(--k, 1)); }
 html.p2d-touch .h-goldpop { font-size:max(11px, calc(12px * var(--k, 1))); }
-html.p2d-touch .h-mm { --u:max(1.2px, calc(1.4px * var(--k, 1))); left:calc(6px + env(safe-area-inset-left, 0px)); bottom:auto; top:calc(48px * var(--k, 1) + env(safe-area-inset-top, 0px)); }
-html.p2d-touch .h-sel { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); margin-left:0; bottom:calc(96px * var(--k, 1)); width:100u; pointer-events:none; }
+html.p2d-touch .h-mm { --u:max(.9px, calc(1.05px * var(--k, 1))); margin-bottom:0; }   /* bottom-left cluster: minimap | portrait | bars (landscape phones) */
+/* narrow phones (< 760 px wide): the bottom-left cluster must stop short of the item row, so minimap / bars / gold shrink */
+html.p2d-narrow .h-mm { --u:calc(.9px * var(--k, 1)); }
+html.p2d-narrow .h-main { width:calc(128px * var(--k, 1)); }
+html.p2d-narrow .h-bar span { white-space:nowrap; font-size:10px; letter-spacing:-.5px; }
+html.p2d-narrow .h-goldrow { min-width:calc(68px * var(--k, 1)); padding:calc(3px * var(--k, 1)) calc(5px * var(--k, 1)); gap:calc(4px * var(--k, 1)); }
+html.p2d-touch .h-statp { --u:max(1.5px, calc(1.8px * var(--k, 1))); z-index:25; }
+html.p2d-touch .h-statp .hd { font-size:max(12px, 8u); } html.p2d-touch .h-statp .hd span, html.p2d-touch .h-statp .r { font-size:max(11px, 7u); }
+html.p2d-touch .h-statp .gt { font-size:max(8px, 5u); }
+html.p2d-touch .h-sel { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); margin-left:0; bottom:auto; top:calc(48px * var(--k, 1) + env(safe-area-inset-top, 0px)); width:100u; pointer-events:none; }
 html.p2d-touch .h-sel .nm { font-size:max(11px, calc(11px * var(--k, 1))); } html.p2d-touch .h-sel .b span { font-size:max(11px, calc(11px * var(--k, 1))); }
 html.p2d-touch .h-spec { font-size:max(11px, calc(11px * var(--k, 1))); white-space:normal; width:min(360px, 36vw); text-align:center; }
 html.p2d-touch .h-chat { --u:calc(1.4px * var(--k, 1)); left:calc(6px + 150px * var(--k, 1) + env(safe-area-inset-left, 0px)); top:calc(50px * var(--k, 1)); bottom:auto; width:calc(210px * var(--k, 1)); }
@@ -345,6 +364,8 @@ html.p2d-touch .h-tip.t-compact .row { margin:0; }
 .t-cancel { position:absolute; display:none; pointer-events:none; border-radius:50%; flex-direction:column; align-items:center; justify-content:center; background:rgba(110,20,16,.6); box-shadow:inset 0 0 0 2px #ff6b5b, 0 0 0 2px rgba(5,7,11,.8); color:#ffd6d0; }
 .t-root.aiming .t-cancel { display:flex; }
 .t-cancel span { font-family:'Press Start 2P',monospace; font-size:18px; line-height:1; } .t-cancel em { font-style:normal; font-size:11px; margin-top:4px; }
+.t-aimknob { position:absolute; display:none; pointer-events:none; border-radius:50%; background:radial-gradient(circle at 40% 32%, rgba(190,250,255,.95), rgba(80,200,230,.55)); box-shadow:0 0 0 2px rgba(5,7,11,.75), 0 0 12px rgba(80,220,255,.6); z-index:9; }
+.t-aimknob.t-on { display:block; }
 .t-cancel.hot { background:rgba(220,50,40,.8); box-shadow:inset 0 0 0 3px #fff, 0 0 16px rgba(255,90,70,.9); }
 .t-joy { position:absolute; display:none; transform:translate(-50%,-50%); border-radius:50%; pointer-events:none; background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 3px rgba(212,167,60,.6), 0 0 0 2px rgba(5,7,11,.5); }
 .t-joy.on { display:block; }

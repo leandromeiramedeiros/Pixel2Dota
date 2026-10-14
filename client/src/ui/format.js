@@ -1,5 +1,5 @@
 // Pure formatting helpers for the HUD (DOM-free, node-testable).
-import { XP_TABLE, MAX_LEVEL, ATTR } from '../../../shared/constants.js';
+import { XP_TABLE, MAX_LEVEL, ATTR, armorMult } from '../../../shared/constants.js';
 import { HEROES } from '../../../shared/heroes.js';
 
 /** Game clock: 75 -> "1:15", -30 -> "-0:30", 3725 -> "1:02:05". */
@@ -116,4 +116,58 @@ export function heroRegen(u, data) {
 export function dmgText(u) {
   const b = u.dmgBonus || 0;
   return `${Math.round((u.dmgMin || 0) + b)}-${Math.round((u.dmgMax || 0) + b)}`;
+}
+
+/** Hero magic resistance 0..1 from synced fields + DATA (base, intelligence, item mr); buff modifiers are not synced, so they are not included. */
+export function heroMagicResist(u, data) {
+  const hd = data && data.heroes && data.heroes[u.key];
+  let base = hd && hd.mr ? hd.mr : 0; if (base > 1) base /= 100;
+  let item = 0;
+  if (data && data.items && u.items) for (let i = 0; i < u.items.length; i++) { const it = u.items[i]; const d = it && it.key ? data.items[it.key] : null; if (d && d.stats && d.stats.mr) item += d.stats.mr; }
+  return 1 - (1 - base) * (1 - (u.int || 0) * ATTR.mrPerInt / 100) * (1 - item / 100);
+}
+
+/** Gold + total cost of the items carried. */
+export function netWorth(u, gold, data) {
+  let w = Math.max(0, gold || 0);
+  if (data && data.items && u && u.items) for (let i = 0; i < u.items.length; i++) { const it = u.items[i]; const d = it && it.key ? data.items[it.key] : null; if (d) w += d.cost || 0; }
+  return w;
+}
+
+/**
+ * Portrait hold panel (Dota-style stats).  Pure: client-known unit fields + shared DATA.
+ *   -> { title, sub, groups:[{ title, rows:[{ id, label, value, pri? }] }] }
+ * Not available client-side (omitted): spell amplification (only Rubick's private _spellAmp), evasion, status resistance; magic
+ * resistance excludes temporary buff modifiers.
+ */
+export function heroStats(u, player, data) {
+  if (!u) return null;
+  const hd = (data && data.heroes && data.heroes[u.key]) || {};
+  const gain = (k) => (hd[k] ? ` +${fmtNum(hd[k], 1)}` : '');
+  const att = (id, label, gk) => ({ id, label, value: `${u[id] || 0}${gain(gk)}`, pri: hd.attr === id || hd.attr === 'all' });
+  const as = Math.round((u.atkRate || 0) * (hd.bat || 0) * 100);
+  const red = (1 - armorMult(u.armor || 0)) * 100;
+  const rg = heroRegen(u, data);
+  const lvl = u.level || 1;
+  const maxed = lvl >= MAX_LEVEL;
+  const gold = player ? player.gold || 0 : 0;
+  const groups = [
+    { title: 'ATTRIBUTES', rows: [att('str', 'Strength', 'strGain'), att('agi', 'Agility', 'agiGain'), att('int', 'Intelligence', 'intGain')] },
+    { title: 'ATTACK', rows: [
+      { id: 'dmg', label: 'Damage', value: dmgText(u) },
+      { id: 'as', label: 'Attack Speed', value: String(as) },
+      { id: 'range', label: 'Attack Range', value: String(Math.round(u.atkRange || 0)) },
+      { id: 'ms', label: 'Move Speed', value: String(u.ms || 0) },
+    ] },
+    { title: 'DEFENCE', rows: [
+      { id: 'armor', label: 'Armor', value: `${fmtNum(u.armor || 0, 1)} (${fmtNum(red, 1)}%)` },
+      { id: 'mr', label: 'Magic Resist', value: `${fmtNum(heroMagicResist(u, data) * 100, 1)}%` },
+    ] },
+    { title: 'REGEN', rows: [
+      { id: 'hpr', label: 'Health', value: `${fmtRegen(rg.hp)}/s` },
+      { id: 'mpr', label: 'Mana', value: `${fmtRegen(rg.mana)}/s` },
+    ] },
+  ];
+  if (player) groups.push({ title: 'GOLD', rows: [{ id: 'gold', label: 'Gold', value: fmtGold(gold) }, { id: 'nw', label: 'Net Worth', value: fmtGold(netWorth(u, gold, data)) }] });
+  return { title: heroName(u.key), sub: maxed ? `Level ${lvl} (max)` : `Level ${lvl}  -  ${Math.round(xpProgress(u.xp, lvl) * 100)}% to ${lvl + 1}`, groups };
 }

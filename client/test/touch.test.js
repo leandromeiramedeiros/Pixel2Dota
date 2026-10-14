@@ -5,7 +5,7 @@ import { DATA } from '../../shared/data.js';
 import { TEAM, KIND, ST } from '../../shared/protocol.js';
 import {
   T, touchWanted, isPortrait, castClass, selfCastTarget, arcLayout, angleDiff, joyShouldSend, dragVector, aimWorldOffset,
-  snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget, touchScale, aimShape,
+  snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget, touchScale, aimShape, holdPhase, releaseAction, aimCancelled, inRect,
 } from '../src/ui/touch.js';
 
 const unit = (o) => Object.assign({ id: 'u', kind: KIND.CREEP, team: TEAM.DIRE, x: 0, y: 0, hp: 100, status: 0, respawn: 0 }, o);
@@ -157,4 +157,34 @@ test('aimShape: skill shots, cones, AoE circles, none', () => {
   assert.deepEqual(aimShape('ability', 'nonexistent', 1, info({ radius: 250 })), { type: 'circle', radius: 250 });
   assert.equal(aimShape('ability', 'nonexistent', 1, info()).type, 'none');
   assert.equal(aimShape('ability', 'lina_light_strike_array', 1, info({ radius: 250 })).type, 'circle');
+});
+
+test('holdPhase: tap < TAP_MS, hold, tooltip at 0.75 s, reorder at 1.75 s, moving = drag', () => {
+  assert.equal(T.TIP_MS, 750); assert.equal(T.REORDER_MS, 1750);
+  assert.equal(holdPhase(50, false), 'tap');
+  assert.equal(holdPhase(T.TAP_MS, false), 'hold');
+  assert.equal(holdPhase(749, false), 'hold');
+  assert.equal(holdPhase(750, false), 'tip');
+  assert.equal(holdPhase(1749, false), 'tip');
+  assert.equal(holdPhase(1750, false), 'reorder');
+  assert.equal(holdPhase(900, true), 'drag');        // moving past the threshold cancels the tooltip phase
+  assert.equal(holdPhase(5000, true), 'drag');
+});
+test('releaseAction: tooltip / reorder releases never cast; taps preview aimed spells; instants cast', () => {
+  assert.equal(releaseAction('tip', 'point'), 'none'); assert.equal(releaseAction('tip', 'instant'), 'none');
+  assert.equal(releaseAction('reorder', 'unit'), 'none');
+  assert.equal(releaseAction('tap', 'point'), 'preview'); assert.equal(releaseAction('tap', 'instant'), 'cast');
+  assert.equal(releaseAction('hold', 'point'), 'cast'); assert.equal(releaseAction('drag', 'unit'), 'cast');
+});
+test('aimCancelled: cancel zone, or sliding back onto the button after leaving it', () => {
+  const R = 30;
+  assert.equal(aimCancelled(true, 200, 0, 200, R), true);
+  assert.equal(aimCancelled(false, 5, 0, 5, R), false);                 // never left the button: quick tap / small wobble keeps its behaviour
+  assert.equal(aimCancelled(false, 60, 0, 60, R), false);               // out aiming
+  assert.equal(aimCancelled(false, 10, 5, 90, R), true);                // left, then came back onto the button
+  assert.equal(aimCancelled(false, 40, 0, 90, R), false);               // back near but outside 0.9 R
+});
+test('inRect: edges and margin', () => {
+  const r = { left: 10, top: 10, right: 20, bottom: 20 };
+  assert.equal(inRect(r, 15, 15), true); assert.equal(inRect(r, 25, 15), false); assert.equal(inRect(r, 25, 15, 10), true);
 });
