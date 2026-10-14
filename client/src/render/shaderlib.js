@@ -21,7 +21,7 @@ export function createSharedUniforms() {
     uLevels: { value: LIGHT_LEVELS },
     uFog: { value: fogTex },
     uFogMap: { value: new THREE.Vector4(-8832, 8832, 17664, 0) },           // x0, y1, size (world), enabled
-    uFogLv: { value: new THREE.Vector3(0.12, 0.5, 1) },                     // unexplored, explored brightness
+    uFogLv: { value: new THREE.Vector3(0.34, 0.6, 1) },                    // unexplored, explored brightness (v2: never pure black)
     uCamRight: { value: new THREE.Vector3(1, 0, 0) },
     uCamUp: { value: new THREE.Vector3(0, 1, 0) },
     uCamPos: { value: new THREE.Vector3() },

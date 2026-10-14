@@ -216,15 +216,15 @@ export function register(c, R) {
     c.later(dur, () => {
       // the beam: a line of white-hot glow from the sky to the ground, a flash, ring + scorch
       // white-gold core made of 2-4 px squares across the beam width, a faint wide halo behind it
-      for (let i = c.n(420); i > 0; i--) { const a = Math.random() * TAU, w = rad * 0.38 * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(a) * w, y: y + Math.sin(a) * w, z: z + Math.random() * 1700, life: [0.35, 0.8], px: [1.5, 3], speed: 0, settle: false, keep: true, rampTint: [0.85, 0.85, 0.85] })); }
-      P.burst({ x, y, z, x2: x, y2: y, z2: z + 1700, shape: 'line', count: 90, life: [0.5, 0.9], size0: [rad * 0.8, rad * 1.0], size1: rad * 0.4, col0: pal.mid, col1: pal.low, a0: 0.22, a1: 0, speed: [0, 20], mode: 'glow' });
+      for (let i = c.n(200); i > 0; i--) { const a = Math.random() * TAU, w = rad * 0.38 * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(a) * w, y: y + Math.sin(a) * w, z: z + Math.random() * 1700, life: [0.35, 0.8], px: [1.5, 3], speed: 0, settle: false, keep: true, rampTint: [0.85, 0.85, 0.85] })); }
+      P.burst({ x, y, z, x2: x, y2: y, z2: z + 1700, shape: 'line', count: 40, life: [0.5, 0.9], size0: [rad * 0.6, rad * 0.8], size1: rad * 0.3, col0: pal.mid, col1: pal.low, a0: 0.1, a1: 0, speed: [0, 20], mode: 'glow' });
       P.burst(c.pix(pal, { x, y, z: z + 6, count: 260, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2.4] }));
-      c.flash(x, y, z + 80, pal, rad * 0.8, 0.35);
+      c.flash(x, y, z + 80, pal, rad * 0.5, 0.2);
       c.ring(x, y, z, pal, { R: rad * 1.8, life: [0.4, 0.7] });
       c.ring(x, y, z, PAL.fire, { R: rad * 1.1, life: [0.3, 0.5] });
       c.embers(x, y, z + 40, pal, { count: 60, speed: [200, 650] });
       c.smoke(x, y, z + 20, { count: 8 }, PAL.smoke);
-      c.glow(x, y, z + 120, pal.lt, rad * 5, 2.6, 0.8, { elem: 'E' });
+      c.glow(x, y, z + 120, pal.lt, rad * 5, 1.6, 0.8, { elem: 'E' });
       c.decal(x, y, 'decal_scorch', rad / 80, 6, { tint: [1.2, 0.8, 0.35], emit: 0.8, fadeOut: 0.6 });
     });
   });
