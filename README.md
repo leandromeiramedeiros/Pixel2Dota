@@ -12,7 +12,7 @@ Nothing to install.
 
 No link? Friends can type the 4-letter code into **Join** or pick the lobby from **Open lobbies**.
 
-The game server runs on a free cloud plan that sleeps when nobody plays. The first lobby after a quiet spell can take about a minute while the lobby shows "Waking up the server". After that it's instant.
+The game server runs on a free cloud plan that sleeps when nobody plays. The first lobby after a quiet spell may take about a minute while the lobby shows "Waking up the server". After that it's instant.
 
 ## Run your own server (optional)
 

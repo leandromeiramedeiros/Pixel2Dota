@@ -3,7 +3,7 @@
 import { MSG, LOBBY, PHASE, TEAM_SIZE, EV } from '@p2d/shared/protocol.js';
 import { HEROES, HERO_KEYS } from '@p2d/shared/heroes.js';
 import { DATA } from '@p2d/shared/data.js';
-import { serverOverride, serverKind } from '../net/index.js';
+import { serverKind } from '../net/index.js';
 import './lobby.css';
 
 const UNREACHABLE = 'Cannot reach the server';
@@ -121,7 +121,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
   function inviteLink() {
     const u = new URL(location.href);
     u.search = ''; u.hash = '';
-    if (serverOverride()) u.searchParams.set('server', net.endpoint);   // only when not on the default server
+    if (net.endpoint) u.searchParams.set('server', net.endpoint);   // always: also replaces a friend's stale saved server
     u.searchParams.set('join', net.room?.roomId || '');
     return u.href;
   }
