@@ -37,6 +37,15 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
   uniforms.uPSMap.value = pDepth;
   const LP = new THREE.Vector3(), LT = new THREE.Vector3();
 
+  // top-down height field for the marched spell-light shadows (shaderlib hfShadow): ortho depth from above = highest caster
+  const HS = 512;
+  const hDepth = new THREE.DepthTexture(HS, HS, THREE.UnsignedIntType);
+  hDepth.magFilter = hDepth.minFilter = THREE.NearestFilter;
+  const hrt = new THREE.WebGLRenderTarget(HS, HS, { depthBuffer: true, depthTexture: hDepth, generateMipmaps: false });
+  const hcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 3000);
+  hcam.layers.set(SHADOW_LAYER);
+  uniforms.uHF.value = hDepth;
+
   function swap(m, mat) { if (m.isMesh && m.visible) { swapped.push(m, m.material); m.material = mat; m.layers.enable(SHADOW_LAYER); } }
 
   return {
@@ -104,6 +113,27 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
       uniforms.uPSP.value.x = 8; uniforms.uPSP.value.y = far; uniforms.uPSP.value.z = 10;   // .w = fade weight, set by lights.js
       state.pointMs = performance.now() - t0;
     },
-    dispose() { rt.dispose(); depthTexture.dispose(); prt.dispose(); pDepth.dispose(); },
+    /** height field around ground point (x, y, z three coords), square of half-size `half`; strength 0 disables the marched shadows */
+    renderHeight(scene, x, y, z, half, strength = 1) {
+      if (!state.enabled || !(strength > 0)) { uniforms.uHFZ.value.w = 0; return; }
+      const t0 = performance.now(), texel = (2 * half) / HS;
+      x = Math.round(x / texel) * texel; z = Math.round(z / texel) * texel;   // texel-snapped: no shimmer while panning
+      const top = y + 1500;
+      hcam.left = -half; hcam.right = half; hcam.top = half; hcam.bottom = -half; hcam.near = 1; hcam.far = 3000;
+      hcam.position.set(x, top, z); hcam.up.set(0, 0, -1); hcam.lookAt(x, y, z); hcam.updateMatrixWorld(); hcam.updateProjectionMatrix();
+      uniforms.uSL.value.set(0, 1, 0, 2);   // sprites cast as flat discs (pillars) in this pass
+      for (const c of casters) swap(c.mesh, c.mat);
+      for (const g of groups) for (const m of g.group.children) swap(m, g.mat);
+      const prev = gl.getRenderTarget();
+      gl.setRenderTarget(hrt); gl.clear(true, true, false);
+      gl.render(scene, hcam);
+      gl.setRenderTarget(prev);
+      for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
+      swapped.length = 0;
+      uniforms.uHFM.value.set(x - half, z + half, 1 / (2 * half), 0);
+      uniforms.uHFZ.value.set(top, 1, 3000, strength);
+      state.heightMs = performance.now() - t0;
+    },
+    dispose() { rt.dispose(); depthTexture.dispose(); prt.dispose(); pDepth.dispose(); hrt.dispose(); hDepth.dispose(); },
   };
 }

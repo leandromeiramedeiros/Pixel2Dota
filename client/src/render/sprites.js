@@ -45,31 +45,39 @@ void main(){
 
 // Shadow-caster variant: the same instances as vertical cards standing at the foot, turned to face the light of the pass (uSL: sun
 // direction or spell-light position), alpha-tested against the atlas, so units throw their real silhouette onto terrain and buildings.
+// uSL.w == 2 (top-down height-field pass): a flat disc at ~70% of the unit height instead, so marched spell shadows see a pillar.
 const SPRITE_DEPTH_VERT = /* glsl */ `
 uniform vec4 uSL;
 attribute vec2 corner;
 attribute vec3 iPos;
 attribute vec4 iRect, iSize, iMisc;
 attribute float iDens;
-varying vec2 vTx;
+varying vec2 vTx, vDisc;
 varying vec4 vRect, vSize, vMisc;
 void main(){
+  vec2 local = corner * iSize.xy;
+  float wpp = 6. * iMisc.w / iDens;
+  vTx = local; vRect = iRect; vSize = iSize; vMisc = iMisc; vDisc = vec2(0., -1.);
+  if (uSL.w > 1.5) {   // top-down heightfield pass (shadow.js renderHeight): a flat disc at ~70% of the unit's height (pillar occluder)
+    float ht = iSize.w * wpp * .85, rad = min(.3 * iSize.x * wpp, 40.);
+    vDisc = corner - .5;
+    gl_Position = projectionMatrix * viewMatrix * vec4(iPos + vec3(vDisc.x * 2. * rad, ht * .7, vDisc.y * 2. * rad), 1.);
+    return;
+  }
   vec3 tl = uSL.w > .5 ? uSL.xyz - iPos : uSL.xyz;
   vec2 h = tl.xz; h = dot(h, h) > 1e-6 ? normalize(h) : vec2(0., 1.);
   vec3 right = vec3(-h.y, 0., h.x);
-  vec2 local = corner * iSize.xy;
-  float wpp = 6. * iMisc.w / iDens;
   vec3 w = iPos + right * ((local.x - iSize.z - .5) * wpp) + vec3(0., 1., 0.) * ((iSize.w + .5 - local.y) * wpp * .85) + vec3(h.x, 0., h.y) * 4.;
-  vTx = local; vRect = iRect; vSize = iSize; vMisc = iMisc;
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.);
 }`;
 const SPRITE_DEPTH_FRAG = /* glsl */ `
 precision highp float;
 uniform sampler2D tAtlas;
-varying vec2 vTx;
+varying vec2 vTx, vDisc;
 varying vec4 vRect, vSize, vMisc;
 void main(){
   if (vMisc.w < .3 || vMisc.x < .5) discard;                       // tiny props / fading units do not cast
+  if (vDisc.y > -.75) { if (dot(vDisc, vDisc) > .25) discard; gl_FragColor = vec4(1.); return; }
   vec2 ip = floor(vTx);
   vec4 c = texture2D(tAtlas, vec2(mix(vRect.x, vRect.z, (ip.x + .5) / vSize.x), mix(vRect.y, vRect.w, (ip.y + .5) / vSize.y)));
   if (c.a < .5) discard;

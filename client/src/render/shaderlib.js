@@ -7,7 +7,7 @@ export const LIGHT_LEVELS = 9;    // quantisation steps per 1.0 of light (traine
  *  of the lantern (1 - x)^2, so a blast lights and shadows the towers and units around it. Surface lighting only: glints / bokeh in
  *  post.js still use the authored radius and colour, so the effect itself does not get bigger or brighter. */
 export const SPELL_REACH = 1.5;
-export let SPELL_GAIN = 2;
+export let SPELL_GAIN = 1.5;
 export function setSpellGain(g) { SPELL_GAIN = g; }
 
 export function createSharedUniforms() {
@@ -42,7 +42,12 @@ export function createSharedUniforms() {
     uPSM: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Matrix4()) },     // per face: world -> atlas uv (xy / w)
     uPSIdx: { value: -1 },                                                  // index into uLP of the shadow-casting light, -1 = none
     uSL: { value: new THREE.Vector4(0, 1, 0, 0) },                         // light of the shadow pass being drawn: xyz = dir toward it (w 0) or its position (w 1)
-    uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },                     // near, far, bias (world units), fade weight
+    uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },
+    uHF: { value: null },                                                   // top-down height field (shadow.js renderHeight): depth of the highest caster
+    uHFM: { value: new THREE.Vector4(0, 0, 1, 0) },                         // xz -> uv: u = (x - .x) * .z, v = (.y - z) * .z
+    uHFZ: { value: new THREE.Vector4(0, 1, 2, 0) },                         // camera y, near, far, strength (0 = off)
+    uLB: { value: new Float32Array(MAX_LIGHTS * 4) },                       // per light: bounce colour (light * ground albedo), w = ground y (three)
+    uBounceK: { value: 0.4 },                                              // bounce strength                     // near, far, bias (world units), fade weight
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
@@ -132,7 +137,27 @@ float lightFall(float dist, float R, float w){
   if (w > 1.5) { float x = dist / (R * ${SPELL_REACH.toFixed(2)}); if (x >= 1.) return 0.; float q = 1. - x * x; return q * q * (w - 1.); }
   float a = 1. - dist / R; return a > 0. ? a * a : 0.;
 }
-float gPSh = 1.;   // receivers that also cast as billboards (sprites) set 0: their own light-facing card would self-shadow them
+float gPSh = 1.;
+// every non-cube spell light: march 12 steps toward it through the height field (terrain, buildings, trees, clutter, unit pillars).
+// Starts one tile out so a receiver never reads its own column; penumbra widens with distance.
+uniform sampler2D uHF;
+uniform vec4 uHFM, uHFZ;
+uniform vec4 uLB[${MAX_LIGHTS}];
+uniform float uBounceK;
+float hfShadow(vec3 p, vec3 lp){
+  vec3 d = lp - p; float L = length(d.xz);
+  if (L < 72.) return 1.;
+  float vis = 1.;
+  for (int s = 0; s < 12; s++){
+    float t = 48. + (L - 72.) * (float(s) + .5) / 12.;
+    vec3 q = p + d * (t / L);
+    vec2 uv = vec2((q.x - uHFM.x) * uHFM.z, (uHFM.y - q.z) * uHFM.z);
+    if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) break;
+    float hh = uHFZ.x - (uHFZ.y + texture2D(uHF, uv).r * (uHFZ.z - uHFZ.y));
+    vis = min(vis, clamp((q.y + 6. - hh) / (6. + .06 * t), 0., 1.));
+  }
+  return vis;
+}   // receivers that also cast as billboards (sprites) set 0: their own light-facing card would self-shadow them
 vec3 pointLights(vec3 p, vec3 n, float soft){
   vec3 acc = vec3(0.);
   for (int i = 0; i < ${MAX_LIGHTS}; i++){
@@ -141,7 +166,13 @@ vec3 pointLights(vec3 p, vec3 n, float soft){
     float dist = length(d);
     float a = lightFall(dist, uLP[i].w, uLC[i].w);
     if (a <= 0.) continue;
-    if (i == uPSIdx && gPSh > .5) a *= mix(1., mix(.03, 1., pointShadow(p, uLP[i].xyz)), uPSP.w);
+    bool spell = uLC[i].w > 1.5;
+    if (i == uPSIdx) { if (gPSh > .5) a *= mix(1., mix(.03, 1., pointShadow(p, uLP[i].xyz)), uPSP.w); }
+    else if (spell && uHFZ.w > 0.) a *= mix(1., mix(.1, 1., hfShadow(p, uLP[i].xyz)), uHFZ.w);
+    if (spell) {   // one-bounce fake GI: the spell colour reflected off the ground under it, lighting what faces it (unit fronts, tower bases)
+      vec3 db = vec3(uLP[i].x, uLB[i].w, uLP[i].z) - p; float bd = length(db), bx = bd / (uLP[i].w * ${SPELL_REACH.toFixed(2)}), bf = 1. - bx * bx;
+      if (bf > 0.) acc += uLB[i].rgb * (uBounceK * bf *mix(max(dot(n, db / max(bd, 1.)), 0.), 1., .15));
+    }
     float ndl = max(dot(n, d / max(dist, 1.)), 0.);
     acc += uLC[i].rgb * (a * mix(ndl, 1., uLC[i].w > 1.5 ? max(soft, .7) : soft));   // spell lights stay strong at grazing angles
   }
