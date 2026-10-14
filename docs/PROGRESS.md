@@ -27,7 +27,7 @@
 - Bot-only matches are slow (~45-50 min); bots push buildings timidly
 - Invoker bot levels slowly
 - Spectators: host ticks "Allow spectators"; up to 6 spectator seats (SPEC_MAX), joinable in the lobby or mid-match (listed as LIVE / Watch). Spectators see both teams' vision and cannot order.
-- Online play: Pages client + Render free server (render.yaml, Virginia, pixel2dota-east.onrender.com). Cold-start UX (first lobby after 15 min idle) not yet verified on a real spin-up.
+- Online play: Pages client + Render free server (render.yaml, Virginia, pixel2dota.onrender.com). Cold-start UX (first lobby after 15 min idle) not yet verified on a real spin-up.
 - Art v2 approved by the creative director. v3 landed (verdicts pending): base ambiance, key-light + spell-light shadows, map-wide 3D clutter, 3D VFX pilot (Sun Strike, Laguna Blade, Freezing Field), 8-dir 2x sprite pilot (Lina)
 - Multi-light shadows: up to 10 spell lights (MAX_PS) each get a real cube shadow (5 faces x 192 px, one atlas row per light; +0.75 ms/frame at 10 lights). Lights past 10 fall back to the height field. Sun/moon shadows are near-overhead (shadow.js KEY_TILT 0.3).
 - Spell lighting (e7ca48d): unit sprites cast real-time shadows (key + spell cube pass); spell lights light towers/units/ground with a broad falloff. Every other spell light gets marched height-field shadows (terrain, buildings, trees, unit pillars) + a one-bounce ground-coloured fill. Knobs in render/shaderlib.js: SPELL_REACH 1.5, SPELL_GAIN 1.5, cube shadow floor .03, height-field floor .1, uBounceK .4
