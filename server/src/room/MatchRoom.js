@@ -5,6 +5,8 @@ import { Room, matchMaker } from 'colyseus';
 import { MSG, PHASE, TEAM, TEAM_SIZE, LOBBY, ORDER, EV, TICK_HZ, ROOM } from '../../../shared/protocol.js';
 import { HEROES, HERO_KEYS, heroByShort } from '../../../shared/heroes.js';
 import { World } from '../sim/world.js';
+import { addXp } from '../sim/heroes.js';
+import { XP_TABLE } from '../../../shared/constants.js';
 import {
   MatchState, Player, Unit, Ability, Item,
   UNIT_FIELDS, ABILITY_FIELDS, ITEM_FIELDS, PLAYER_SIM_FIELDS,
@@ -15,6 +17,8 @@ const RECONNECT_S = 60;
 const DISPOSE_AFTER_END_MS = 120000;
 const MAX_CHAT = 200;
 const MAX_NAME = 16;
+// Dota-style lobby cheats for local testing only: P2D_CHEATS=1 node server/src/index.js; type in chat: -gold N, -lvlup N, -killancient
+const CHEATS = process.env.P2D_CHEATS === '1';
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';   // no I / O look-alikes
 
 // --- field quantisation / clamping (sim doubles -> schema numeric types). [min, max, step]: step 0 = integer, >0 = round to 1/step.
@@ -220,8 +224,21 @@ export class MatchRoom extends Room {
     if (!text) return;
     const p = this.state.players.get(client.sessionId);
     if (!p) return;
+    if (CHEATS && text[0] === '-' && this.cheat(p, text)) return;
     this.fxQueue.push({ e: EV.CHAT, p: p.sid, name: p.name, team: p.team, text });
     if (this.state.phase !== PHASE.GAME) this.flushFx();
+  }
+
+  cheat(p, text) {
+    const w = this.world, sp = w && w.players.get(p.sid), u = sp && w.units.get(sp.heroId);
+    if (this.state.phase !== PHASE.GAME || !u) return false;
+    const [cmd, arg] = text.split(/\s+/), n = Math.max(1, Math.min(100000, parseInt(arg, 10) || 1));
+    if (cmd === '-gold') sp.gold += n;
+    else if (cmd === '-lvlup') addXp(w, u, XP_TABLE[Math.min(XP_TABLE.length - 1, u.level - 1 + n)] - u.xp);
+    else if (cmd === '-killancient') { for (const v of w.units.values()) if (v.kind === 'ancient' && v.team !== p.team) w.killUnit(v, u); }
+    else return false;
+    this.broadcastMsg('Cheat: ' + p.name + ' ' + text);
+    return true;
   }
 
   onOrder(client, m) {

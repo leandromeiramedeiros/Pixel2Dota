@@ -49,6 +49,10 @@ npm start                       # starts the server
 
 The server serves `client/dist` when it exists, so open http://localhost:2567.
 
+## Test cheats
+
+For local testing, start the server with cheats on: `node --env-file=tools/cheats.env server/src/index.js` (sets `P2D_CHEATS=1`). Then type these in the in-game chat: `-gold N`, `-lvlup N`, `-killancient` (destroys the enemy ancient and ends the match). Without the env var, these are ordinary chat messages.
+
 ## Controls
 
 From the header of `client/src/input.js`, plus Esc from the same file:

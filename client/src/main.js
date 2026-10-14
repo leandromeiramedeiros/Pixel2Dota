@@ -19,6 +19,7 @@ async function startMatch() {
   try {
     const { startGame } = await import('./game.js');
     game = await startGame({ root, net });
+    (window.__p2d ||= {}).game = game;   // debug handle (renderer, hud, input)
   } catch (e) {
     console.error('[p2d] game failed to start', e);
     root.innerHTML = '<pre style="color:#ff6b5b;padding:20px;white-space:pre-wrap">Game failed to start:\n' + String(e?.stack || e) + '</pre>';
@@ -33,4 +34,4 @@ addEventListener('p2d:return-lobby', () => { const g = game; game = null; net.le
 
 boot();
 if (import.meta.hot) import.meta.hot.dispose(() => { lobby?.destroy(); game?.destroy(); });
-window.__p2d = { net };
+window.__p2d = Object.assign(window.__p2d || {}, { net });

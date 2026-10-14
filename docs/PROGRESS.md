@@ -13,8 +13,13 @@
 - [x] Pixel pipeline: low-res RT, Bayer quantise, bloom, rim light, point lights, extensive particles
 - [x] Spell VFX: GPU particle fx for all 10 heroes, items, projectiles, status visuals
 - [x] Fog of war (client), minimap, HUD (portrait, hp/mana, abilities, items, gold, stats), shop UI, scoreboard, kill feed, chat
-- [x] Network play verified with 2 browser clients (one per team + 8 bots; moves, casts, shop)
+- [x] Network play verified with 2 browser clients (one per team + 8 bots; moves, casts, shop; other player's spell FX received and rendered; live win/defeat screens and Return to lobby)
 - [x] Tests: `npm test` green (100)
+
+## Measured
+
+- Frame time (CPU+GPU, forced sync, 835x397 low-res target, mid-lane teamfight): median 2.4 ms, p95 5.3 ms on RTX 5070 Ti
+- Server sim: ~0.2 ms per tick with 10 bots
 
 ## Known issues / next
 
