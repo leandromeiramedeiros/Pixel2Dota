@@ -97,7 +97,7 @@ The sim keeps plain objects with the **same field names**; the room copies chang
 - `fx`: array of events, `e` in EV (protocol.js):
   `atk{s,t,k,sp}` attack launched (k = projectile art key or "" for melee; sp = speed) · `hit{s,t,d,ty,c}` damage dealt (ty "phys"|"mag"|"pure", c = crit) ·
   `spell{k,s,t?,x?,y?,x2?,y2?,r?,dur?,lv}` ability/item VFX trigger (k = ability/item key) · `proj{id,k,s,t?,x,y,x2?,y2?,sp}` spell projectile start · `projEnd{id}` ·
-  `death{t,k}` · `kill{killer,victim,gold}` (pids) · `gold{t,g}` (last-hit popup) · `lvl{t}` · `heal{t,a}` · `mana{t,a}` · `tree{i}` cut · `treeGrow{i}` ·
+  `death{t,k}` · `kill{killer,victim,gold,by,kt}` (pids; by/kt = killing unit kind/team when no hero gets it) · `gold{t,g}` (last-hit popup) · `lvl{t}` · `heal{t,a}` · `mana{t,a}` · `tree{i}` cut · `treeGrow{i}` ·
   `blink{s,x,y,x2,y2}` · `tp{s,x,y,dur}` · `invoke{s,k}` · `msg{text}` · `chat{p,text}` · `end{winner}`.
 
 ## Simulation (server/src/sim, pure JS)

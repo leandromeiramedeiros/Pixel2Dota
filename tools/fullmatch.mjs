@@ -3,7 +3,7 @@ import { World } from '../server/src/sim/world.js';
 import { HERO_KEYS } from '../shared/heroes.js';
 const mins = +(process.argv[2] || 40), seed = +(process.argv[3] || 1);
 const w = new World({ seed });
-HERO_KEYS.forEach((k, i) => { const team = i < 5 ? 0 : 1, slot = i % 5; w.players?.set?.(`bot:${team}:${slot}`, undefined); w.addHero({ pid: `bot:${team}:${slot}`, team, heroKey: k, bot: true, name: k, slot }); });
+HERO_KEYS.forEach((k, i) => { const team = i < 5 ? 0 : 1, slot = i % 5; w.addHero({ pid: `bot:${team}:${slot}`, team, heroKey: k, bot: true, name: k, slot }); });
 const evs = {}, t0 = Date.now(); let nan = 0, next = 0, slow = 0;
 const kills = [0, 0];
 for (let i = 0; i < mins * 60 * 30 && w.winner < 0; i++) {
