@@ -125,11 +125,13 @@ Commits from the last session:
 **P3. Readable ability and item icons**
 - Mirana's and other abilities look grey/weak at the HUD size. `sniper_headshot` and the gold icon are weak too.
 - Give them stronger silhouettes and contrast in the Trainer palette.
+- **Director (2026-10-14): more detail, closer to the Dota 2 ability/item art** (same subject, composition and colour key as the Dota 2 icon, painted richer: shading ramps, highlights, texture), still pixel art and readable at HUD size. Hand-author; never copy Valve files.
 - Send a contact sheet of all icons to the user for a verdict.
 
 **P4. Real bodies and portraits for Pudge, Mirana and Rubick**
 - They currently use stand-ins (`BODY_STANDIN` in `client/src/render/actors.js`) and have no portraits.
 - Follow the existing sheet format of the other heroes.
+- **Director (2026-10-14): every NEW body is 8 directions at the 2x detail level from day one** (not 4-dir stand-in quality), and every new portrait is more detailed and closer to the Dota 2 hero portrait (likeness, lighting, colour key).
 - Get a creative-director verdict with screenshots.
 
 **P5. Lina redo, then 8-direction 2x sprites**
