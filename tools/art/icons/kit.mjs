@@ -128,3 +128,29 @@ export class PalBuilder {
   ch(hex) { hex = hex.toLowerCase(); let c = this.map.get(hex); if (!c) { c = POOL[this.map.size]; this.map.set(hex, c); this.pal[c] = hex; } return c; }
   rows(img) { return img.map(r => r.map(h => h ? this.ch(h) : '.').join('')); }
 }
+
+// ---- extra themes for the ability redraw (existing themes above are untouched; items use item/phys/gold/night)
+Object.assign(THEMES, {
+  storm: { bg: ['#2c80d8', '#1a52a8', '#0c2468'], bev: ['#a8e0ff', '#081844'] },    // Zeus / Laguna: electric blue
+  deep: { bg: ['#1c3478', '#12205a', '#0a1038'], bev: ['#7898e8', '#060a20'] },     // deep navy (Sven bolt, Drow arrows)
+  olive: { bg: ['#6c7c2c', '#46561c', '#222e0e'], bev: ['#c8e070', '#10180a'] },    // Pudge hook / rot
+  flesh: { bg: ['#c89080', '#a46a64', '#6c3c40'], bev: ['#ffd8c8', '#2c1014'] },    // Pudge flesh heap: pale meat
+  ember: { bg: ['#d06a20', '#9a3c12', '#541a0a'], bev: ['#ffc078', '#2c0e04'] },    // warm orange-brown (Lina, Lion, Axe)
+  dusk: { bg: ['#6a4234', '#44261e', '#201010'], bev: ['#e0a888', '#14080a'] },     // brown-dark with warm rays (alacrity)
+  jade: { bg: ['#38b048', '#1c7c30', '#0a401c'], bev: ['#c0ff98', '#062410'] },     // Rubick: bright green rays
+  ruby: { bg: ['#c82c2c', '#8c1420', '#4a0812'], bev: ['#ff9488', '#240408'] },     // Axe: red
+  ash: { bg: ['#5a6478', '#3c4458', '#222836'], bev: ['#b8c4dc', '#0e121c'] },      // grey-blue mist (Drow frost arrows)
+});
+
+// Hand-placed 16x16 pixel art. rows = 16 strings, map: char -> '#hex' (painted + outlined, like any shape)
+// or ['#hex'] (soft: drawn on top, never outlined -- glows, streaks, background rays). '.' / unmapped = untouched.
+export function pix(g, rows, map) {
+  if (process.env.PIXLEN) rows.forEach((r, y) => { if ([...r].length !== 16) console.warn(`pix row ${y} has ${[...r].length} chars: ${r}`); });
+  const solid = {}, soft = {};
+  rows.forEach((r, y) => [...r].slice(0, 16).forEach((c, x) => { const m = map[c]; if (!m) return; (Array.isArray(m) ? (soft[m[0]] ||= []) : (solid[m] ||= [])).push([x, y]); }));
+  for (const [h, pts] of Object.entries(solid)) g.paint(Glyph.pts(pts), [h, h, h, h], 'f');
+  for (const [h, pts] of Object.entries(soft)) g.dots(pts, h);
+  return g;
+}
+Object.assign(THEMES, { sun: { bg: ['#f2c458', '#d49424', '#8e5c14'], bev: ['#fff4b0', '#3a2006'] } });   // Gods Strength: blazing gold
+Object.assign(THEMES, { coal: { bg: ['#3c120c', '#22080a', '#10040a'], bev: ['#ff9a60', '#0a0204'] } });   // Blade Fury / Omni Slash: near-black red
