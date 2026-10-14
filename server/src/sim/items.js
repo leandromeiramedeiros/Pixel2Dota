@@ -7,6 +7,8 @@
 //   swap(w, u, a, b) -> bool       swap inventory slots
 //   useInfo(w, u, slot) -> null | {targeting:'none'|'unit'|'point', range, castPoint, ready:bool, targetTeam?, targetType?, pierce?}
 //   use(w, u, slot, target)        run the active; target = {unit|null, x, y}. Must set cooldown / consume charges itself.
+//                                  May return {key, channel: secs, tick?(w,u,ch,dt), end?(w,u,ch,interrupted)} to channel (TP scroll).
+//   onEnemySpell(w, u, caster, abilityKey)  u = enemy hero within 1200 of a non-passive ability cast (magic stick/wand charges)
 //   hooks (all optional work, called for heroes only): onAttack(w,u,tgt,info) onAttackLanded(w,u,tgt,info,dealt)
 //        onAttacked(w,u,attacker,info,dealt) onDamaged(w,u,src,dealt,type) onKill(w,u,victim) onDeath(w,u,killer) tick(w,u,dt)
 //   Item state lives on u.items[i] = {key, charges, cd, cdMax} (+ private fields prefixed `_`).
@@ -68,6 +70,7 @@ export function onAttackLanded(w, u, tgt, info, dealt) {}
 export function onAttacked(w, u, attacker, info, dealt) {}
 export function onDamaged(w, u, src, dealt, type) {}
 export function onKill(w, u, victim) {}
+export function onEnemySpell(w, u, caster, key) {}
 export function onDeath(w, u, killer) {}
 export function tick(w, u, dt) {
   for (let i = 0; i < u.items.length; i++) { const it = u.items[i]; if (it.cd > 0) it.cd = Math.max(0, it.cd - dt); }

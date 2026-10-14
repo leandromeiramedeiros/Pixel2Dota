@@ -174,3 +174,10 @@ createNet(endpoint) -> { listLobbies() -> Promise<[{code, players, host}]>, crea
 | fx | client/src/render/fx/** |
 | hud | client/src/ui/** except lobby*, client/src/input.js |
 | art | tools/art/**, client/src/art/sheets/** |
+
+## Wave-2 rules (orchestrator decisions)
+- **Invoker values**: invoked spells (maxLevel 1) have 9-entry arrays indexed by orb level 0..8. Rule: `level = orbLevel + 1` where the orb is `DATA.abilities[key].levelKeys[name]` (`quaslevel`→invoker_quas level, etc.); `w.val(key, name, orbLevel + 1)`. Names without a levelKey use level 1.
+- **Invoker slots**: `u.abilities` = [quas, wex, exort, D, F, invoke]. Invoke rewrites slot 3/4 `key` (newest in D, previous shifts to F; re-invoking a spell already in D/F just reorders). Cooldowns are per spell and survive swaps: keep `u._inv = { cd: {key: secsLeft} }`, ticked even when not slotted; slot `cd/cdMax/mana` mirror the slotted spell. `u.orbs` = last 3 orbs string e.g. "QQE" (public, rendered). Orb passives: Quas hp regen, Wex AS+MS, Exort damage per orb instance (DATA values).
+- **Zeus `zuus_static_field`**: 1-level innate passive, active from level 1, cannot be skill-pointed; it does not take a skill slot level. Zeus's E learn order uses the remaining 3 abilities + ult.
+- **Item channels**: `items.use()` may return `{key, channel, tick?, end?}` (TP scroll). **Magic stick/wand**: `items.onEnemySpell(w, u, caster, key)` fires for enemy heroes within 1200 of any non-passive ability cast (wired in orders.js).
+- Shell: NEVER `python -` heredocs on this machine (Windows stub hangs). Use `node -e` or write a .mjs. Tests: `node --test "server/test/*.test.js"` (glob form). Headless soak: `node tools/soak.mjs`.

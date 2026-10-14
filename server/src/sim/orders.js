@@ -192,7 +192,11 @@ function castSpec(w, u, o) {
   return {
     ab: null, h: null, d: null, mode: info.targeting || 'none', itemSpec: info, range: info.range || 0, point: info.castPoint || 0,
     ready: () => (canUseItem(u) ? (info.ready === false ? 'cooldown' : true) : 'muted'),
-    exec: (tgt) => items.use(w, u, o.slot, tgt),
+    exec: (tgt) => {
+      const res = items.use(w, u, o.slot, tgt);
+      if (res && res.channel > 0) { beginChannel(w, u, { key: res.key || 'item', dur: res.channel, tick: res.tick, end: res.end, noInterruptOnOrder: res.noInterruptOnOrder }); u._mv = null; }
+      return res;
+    },
   };
 }
 
@@ -248,6 +252,10 @@ export function executeAbility(w, u, ab, tgt) {
   const ev = evSpell(w, ab.key, u.id, { t: tgt.unit ? tgt.unit.id : undefined, x: Math.round(tgt.x), y: Math.round(tgt.y), lv: ab.level });
   let res;
   if (h.cast) res = h.cast(w, u, ab, tgt);
+  // orchestrator hook: enemy heroes in range see the cast (magic stick/wand charges)
+  if (items.onEnemySpell && !(w.data.abilities[ab.key]?.behavior || []).includes('PASSIVE')) {
+    for (const v of w.unitsInRadius(u.x, u.y, 1200, { enemyOf: u, heroes: true })) items.onEnemySpell(w, v, u, ab.key);
+  }
   if (res && typeof res === 'object') {
     const { channel, tick, end, noInterruptOnOrder, ...extra } = res;
     Object.assign(ev, extra);
