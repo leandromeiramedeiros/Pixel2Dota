@@ -5,6 +5,7 @@ import { createRenderer } from './render/index.js';
 import { createHud } from './ui/hud.js';
 import { createInput } from './input.js';
 import { createTouch } from './ui/touch.js';
+import { createPerf } from './ui/perf.js';
 import { MSG, TEAM } from '@p2d/shared/protocol.js';
 
 export async function startGame({ root, net }) {
@@ -23,6 +24,7 @@ export async function startGame({ root, net }) {
   const getState = () => net.state;
   const input = createInput({ canvas, renderer, send, hud, getState, mySid: net.mySid });
 
+  const perf = createPerf(hudRoot, net);
   const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: net.mySid, send });
 
   const resize = () => renderer.resize(root.clientWidth, root.clientHeight);
@@ -36,6 +38,7 @@ export async function startGame({ root, net }) {
 
   const frame = (now) => {
     raf = requestAnimationFrame(frame);
+    perf.frame(now);
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     const st = net.state; if (!st) return;
     const p = me();
@@ -59,7 +62,7 @@ export async function startGame({ root, net }) {
       cancelAnimationFrame(raf);
       removeEventListener('resize', resize);
       offFx?.();
-      touch.destroy(); input.destroy(); hud.destroy();
+      perf.destroy(); touch.destroy(); input.destroy(); hud.destroy();
       root.innerHTML = '';
     },
     chat: (text) => send(MSG.CHAT, { text }),
