@@ -62,7 +62,7 @@ export function createRenderer({ canvas, sheets }) {
   const fxLoader = fxMods['./fx/index.js'];
   if (fxLoader) {
     fxLoader().then((m) => {
-      if (m && m.createFx) { fxMod = m.createFx({ scene, particles, lights, atlas, heightAt }); for (const e of fxQueue.splice(0)) safeFx(e); }
+      if (m && m.createFx) { fxMod = m.createFx({ scene, particles, lights, atlas, heightAt, sprites, overlay, uniforms, unitById: (id) => unitMap.get(id), worldToScreen, visible: (x, y) => fog.isVisible(x, y), target: () => rig.getTarget(), visW: () => rig.visibleWidth }); for (const e of fxQueue.splice(0)) safeFx(e); }
     }).catch((e) => console.warn('[render] fx module failed to load:', e && e.message));
   }
   function safeFx(ev) { try { fxMod.handle(ev, lastView); } catch (e) { if (!safeFx.warned) { safeFx.warned = true; console.warn('[render] fx handler error:', e); } } }

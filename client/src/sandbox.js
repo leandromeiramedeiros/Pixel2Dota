@@ -1,10 +1,12 @@
 // Offline render sandbox: mock units walking the lanes, real towers / barracks / ancients, day-night toggle, particle demos.
+// FX demo keys (fxdemo.js): 1-9,0 next spell of hero N, C cycle all spells, I items, M basic-attack projectiles, window.__fx.all().
 // Keys: WASD / screen edge pan, wheel zoom, N day/night, 1-4 particle demos at the cursor, F fog, B bloom, P pixel scale, L lane tour, click select.
 import { loadSheets } from './art/atlas.js';
 import { createRenderer } from './render/index.js';
 import { getMap, heightAt } from '../../shared/map.js';
 import { LANES } from '../../shared/data/lanes.js';
 import { ST } from '../../shared/protocol.js';
+import { installFxDemo } from './fxdemo.js';
 
 const canvas = document.getElementById('game');
 const hud = document.getElementById('hud');
@@ -83,6 +85,7 @@ function stepUnits(dt) {
       }
       u.z = heightAt(u.x, u.y);
     } else if (u.kind === 'hero') {
+      if (window.__calm) { u.st = 99; u.state = 'idle'; u.hp = u.maxHp; u.status &= ~ST.DEAD; u.z = heightAt(u.x, u.y); continue; }
       u.st -= dt;
       if (u.state === 'walk') {
         const dx = u.goal[0] - u.x, dy = u.goal[1] - u.y, d = Math.hypot(dx, dy);
@@ -192,10 +195,6 @@ addEventListener('keydown', (e) => {
   else if (k === 'p') r.setSetting('pixelScale', r.settings.pixelScale >= 3 ? 1 : r.settings.pixelScale + 1);
   else if (k === 'l') { tour = !tour; tourT = 0; }
   else if (k === ' ') r.snapTarget(myHero.x, myHero.y);
-  else if (k === '1') fireball(myHero.x, myHero.y, g.x, g.y);
-  else if (k === '2') iceRing(g.x, g.y);
-  else if (k === '3') lightning(myHero.x, myHero.y, g.x, g.y);
-  else if (k === '4') sunStrike(g.x, g.y);
   else if (k === 'g') r.fog.revealAll(!revealed), revealed = !revealed;
 });
 let revealed = false;
@@ -209,6 +208,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (p.unitId) { const u = units.get(p.unitId); sel = u; }
 });
 let sel = null;
+installFxDemo({ r, units, mouse, myHero, heightAt });
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // loop
