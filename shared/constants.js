@@ -3,7 +3,7 @@
 export const MAP_MIN = -8832, MAP_MAX = 8832, TILE = 48, ELEV_Z = 128;
 export const ART_UNITS_PER_PX = 6;
 
-// Camera only zooms IN from distance down to the showcase close-up of the hero (touch starts at 1300, ui/touch.js ZOOM_START, and may pinch out to distanceTouch).
+// Camera only zooms IN from distance down to the showcase close-up of the hero (touch starts at 1450, ui/touch.js ZOOM_START, and may pinch out to distanceTouch).
 export const CAMERA = { distance: 1134, distanceMax: 1134, distanceTouch: 1450, pitch: 60, pitchMin: 38, fovH43: 70, fovH43Min: 45, closeDistance: 900,
   showcaseDistance: 640, showcasePitch: 26, showcaseFovH43: 42 };
 export const vfov = (fovH43) => 2 * Math.atan(Math.tan((fovH43 * Math.PI) / 360) * 0.75) * 180 / Math.PI; // ~55.4 for 70

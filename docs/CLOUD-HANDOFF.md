@@ -55,7 +55,7 @@ Another Claude session (on the user's PC) works on the same repo **at the same t
   - Basic attacks, towers and creeps stay under the bloom threshold (~1.4). See `client/src/render/fx/projectiles.js` (`p.atk`, `ATK_LIGHT`).
 - **Camera:**
   - Desktop distance is 1134, the max. Zooming all the way in reaches a showcase close-up.
-  - Touch starts at 1300 (matches the desktop playfield once the touch HUD is accounted for) and can pinch out to 1450.
+  - Touch starts at 1450, the furthest distance (director, 2026-10-14).
   - Sprites always scale with perspective (`spritePersp: 1`).
 - **Approved by the creative director:**
   - Rejoining a live match takes your hero back (by stored seat id or unique name).

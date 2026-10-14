@@ -1,7 +1,9 @@
 // Touch / mobile controls (Wild Rift / Albion style).  createTouch({ root, canvas, renderer, hud, input, sheets, getState, mySid, send }) -> { destroy(), isActive() }
 //   Active when `?touch=1`, or a coarse pointer, or the first touch event.  Desktop mouse + keyboard play is untouched.
 //   LEFT   floating joystick (left 40%, below the top bar) -> move orders toward hero + dir * 300, ~8 Hz, stop on release.
-//   RIGHT  attack button (target lock > nearest enemy hero > nearest enemy unit > attack-move forward), ability arc, item row, lock/cycle button.
+//   RIGHT  attack button: tap = target lock > nearest enemy hero > nearest enemy unit > attack-move forward; press-and-drag = aim (the enemy closest to the
+//          drag highlights, heroes first; release attacks it, drag back / onto CANCEL cancels).  LH = last-hit / structure button.  Ability arc, item row, lock/cycle button.
+//          Hold a spell button still for 3 s = rearrange the wheel (drag a button onto another slot; DONE or a tap outside exits; saved per hero).
 //          instant spells: tap casts.  self-castable spells / items: double tap casts on self (blink = toward facing), hold to aim.
 //          other targeted spells: hold -> range finder + aim pad, drag aims, release casts, drag onto CANCEL cancels.  A short tap only previews the range.
 //   WORLD  one-finger drag pans (unlocks the camera), pinch zooms, tap an enemy attacks it.  Minimap tap moves the camera, portrait tap recentres + locks.
@@ -14,6 +16,7 @@ import { fmtCd, sweepDeg, prettyName } from './format.js';
 import { h } from './panels.js';
 import {
   heroKeyLetters, ITEM_LETTERS, targetInfo, abilityReady, itemReady, canLearn, orderMove, orderCast, orderAttack, orderAmove, teamOk,
+  swapOrder, loadWheelOrder, saveWheelOrder, nearestIndex, hudInset,
 } from './targeting.js';
 import { DATA } from '../../../shared/data.js';
 import { injectTouchStyle } from './style.js';
@@ -36,9 +39,18 @@ export const T = {
   SNAP: 380,             // world units: unit-target aim snaps to the nearest unit within this of the aim point
   SUPPRESS_MS: 320,      // joystick stays quiet this long after a cast / attack order so it is not overwritten
   ZOOM_FAR: 1450,       // touch camera: maximum distance (pinch out up to here)
-  ZOOM_START: 1300,     // starting distance: matches the free playfield of desktop at 1134 (phone HUD rings the edges: ~76% height x ~56% width
-                        // free vs desktop ~75% x 100%) -> ~1365, pulled in a bit so heroes stay readable on a 6" screen
+  ZOOM_START: 1450,     // starting distance = ZOOM_FAR: touch starts at the furthest zoom (director's call); pinch in only. The phone HUD rings the
+                        // edges (~76% height x ~56% width free), so the wide view keeps the playfield readable
   ZONE: 0.4,             // joystick zone = left 40% of the screen
+  ATK_HOLD_MS: 110,      // attack button: a tap fires on release; a press held this long (not dragged) fires then and keeps auto-attacking
+  ATK_DRAG: 18,          // px (x K) of drag that turns the attack button into target-aim mode
+  ATK_BACK: 10,          // px (x K): dragging back to within this of the button cancels the aim
+  ATK_SNAP: 320,         // world units: the aim point snaps to the closest enemy within this (heroes count as closer: ATK_HERO_BIAS)
+  ATK_HERO_BIAS: 0.55,
+  ATK_CONE: 35,          // degrees: with nothing near the aim point, the enemy closest to the drag DIRECTION within this cone
+  LH_EXTRA: 200,         // last-hit button search radius = attack range + this
+  REORDER_MS: 3000,      // hold a spell button still this long to rearrange the wheel
+  RECENTRE_SNAP: 1500,   // camera jumps further than this snap instead of gliding
 };
 
 const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
@@ -208,6 +220,64 @@ export function cycleCandidates(units, hero, myTeam, visible, radius) {
   return list.map((c) => c.id);
 }
 
+/**
+ * Attack-button drag aim: the enemy to highlight for a drag whose aim point (world) is (ax, ay).  Candidates are visible enemies within
+ * attack range + 300 of the hero; the closest to the aim point wins, with heroes counting as closer (ATK_HERO_BIAS) so a hero beside a creep
+ * wins.  Nothing within ATK_SNAP of the point: the enemy nearest the drag DIRECTION (hero -> point, within ATK_CONE degrees, heroes biased).
+ */
+export function pickDragTarget(units, hero, ax, ay, myTeam, visible, o = {}) {
+  const R = (hero.atkRange || 150) + (o.extra != null ? o.extra : T.ATK_EXTRA), snap = o.snap != null ? o.snap : T.ATK_SNAP;
+  const vo = { team: 'ENEMY', myTeam, visible };
+  const cand = [];
+  for (const u of units) {
+    if (u.team === TEAM.NONE || !validTarget(u, vo)) continue;
+    if (Math.hypot(u.x - hero.x, u.y - hero.y) > R) continue;
+    cand.push(u);
+  }
+  let best = null, bs = snap;
+  for (const u of cand) {
+    const d = Math.hypot(u.x - ax, u.y - ay) * (u.kind === KIND.HERO ? T.ATK_HERO_BIAS : 1);
+    if (d < bs) { bs = d; best = u; }
+  }
+  if (best) return best.id;
+  const dx = ax - hero.x, dy = ay - hero.y;
+  if (Math.hypot(dx, dy) < 1) return null;
+  const dir = Math.atan2(dy, dx), cone = T.ATK_CONE * RAD;
+  let ba = cone;
+  for (const u of cand) {
+    const a = angleDiff(Math.atan2(u.y - hero.y, u.x - hero.x), dir) * (u.kind === KIND.HERO ? T.ATK_HERO_BIAS : 1);
+    if (a < ba) { ba = a; best = u; }
+  }
+  return best ? best.id : null;
+}
+
+const LH_KINDS = { [KIND.CREEP]: 1, [KIND.SUMMON]: 1 };
+const STRUCT_KINDS = { [KIND.TOWER]: 1, [KIND.RAX]: 1, [KIND.BUILDING]: 1, [KIND.ANCIENT]: 1 };
+/** Average hit of a hero (damage range + bonus); falls back to 50. */
+export const heroDamage = (hero) => ((hero.dmgMin || 0) + (hero.dmgMax || 0)) / 2 + (hero.dmgBonus || 0) || 50;
+/**
+ * Last-hit button: the creep the next hit finishes (lowest hp first; enemy creeps before denying a hurt allied creep), else the
+ * weakest enemy creep, else the closest enemy structure; all within attack range + LH_EXTRA.  null = nothing to hit.
+ */
+export function pickLastHit(units, hero, myTeam, visible, dmg = heroDamage(hero), extra = T.LH_EXTRA) {
+  const R = (hero.atkRange || 150) + extra;
+  const enemy = { team: 'ENEMY', myTeam, visible }, friend = { team: 'FRIENDLY', myTeam, visible };
+  let kill = null, deny = null, weak = null, struct = null, sd = Infinity;
+  for (const u of units) {
+    if (u.team === TEAM.NONE) continue;
+    const d = Math.hypot(u.x - hero.x, u.y - hero.y); if (d > R) continue;
+    if (u.team !== myTeam) {
+      if (!validTarget(u, enemy)) continue;
+      if (LH_KINDS[u.kind] || u.team === TEAM.NEUTRAL) {
+        if (u.hp <= dmg && (!kill || u.hp < kill.hp)) kill = u;
+        if (!weak || u.hp < weak.hp) weak = u;
+      } else if (STRUCT_KINDS[u.kind] && d < sd) { sd = d; struct = u; }
+    } else if (u.kind === KIND.CREEP && u.id !== hero.id && validTarget(u, friend) && u.maxHp > 0 && u.hp / u.maxHp < 0.5 && u.hp <= dmg && (!deny || u.hp < deny.hp)) deny = u;
+  }
+  const r = kill || deny || weak || struct;
+  return r ? r.id : null;
+}
+
 /** Pinch: spread (d grows past d0) zooms in = smaller camera distance. */
 export const pinchGoal = (g0, d0, d, min, max) => Math.max(min, Math.min(max, d0 > 0 && d > 0 ? g0 * (d0 / d) : g0));
 
@@ -232,6 +302,30 @@ const BAG = {
   pal: { k: '#10131c', y: '#e8b83a', o: '#a77a1c', w: '#fff3b0' },
   rows: ['..kkkkkk..', '...kooyk..', '..kyyyyyk.', '.kyywyyyyk', 'kyywyyyyyk', 'kyyyyyyyok', 'kyyyyyyook', '.koooooook', '..kkkkkk..'],
 };
+
+// ------------------------------------------------------------------------------------------------ styles owned by this file (attack aim, LH button, reorder)
+const TOUCH_CSS2 = `
+.t-lh { font-family:'Press Start 2P',monospace; font-size:calc(11px * var(--bk, 1)); letter-spacing:0; color:#ffe9a8; }
+.t-root.spec .t-lh { display:none; }
+.t-btn.t-lh.f-ok { color:#fff; }
+.t-btn.t-atk.aiming { z-index:6; transition:none; }
+.t-btn.t-atk.aiming.bad { box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 3px #ff6b5b, inset 0 0 0 6px rgba(5,7,11,.85), 0 0 14px rgba(255,90,70,.8); }
+.t-reorder { position:absolute; left:50%; transform:translateX(-50%); display:none; align-items:center; gap:calc(12px * var(--bk, 1)); padding:calc(6px * var(--bk, 1)) calc(10px * var(--bk, 1));
+  border-radius:calc(8px * var(--bk, 1)); background:rgba(10,13,20,.88); box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #7aeaff; color:#dff6ff; font-size:calc(11px * var(--bk, 1)); pointer-events:auto; white-space:nowrap; z-index:9; }
+.t-reorder b { font-family:'Press Start 2P',monospace; font-size:calc(10px * var(--bk, 1)); padding:calc(6px * var(--bk, 1)) calc(10px * var(--bk, 1)); border-radius:calc(6px * var(--bk, 1)); background:#2a7f4a; color:#fff; box-shadow:inset 0 0 0 2px #7dffa8; }
+.t-root.reorder .t-reorder { display:flex; }
+@keyframes t-wig { 0% { transform:rotate(-4deg); } 50% { transform:rotate(4deg); } 100% { transform:rotate(-4deg); } }
+.t-root.reorder .t-ab { animation:t-wig .26s ease-in-out infinite; box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #7aeaff, inset 0 0 0 4px rgba(5,7,11,.85), 0 0 12px rgba(120,235,255,.7); }
+.t-root.reorder .t-ab:nth-child(odd) { animation-delay:-.13s; }
+.t-root.reorder .t-ab.rdrag { animation:none; z-index:8; transition:none; }
+.t-root.reorder .t-ab.rdrop { animation:none; transform:scale(1.18); box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 3px #7dffa8, 0 0 16px rgba(125,255,168,.9); }
+.t-root.reorder .t-atk, .t-root.reorder .t-lock, .t-root.reorder .t-lh, .t-root.reorder .t-items, .t-root.reorder .t-joy { opacity:.3; }
+.t-btn.down { filter:brightness(1.35); }
+`;
+function injectTouchStyle2(doc = document) {
+  if (doc.getElementById('t-style2')) return;
+  const el = doc.createElement('style'); el.id = 't-style2'; el.textContent = TOUCH_CSS2; doc.head.appendChild(el);
+}
 
 // ------------------------------------------------------------------------------------------------ controller
 export function createTouch({ root, canvas, renderer, hud, input, sheets, getState, mySid, send }) {
@@ -270,6 +364,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const cancelEl = h('div', 't-cancel'); cancelEl.append(h('span', null, '✕'), h('em', null, 'CANCEL')); anchor.append(cancelEl);
   const atk = h('div', 't-btn t-atk'); const atkIco = pixelEl(GLYPHS.sword, null, 1); atkIco.classList.add('t-glyph'); atk.append(atkIco); anchor.append(atk);
   const lockBtn = h('div', 't-btn t-lock'); const lockIco = pixelEl(GLYPHS.reticle, null, 1); lockIco.classList.add('t-glyph'); lockBtn.append(lockIco); anchor.append(lockBtn);
+  const lhBtn = h('div', 't-btn t-lh', 'LH'); anchor.append(lhBtn);                       // last hit / structure
+  const reorderBar = h('div', 't-reorder'); reorderBar.append(h('span', null, 'DRAG A SPELL ONTO ANOTHER SLOT'), h('b', 't-done', 'DONE')); R.append(reorderBar);
   const itemsEl = h('div', 't-items'); R.append(itemsEl);
   const topEl = h('div', 't-top'); R.append(topEl);
   const topBtn = (glyph, label, cls) => {
@@ -295,7 +391,11 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     abBtns = [];
     const letters = heroKeyLetters(u.key);
     const n = u.abilities.length;
-    arcLayout(n).forEach((p, i) => {
+    exitReorder();
+    wheelHero = u.key; wheelOrder = loadWheelOrder(store(), u.key, n);
+    const slots = arcLayout(n);
+    slots.forEach((_, i) => {
+      const p = slots[wheelOrder.indexOf(i)];
       const el = h('div', 't-btn t-ab ring' + p.ring);
       const cv = mkIcon(), sweep = h('div', 't-sweep'), cdt = h('div', 't-cdt'), key = h('div', 't-key', letters[i] || ''), mc = h('div', 't-mc');
       const learn = h('div', 't-learn', '+');
@@ -314,7 +414,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   // ---- layout.  Two scales: --k (panels, text; ~0.78 on a 6" phone, ~1.1 on a 7" tablet) and K = --bk (touch buttons: shrink
   //      less so they stay big enough: attack >= 76 px, abilities >= 50, items >= 40 on a phone).  Pure: see touchScale().
   let K = 1, W = 844, Hh = 390;
-  const SZ = { atk: 88, ab: 59, it: 47, lock: 44, sm: 50 };
+  const SZ = { atk: 88, ab: 59, it: 47, lock: 44, sm: 50, lh: 40 };
   function layout() {
     W = root.clientWidth || innerWidth; Hh = root.clientHeight || innerHeight;
     const sc = touchScale(W, Hh); K = sc.bk;
@@ -329,6 +429,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     place(atk, SZ.atk, 0, 0);
     const la = 68 * RAD, lr = SZ.atk / 2 + SZ.lock / 2 + 4;
     place(lockBtn, SZ.lock, Math.cos(la) * lr, -Math.sin(la) * lr);
+    const ha = 120 * RAD, hr = SZ.atk / 2 + SZ.lh / 2 + 2;
+    place(lhBtn, SZ.lh, Math.cos(ha) * hr, -Math.sin(ha) * hr);
     for (const b of abBtns) place(b.el, SZ.ab, Math.cos(b.polar.a * RAD) * b.polar.r, -Math.sin(b.polar.a * RAD) * b.polar.r);
     place(cancelEl, 58, 6, -252);
     const padD = T.AIM_R * 2 * K;
@@ -338,6 +440,20 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     for (const b of itBtns) b.el.style.width = b.el.style.height = px(SZ.it);
     joyBase.style.width = joyBase.style.height = px(T.JOY_R * 2); joyKnob.style.width = joyKnob.style.height = px(50);
     document.documentElement.classList.toggle('p2d-narrow', W < 760);
+    reorderBar.style.top = (topLimit() + 8) + 'px';
+    updateInset(true);
+  }
+  // ---- camera framing: tell the renderer how much of the screen the HUD covers (top bar / bottom panel) so the hero is centred in the FREE playfield
+  let insetKey = '';
+  function updateInset(force) {
+    if (!renderer.setViewInset) return;
+    const rr = root.getBoundingClientRect(), hh = rr.height || Hh;
+    const tb = root.querySelector('.h-top'), bp = root.querySelector('.h-bottom');
+    const tr = tb ? tb.getBoundingClientRect() : null, br = bp ? bp.getBoundingClientRect() : null;
+    const ins = hudInset(tr && tr.height > 0 ? tr.bottom - rr.top : 0, br && br.height > 0 ? br.top - rr.top : null, hh);
+    const k = ins.top.toFixed(3) + ',' + ins.bottom.toFixed(3);
+    if (k === insetKey && !force) return;
+    insetKey = k; renderer.setViewInset(ins);
   }
 
   // ---- per-button feedback
@@ -382,7 +498,16 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   let locked = true;
   const setLocked = (v) => { locked = !!v; bCam.classList.toggle('on', locked); bCam.replaceChild((() => { const g = pixelEl(locked ? LOCK : OPEN_LOCK, null, 1); g.classList.add('t-glyph'); return g; })(), bCam.firstChild); };
   setLocked(true);
-  const recentre = () => { const u = heroU(); if (u) renderer.setTarget(u.x, u.y); };
+  // the hero as DRAWN (interpolated render position); the raw state position steps with every server snapshot
+  const heroPos = (u) => { const pk = renderer.actors && renderer.actors.picks; if (pk) for (const p of pk) if (p.id === u.id && Number.isFinite(p.x)) return p; return u; };
+  function recentre() {
+    const u = heroU(); if (!u) return;
+    const p = heroPos(u), tg = renderer.getTarget ? renderer.getTarget() : null;
+    if (tg && Math.hypot(tg.x - p.x, tg.y - p.y) > T.RECENTRE_SNAP && renderer.snapTarget) renderer.snapTarget(p.x, p.y);   // far flight: jump (the ground height under the camera glides slower than x/y)
+    else renderer.setTarget(p.x, p.y);
+    const r = rig();
+    if (r && r.showcase) r.distanceGoal = Math.min(r.maxDist, Math.max(r.minDist, T.ZOOM_START));   // a pinched-in close-up (flat pitch, narrow FOV) is the "odd angle": back to the gameplay view
+  }
 
   // ---- target lock
   let lockId = '';
@@ -442,6 +567,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   // ---- attack
   let atkHeld = null, atkNext = 0;   // pointerId, next auto re-target time
+  let atkS = null;                   // press state: { ptr, cx, cy, ex, ey, timer, fired, aiming, dx, dy, inCancel, unitId, point, tg, reach }
   function doAttack() {
     const u = heroU(); if (!u || dead(u)) return;
     checkLock(u);
@@ -452,6 +578,60 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       order(orderAmove(Math.round(clampW(u.x + Math.cos(f) * T.JOY_RANGE)), Math.round(clampW(u.y + Math.sin(f) * T.JOY_RANGE)), false));
     }
     noteOrder(); flash(atk);
+  }
+  function lastHit() {
+    const u = heroU(); if (!u || dead(u) || isSpec()) return;
+    const id = pickLastHit(unitList(), u, myTeam(), visible);
+    if (!id) { warn('Nothing to hit'); flash(lhBtn, 'f-bad'); return; }
+    order(orderAttack(id)); noteOrder(); flash(lhBtn);
+  }
+
+  // attack button drag aim: the thumb's offset from the button maps (like the spell pad) to a world offset from the hero; the enemy
+  // closest to that point (heroes first) is highlighted with the same rangefinder the spells use; release attacks it
+  function startAtkAim() {
+    const s = atkS, u = heroU(); if (!s || s.aiming || !u) return;
+    clearTimeout(s.timer); s.aiming = true; s.fired = true;
+    s.reach = (u.atkRange || 150) + T.ATK_EXTRA;
+    s.tg = { kind: 'attack', slot: -1, info: { mode: 'unit', range: s.reach, radius: 0, team: 'ENEMY' }, name: 'ATTACK', line: true, rich: true, ring: s.reach, shape: { type: 'none' }, unitId: '', unitOk: false };
+    const rect = pad.parentNode.getBoundingClientRect();
+    pad.style.left = (s.cx - rect.left) + 'px'; pad.style.top = (s.cy - rect.top) + 'px';
+    R.classList.add('aiming'); cancelEl.classList.remove('hot'); atk.classList.remove('down'); atk.classList.add('aiming');
+    if (H.setTargeting) H.setTargeting(s.tg);
+  }
+  function updateAtkAim() {
+    const s = atkS; if (!s || !s.aiming) return;
+    const u = heroU(); if (!u || dead(u)) { endAtk(false); return; }
+    const off = aimWorldOffset(s.dx, s.dy, T.AIM_R * K, s.reach);
+    const ax = clampW(u.x + off.x), ay = clampW(u.y + off.y);
+    const id = Math.hypot(s.dx, s.dy) < T.ATK_BACK * K ? null : pickDragTarget(unitList(), u, ax, ay, myTeam(), visible);
+    const tu = id ? state().units.get(id) : null;
+    s.unitId = id || ''; s.point = { x: ax, y: ay }; s.mag = off.mag;
+    s.tg.unitId = s.unitId; s.tg.unitOk = !!id; s.tg.cancel = s.inCancel;
+    if (H.setAim) H.setAim(tu ? tu.x : ax, tu ? tu.y : ay);
+    if (renderer.setHover) renderer.setHover(s.unitId || null);
+    atk.style.transform = `translate(${off.kx}px, ${off.ky}px)`;
+  }
+  function atkMove(e) {
+    const s = atkS; if (!s) return;
+    s.ex = e.clientX; s.ey = e.clientY; s.dx = e.clientX - s.cx; s.dy = e.clientY - s.cy;
+    if (!s.aiming) { if (Math.hypot(s.dx, s.dy) > T.ATK_DRAG * K) startAtkAim(); else return; }
+    const c = cancelEl.getBoundingClientRect(), m = 10;
+    s.inCancel = (e.clientX > c.left - m && e.clientX < c.right + m && e.clientY > c.top - m && e.clientY < c.bottom + m) || Math.hypot(s.dx, s.dy) < T.ATK_BACK * K;
+    cancelEl.classList.toggle('hot', s.inCancel); atk.classList.toggle('bad', s.inCancel);
+    updateAtkAim();
+  }
+  function endAtk(commit) {
+    const s = atkS; if (!s) return;
+    atkS = null; clearTimeout(s.timer);
+    if (!s.aiming) { if (commit && !s.fired) doAttack(); return; }                       // quick tap: attack on release
+    atk.style.transform = ''; atk.classList.remove('aiming', 'bad');
+    R.classList.remove('aiming'); cancelEl.classList.remove('hot');
+    if (renderer.setHover) renderer.setHover(null);
+    if (H.setTargeting) H.setTargeting(null);
+    const u = heroU(); if (!commit || s.inCancel || !u || dead(u)) return;
+    if (s.unitId) { setLock(s.unitId); order(orderAttack(s.unitId)); noteOrder(); flash(atk); }
+    else if (s.mag > 0.3 && s.point) { order(orderAmove(Math.round(s.point.x), Math.round(s.point.y), false)); noteOrder(); flash(atk); }   // nobody there: attack-move toward the point
+    else { warn('No target'); flash(atk, 'f-bad'); }
   }
 
   // ---- casting
@@ -512,6 +692,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (turnShown || b.ptr != null) return;
     e.preventDefault();
     if (e.target && e.target.classList && e.target.classList.contains('t-learn')) return;
+    if (reorderOn) { rdragStart(b, e); return; }
     const u = heroU(); if (!u || dead(u) || isSpec()) return;
     const ent = itemOrAbility(u, b), key = ent && ent.key; if (!key) return;
     const lvl = b.kind === 'ability' ? ent.level : 1;
@@ -524,10 +705,11 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       warn(rdy.reason); flash(b.el, 'f-bad'); return;
     }
     clearRange();
-    if (cls === 'instant') {                                                    // casts on touch-down; a hold still opens the tooltip
-      issueCast(b, null);
+    if (cls === 'instant') {                                                    // casts on RELEASE (so a 3 s reorder hold never casts); a hold still opens the tooltip
       clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (b.ptr === e.pointerId) showTip(b, false); }, T.LONG_MS);
-      b.ptr = e.pointerId; pointers.set(e.pointerId, { id: e.pointerId, role: 'tip', b, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
+      b.ptr = e.pointerId; pointers.set(e.pointerId, { id: e.pointerId, role: 'tip', cast: true, b, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
+      armReorder(b, e.pointerId);
+      b.el.classList.add('down');
       return;
     }
     const t = now();
@@ -549,6 +731,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     aim.tg = targetingFor(b, aim.info, key, true, lvl, realRange(info));
     if (H.setTargeting) H.setTargeting(aim.tg);
     clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (aim && aim.b === b) showTip(b, true); }, T.LONG_MS);   // still aiming after a beat: compact tooltip up top
+    armReorder(b, e.pointerId);
     updateAim();
   }
 
@@ -586,7 +769,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (!aim) return;
     aim.ex = e.clientX; aim.ey = e.clientY;
     aim.dx = e.clientX - aim.cx; aim.dy = e.clientY - aim.cy;
-    if (Math.hypot(aim.dx, aim.dy) > T.TAP_MOVE * K) aim.moved = true;
+    if (Math.hypot(aim.dx, aim.dy) > T.TAP_MOVE * K) { aim.moved = true; clearReorderTimer(); }
     const c = cancelEl.getBoundingClientRect(), m = 10;
     aim.inCancel = e.clientX > c.left - m && e.clientX < c.right + m && e.clientY > c.top - m && e.clientY < c.bottom + m;
     cancelEl.classList.toggle('hot', aim.inCancel);
@@ -596,7 +779,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   function endAim(cast) {
     const a = aim; if (!a) return;
-    aim = null; clearLong(); if (tipEl && tipEl.classList.contains('t-compact')) hideTip();
+    aim = null; clearLong(); clearReorderTimer(); if (tipEl && tipEl.classList.contains('t-compact')) hideTip();
     pointers.delete(a.ptr); a.b.ptr = null;
     a.b.el.style.transform = '';
     a.b.el.classList.remove('bad');
@@ -620,6 +803,65 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     else { warn('No target'); flash(a.b.el, 'f-bad'); }
   }
 
+  // ---- spell wheel reorder: hold a spell button still for T.REORDER_MS -> buttons wiggle; drag one onto another slot to swap; DONE / tap outside exits.
+  //      Only the wheel POSITION changes (slots and keys stay), saved per hero in localStorage.
+  let reorderOn = false, reorderTimer = 0, rdrag = null, wheelOrder = [], wheelHero = '';
+  const store = () => { try { return localStorage; } catch { return null; } };
+  const clearReorderTimer = () => { clearTimeout(reorderTimer); reorderTimer = 0; };
+  function armReorder(b, ptr) { clearReorderTimer(); reorderTimer = setTimeout(() => startReorder(b, ptr), T.REORDER_MS); }
+  function startReorder(b, ptr) {
+    reorderTimer = 0;
+    if (reorderOn || destroyed || turnShown || b.ptr !== ptr) return;
+    const p = pointers.get(ptr), x = aim && aim.b === b ? aim.ex : p && p.x != null ? p.x : p ? p.x0 : 0, y = aim && aim.b === b ? aim.ey : p && p.y != null ? p.y : p ? p.y0 : 0;
+    if (aim && aim.b === b) endAim(false);                                              // no cast, no aim
+    else if (p) { pointers.delete(ptr); b.ptr = null; b.el.classList.remove('down'); }
+    clearLong(); hideTip(); clearRange(); if (H.setTargeting) H.setTargeting(null);
+    reorderOn = true; R.classList.add('reorder');
+    if (H.message) H.message('Reorder: drag a spell onto another slot');
+    try { if (navigator.vibrate) navigator.vibrate(35); } catch { /* */ }
+    rdragStart(b, { pointerId: ptr, clientX: x, clientY: y });                           // the finger is still down: it can drag right away
+  }
+  function exitReorder() {
+    if (!reorderOn) return;
+    reorderOn = false; R.classList.remove('reorder');
+    if (rdrag) rdragEnd(false);
+  }
+  function rdragStart(b, e) {
+    if (rdrag || b.ptr != null) return;
+    b.ptr = e.pointerId; rdrag = { b, ptr: e.pointerId, x0: e.clientX, y0: e.clientY, to: null };
+    pointers.set(e.pointerId, { id: e.pointerId, role: 'rdrag', b });
+    b.el.classList.add('rdrag');
+    try { b.el.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+  }
+  const btnCentre = (b) => { const r = b.el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+  function rdragMove(e) {
+    const d = rdrag; if (!d) return;
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    d.b.el.style.transform = `translate(${dx}px, ${dy}px) scale(1.12)`;
+    const home = btnCentre(d.b);                                                        // already includes the drag translate
+    const others = abBtns.filter((x) => x !== d.b), c = others.map(btnCentre);
+    const i = nearestIndex(c, home.x, home.y, SZ.ab * K * 0.75);
+    const to = i >= 0 ? others[i] : null;
+    if (to !== d.to) { if (d.to) d.to.el.classList.remove('rdrop'); if (to) to.el.classList.add('rdrop'); d.to = to; }
+  }
+  function rdragEnd(commit) {
+    const d = rdrag; if (!d) return;
+    rdrag = null; pointers.delete(d.ptr); d.b.ptr = null;
+    d.b.el.style.transform = ''; d.b.el.classList.remove('rdrag');
+    try { d.b.el.releasePointerCapture(d.ptr); } catch { /* */ }
+    if (d.to) d.to.el.classList.remove('rdrop');
+    if (commit && d.to) {
+      wheelOrder = swapOrder(wheelOrder, wheelOrder.indexOf(d.b.slot), wheelOrder.indexOf(d.to.slot));
+      saveWheelOrder(store(), wheelHero, wheelOrder);
+      applyWheelOrder(); flash(d.b.el); flash(d.to.el);
+    }
+  }
+  function applyWheelOrder() {
+    const slots = arcLayout(abBtns.length);
+    for (const b of abBtns) { b.polar = slots[wheelOrder.indexOf(b.slot)]; b.el.classList.remove('ring0', 'ring1'); b.el.classList.add('ring' + b.polar.ring); }
+    layout();
+  }
+
   // ---- world gestures (pan / pinch / tap)
   const pointers = new Map();     // pointerId -> { id, role:'joy'|'pan'|'pinch'|'dead'|'btn'|'atk', x0,y0,x,y,t0,moved }
   let pinch = null;
@@ -638,7 +880,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = canvas.getBoundingClientRect();
     const p = { id: e.pointerId, role: 'pan', x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: now(), moved: false };
-    if (aim) p.aimPan = true;                                           // left hand during a hold: pan the camera (no joystick, no taps)
+    if (aim || (atkS && atkS.aiming)) p.aimPan = true;                                           // left hand during a hold: pan the camera (no joystick, no taps)
     else if (!isSpec() && !joy && e.clientX < rect.left + rect.width * T.ZONE && e.clientY > topLimit()) { p.role = 'joy'; startJoy(p, rect); }
     pointers.set(e.pointerId, p);
     const pans = [...pointers.values()].filter((q) => q.role === 'pan' || q.role === 'pinch');
@@ -660,7 +902,9 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     p.x = e.clientX; p.y = e.clientY;
     if (Math.hypot(p.x - p.x0, p.y - p.y0) > T.TAP_MOVE) p.moved = true;
     if (p.role === 'btn') { aimMove(e); return; }
-    if (p.role === 'tip') { if (Math.hypot(p.x - p.x0, p.y - p.y0) > T.TAP_MOVE) clearLong(); return; }
+    if (p.role === 'atk') { atkMove(e); return; }
+    if (p.role === 'rdrag') { rdragMove(e); return; }
+    if (p.role === 'tip') { if (Math.hypot(p.x - p.x0, p.y - p.y0) > T.TAP_MOVE) { clearLong(); clearReorderTimer(); } return; }
     if (p.role === 'joy') { moveJoy(p); return; }
     if (p.role === 'pan') {
       if (!p.panning && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) { p.panning = true; if (locked) setLocked(false); panBy(p.x - p.x0, p.y - p.y0); return; }
@@ -677,8 +921,14 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     pointers.delete(e.pointerId);
     const cancelled = e.type === 'pointercancel';
     if (p.role === 'btn') { endAim(!cancelled); return; }
-    if (p.role === 'tip') { clearLong(); if (p.b.ptr === p.id) p.b.ptr = null; return; }
-    if (p.role === 'atk') { atkHeld = null; atk.classList.remove('down'); return; }
+    if (p.role === 'tip') {
+      clearLong(); clearReorderTimer(); p.b.el.classList.remove('down');
+      if (p.b.ptr === p.id) p.b.ptr = null;
+      if (p.cast && !cancelled && !reorderOn) issueCast(p.b, null);
+      return;
+    }
+    if (p.role === 'rdrag') { rdragEnd(!cancelled); return; }
+    if (p.role === 'atk') { atkHeld = null; atk.classList.remove('down'); endAtk(!cancelled); return; }
     if (p.role === 'joy') {
       const quick = now() - p.t0 < T.TAP_MS && !p.moved;
       endJoy();
@@ -700,8 +950,12 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     atkHeld = e.pointerId; atkNext = now() + 450; atk.classList.add('down');
     pointers.set(e.pointerId, { id: e.pointerId, role: 'atk' });
     try { atk.setPointerCapture(e.pointerId); } catch { /* */ }
-    doAttack();
+    const r = atk.getBoundingClientRect();
+    atkS = { ptr: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, dx: 0, dy: 0, fired: false, aiming: false, inCancel: false, unitId: '', point: null, mag: 0, tg: null, reach: 0, timer: 0 };
+    // a tap attacks on release; a press that stays put attacks after ATK_HOLD_MS and keeps auto-attacking; a drag turns it into aim mode first
+    atkS.timer = setTimeout(() => { const s = atkS; if (!s || s.aiming || s.fired) return; s.fired = true; atkNext = now() + 450; doAttack(); }, T.ATK_HOLD_MS);
   }
+  const lhDown = (e) => { if (turnShown) return; e.preventDefault(); if (!isSpec()) lastHit(); };
   const lockDown = (e) => { if (turnShown) return; e.preventDefault(); if (!isSpec()) cycleLock(); };
   let sbOpen = false;
   const setSb = (v) => { sbOpen = !!v; if (H.setScoreboard) H.setScoreboard(sbOpen); bScore.classList.toggle('on', sbOpen); };
@@ -729,12 +983,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   }
   function cancelAll() {
     if (aim) endAim(false);
+    exitReorder(); clearReorderTimer(); endAtk(false);
     endJoy(); atkHeld = null; atk.classList.remove('down');
     pointers.clear(); pinch = null;
     clearRange(); clearLong(); hideTip();
   }
   // ---- frame
-  let raf = 0;
+  let raf = 0, fc = 0;
   function frame(t) {
     raf = requestAnimationFrame(frame);
     if (!enabled || !state()) return;
@@ -742,11 +997,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const u = heroU();
     updateButtons(u);
     if (turnShown) return;
-    if (locked && u && !isSpec()) renderer.setTarget(u.x, u.y);
+    if (locked && u && !isSpec()) { const p = heroPos(u); renderer.setTarget(p.x, p.y); }
+    if ((fc = (fc + 1) % 45) === 0) updateInset(false);
     checkLock(u);
     if (aim) updateAim();
+    if (atkS && atkS.aiming) updateAtkAim();
     joyTick(t);
-    if (atkHeld != null && t > atkNext) { atkNext = t + 450; doAttack(); }
+    if (atkHeld != null && atkS && atkS.fired && !atkS.aiming && t > atkNext) { atkNext = t + 450; doAttack(); }
   }
 
   // ---- enable / destroy
@@ -754,16 +1011,20 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (enabled || destroyed) return;
     enabled = true;
     if (bootTouch) { removeEventListener('pointerdown', bootTouch, true); bootTouch = null; }
-    injectTouchStyle();
+    injectTouchStyle(); injectTouchStyle2();
     document.documentElement.classList.add('p2d-touch');
     root.append(turn); R.style.display = '';
     layout(); attachTop();
     on(canvas, 'pointerdown', canvasDown);
     on(atk, 'pointerdown', attackDown);
     on(lockBtn, 'pointerdown', lockDown);
+    on(lhBtn, 'pointerdown', lhDown);
     for (const b of itBtns) on(b.el, 'pointerdown', (e) => btnDown(b, e));
     anchor.addEventListener('pointerdown', (e) => { const el = e.target.closest && e.target.closest('.t-ab'); const b = el && abBtns.find((x) => x.el === el); if (b) btnDown(b, e); });
-    on(window, 'pointerdown', () => { if (tipEl && !tipEl.classList.contains('t-compact')) hideTip(); }, true);
+    on(window, 'pointerdown', (e) => {
+      if (reorderOn && !(e.target && e.target.closest && e.target.closest('.t-ab'))) { exitReorder(); e.stopPropagation(); e.preventDefault(); return; }   // DONE / any tap outside the wheel
+      if (tipEl && !tipEl.classList.contains('t-compact')) hideTip();
+    }, true);
     on(window, 'pointermove', onMove);
     on(window, 'pointerup', onUp);
     on(window, 'pointercancel', onUp);
@@ -776,7 +1037,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     on(root, 'contextmenu', (e) => e.preventDefault());
     on(window, 'dragstart', (e) => e.preventDefault());
     if (input && input.setTouchMode) input.setTouchMode(true);
-    if (renderer.setCameraFar) renderer.setCameraFar(T.ZOOM_FAR, T.ZOOM_START);   // touch camera: starts at 1300, pinch out to 1450
+    if (renderer.setCameraFar) renderer.setCameraFar(T.ZOOM_FAR, T.ZOOM_START);   // touch camera: starts at the furthest distance 1450, pinch in only
     checkOrientation();
     raf = requestAnimationFrame(frame);
   }
@@ -803,6 +1064,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
         subs.length = 0;
         if (input && input.setTouchMode) input.setTouchMode(false);
         document.documentElement.classList.remove('p2d-touch', 'p2d-narrow');
+        if (renderer.setViewInset) renderer.setViewInset({ top: 0, bottom: 0 });
         document.documentElement.style.removeProperty('--p2d-u'); document.documentElement.style.removeProperty('--k'); document.documentElement.style.removeProperty('--bk');
       }
       R.remove(); turn.remove(); clearTimeout(rangeTimer);
