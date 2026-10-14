@@ -62,7 +62,7 @@ function buildBarracks(k) {
   k.box(236, 86, 168, S(ST, { y: 22 }));                                 // walls
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box(30, 104, 30, S(SD, { x: sx * 118, z: sz * 84, y: 22 }));   // corner pillars
   k.box(246, 10, 178, S(TR, { y: 96 }));                                 // team band
-  k.cone(100, 78, 4, S(RF, { y: 108, ry: Math.PI / 4, sx: 1.98, sz: 1.42 }));   // hip roof
+  k.cone(100, 78, 4, S(RF, { y: 108, t0: Math.PI / 4, sx: 1.98, sz: 1.42 }));   // hip roof
   k.box(250, 6, 182, S(IR, { y: 106 }));                                 // eaves
   k.box(40, 58, 8, S(WD, { z: 86, y: 22 }));                             // door
   k.box(50, 8, 12, S(GD, { z: 88, y: 80 }));                             // lintel
@@ -138,7 +138,7 @@ function buildFiller(k) {
   k.box(144, 24, 124, S(SD, { y: -14 }));
   k.box(128, 72, 108, S(ST, { y: 2 }));                                  // walls
   k.box(134, 8, 114, S(TR, { y: 52 }));                                  // band
-  k.cone(72, 56, 4, S(RF, { y: 74, ry: Math.PI / 4, sx: 1.6, sz: 1.34 }));   // roof
+  k.cone(72, 56, 4, S(RF, { y: 74, t0: Math.PI / 4, sx: 1.6, sz: 1.34 }));   // roof
   k.box(26, 42, 6, S(WD, { y: 2, z: 56 }));                              // door
   for (const x of [-40, 40]) k.box(20, 20, 6, E(WIN, { x, y: 38, z: 56 }));
   k.box(6, 20, 20, E(WIN, { x: 64, y: 38, z: 10 }));

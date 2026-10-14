@@ -46,8 +46,9 @@ export function createKit(vs = 1) {   // vs: vertical exaggeration (the 60 deg c
     box(w, h, d, o = {}) { add(new THREE.BoxGeometry(w, h, d), { ...o, y: (o.y || 0) + (o.ctr ? 0 : h / 2) }); },
     /** cylinder (rTop, rBottom, height, sides). Default yaw puts flat faces on the axes. */
     cyl(rt, rb, h, seg, o = {}, open = false) { add(new THREE.CylinderGeometry(rt, rb, h, seg, 1, open), { ry: Math.PI / seg, ...o, y: (o.y || 0) + (o.ctr ? 0 : h / 2) }); },
-    /** open-bottom cone / pyramid (seg 4 = pyramid; scale it with sx / sz for a rectangular roof) */
-    cone(r, h, seg, o = {}) { add(new THREE.CylinderGeometry(0, r, h, seg, 1, true), { ...o, y: (o.y || 0) + (o.ctr ? 0 : h / 2) }); },
+    /** open-bottom cone / pyramid (seg 4 = pyramid; scale it with sx / sz for a rectangular roof: o.t0 = PI/4 puts the corners on the diagonals
+     *  BEFORE the scale, so the roof stays a rectangle; a yaw ry would be applied after the scale and shear it into a rhombus) */
+    cone(r, h, seg, o = {}) { add(new THREE.CylinderGeometry(0, r, h, seg, 1, true, o.t0 || 0), { ...o, y: (o.y || 0) + (o.ctr ? 0 : h / 2) }); },
     /** octahedron crystal, centred at o.y, radii rx / ry / rz */
     oct(rx, ry, rz, o = {}) { add(new THREE.OctahedronGeometry(1, 0), { ...o, sx: rx, sy: ry, sz: rz }); },
     /** icosahedron blob, centred at o.y */
