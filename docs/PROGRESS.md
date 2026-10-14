@@ -4,7 +4,8 @@
 - [x] Art: hero sheets, world sprites, ability/item icons, fx stamps
 - [x] Custom lobby: create (4-letter code), list open lobbies, join by code, Radiant/Dire 5 slots, hero pick (unique), host adds/fills bots, host starts
 - [x] Match on the real Dota map: 3 lanes, creep waves, 22 towers, 12 barracks, 2 ancients, fountains (heal + attack), shop at fountain
-- [x] 10 heroes playable incl. full Invoker (orbs, invoke, 10 spells); other 9 with 4 abilities each
+- [x] 13 heroes playable incl. full Invoker (orbs, invoke, 10 spells); others with 4 abilities each (Pudge, Mirana, Rubick added in v3; Rubick Spell Steal incl. Invoker spells)
+- [x] Neutral camps (28, 4 tiers), Roshan + Aegis, observer/sentry wards
 - [x] ~38 items: buy/sell/recipes, stats, actives
 - [x] XP, levels, skill points, gold (passive, last hits, kills), deaths, respawn
 - [x] Bots fill empty slots (laning, fighting, retreating, buying)
@@ -14,7 +15,7 @@
 - [x] Spell VFX: GPU particle fx for all 10 heroes, items, projectiles, status visuals
 - [x] Fog of war (client), minimap, HUD (portrait, hp/mana, abilities, items, gold, stats), shop UI, scoreboard, kill feed, chat
 - [x] Network play verified with 2 browser clients (one per team + 8 bots; moves, casts, shop; other player's spell FX received and rendered; live win/defeat screens and Return to lobby)
-- [x] Tests: `npm test` green (100)
+- [x] Tests: `npm test` green (142)
 
 ## Measured
 
@@ -25,8 +26,9 @@
 
 - Bot-only matches are slow (~45-50 min); bots push buildings timidly
 - Invoker bot levels slowly
-- Art v2 awaiting creative-director verdict (docs/ART-DIRECTION.md; shots docs/shots/v2-final-*.jpg)
-- Art v2 leftovers: ramp/stair tiles still old striped art; no directional beam cones; water bokeh is glints not discs
+- Art v2 approved by the creative director. v3 landed (verdicts pending): base ambiance, key-light + spell-light shadows, map-wide 3D clutter, 3D VFX pilot (Sun Strike, Laguna Blade, Freezing Field), 8-dir 2x sprite pilot (Lina)
+- v3 next (after verdicts): 8-dir 2x sprites for the other 12 heroes (spec in tools/art/heroes/lina.mjs); remaining ~37 spells to 3D fx; richer spell icons; unit sprites casting shadows
+- Pudge / Mirana / Rubick use stand-in bodies (BODY_STANDIN in render/actors.js) and have no portraits yet
 - Fog of war quite dark
 - Lobby footer below the fold on short screens
 - Scoreboard overlap at HUD scale 2
