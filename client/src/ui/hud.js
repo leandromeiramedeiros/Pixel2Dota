@@ -324,6 +324,13 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const info = targeting.info || {};
     if (info.range > 0) circle(hero.x, hero.y, info.range, 'rgba(255,226,122,.85)', null);
     if (info.radius > 0 && aim) circle(aim.x, aim.y, info.radius, 'rgba(255,255,255,.9)', 'rgba(255,200,80,.12)');
+    if (targeting.line && aim) {            // touch rangefinder: hero -> aim line (clamped to range) with an end marker
+      const dx = aim.x - hero.x, dy = aim.y - hero.y, d = Math.hypot(dx, dy) || 1, m = info.range > 0 ? Math.min(1, info.range / d) : 1;
+      const a = renderer.worldToScreen(hero.x, hero.y), b = renderer.worldToScreen(hero.x + dx * m, hero.y + dy * m);
+      ringCtx.beginPath(); ringCtx.moveTo(a.x, a.y); ringCtx.lineTo(b.x, b.y);
+      ringCtx.strokeStyle = 'rgba(120,235,255,.95)'; ringCtx.lineWidth = 3; ringCtx.stroke();
+      ringCtx.beginPath(); ringCtx.arc(b.x, b.y, 5, 0, Math.PI * 2); ringCtx.fillStyle = 'rgba(120,235,255,.9)'; ringCtx.fill();
+    }
   }
 
   // ---- selection card update

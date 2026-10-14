@@ -23,7 +23,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   const call = (name, ...a) => (H[name] ? H[name](...a) : undefined);
 
   let mode = null;                // { kind:'ability'|'item'|'amove', slot, info, name }
-  let camLock = false, quickCast = false;
+  let camLock = false, quickCast = false, touchMode = false;
   let mouse = { x: 0, y: 0, in: false, overCanvas: false };
   const held = new Set();
   let midDrag = null, rightHeld = false, lastMoveAt = 0, hoverId = null, pickDirty = true;
@@ -221,7 +221,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     const vh = (rig && rig.visibleHeight) || 1190;
     let vx = 0, vy = 0;
     for (const k of held) { vx += ARROWS[k][0]; vy += ARROWS[k][1]; }
-    if (mouse.in && mouse.overCanvas && !midDrag) {
+    if (mouse.in && mouse.overCanvas && !midDrag && !touchMode) {
       const r = rect();
       if (mouse.x <= r.left + EDGE) vx -= 1; else if (mouse.x >= r.right - EDGE) vx += 1;
       if (mouse.y <= r.top + EDGE) vy += 1; else if (mouse.y >= r.bottom - EDGE) vy -= 1;
@@ -262,6 +262,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   addEventListener('blur', onBlur);
 
   return {
+    setTouchMode(v) { touchMode = !!v; },
     setQuickCast(v) { quickCast = !!v; },
     get quickCast() { return quickCast; },
     get camLock() { return camLock; },

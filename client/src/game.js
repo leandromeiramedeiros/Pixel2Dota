@@ -4,6 +4,7 @@ import { loadSheets } from './art/atlas.js';
 import { createRenderer } from './render/index.js';
 import { createHud } from './ui/hud.js';
 import { createInput } from './input.js';
+import { createTouch } from './ui/touch.js';
 import { MSG, TEAM } from '@p2d/shared/protocol.js';
 
 export async function startGame({ root, net }) {
@@ -21,6 +22,8 @@ export async function startGame({ root, net }) {
   const hud = createHud(hudRoot, { send, renderer, sheets });
   const getState = () => net.state;
   const input = createInput({ canvas, renderer, send, hud, getState, mySid: net.mySid });
+
+  const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: net.mySid, send });
 
   const resize = () => renderer.resize(root.clientWidth, root.clientHeight);
   addEventListener('resize', resize);
@@ -56,7 +59,7 @@ export async function startGame({ root, net }) {
       cancelAnimationFrame(raf);
       removeEventListener('resize', resize);
       offFx?.();
-      input.destroy(); hud.destroy();
+      touch.destroy(); input.destroy(); hud.destroy();
       root.innerHTML = '';
     },
     chat: (text) => send(MSG.CHAT, { text }),
