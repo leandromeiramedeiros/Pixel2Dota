@@ -55,7 +55,7 @@ export function createRenderer({ canvas, sheets }) {
   const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
-  for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters()]) shadow.addCaster(c.mesh, c.mat);
+  for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
   const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d });
 
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;

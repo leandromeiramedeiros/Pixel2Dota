@@ -43,6 +43,39 @@ void main(){
   gl_Position = vec4(ndc * fp.w, fc.z / fc.w * fp.w, fp.w);
 }`;
 
+// Shadow-caster variant: the same instances as vertical cards standing at the foot, turned to face the light of the pass (uSL: sun
+// direction or spell-light position), alpha-tested against the atlas, so units throw their real silhouette onto terrain and buildings.
+const SPRITE_DEPTH_VERT = /* glsl */ `
+uniform vec4 uSL;
+attribute vec2 corner;
+attribute vec3 iPos;
+attribute vec4 iRect, iSize, iMisc;
+attribute float iDens;
+varying vec2 vTx;
+varying vec4 vRect, vSize, vMisc;
+void main(){
+  vec3 tl = uSL.w > .5 ? uSL.xyz - iPos : uSL.xyz;
+  vec2 h = tl.xz; h = dot(h, h) > 1e-6 ? normalize(h) : vec2(0., 1.);
+  vec3 right = vec3(-h.y, 0., h.x);
+  vec2 local = corner * iSize.xy;
+  float wpp = 6. * iMisc.w / iDens;
+  vec3 w = iPos + right * ((local.x - iSize.z - .5) * wpp) + vec3(0., 1., 0.) * ((iSize.w + .5 - local.y) * wpp * .85) + vec3(h.x, 0., h.y) * 4.;
+  vTx = local; vRect = iRect; vSize = iSize; vMisc = iMisc;
+  gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.);
+}`;
+const SPRITE_DEPTH_FRAG = /* glsl */ `
+precision highp float;
+uniform sampler2D tAtlas;
+varying vec2 vTx;
+varying vec4 vRect, vSize, vMisc;
+void main(){
+  if (vMisc.w < .3 || vMisc.x < .5) discard;                       // tiny props / fading units do not cast
+  vec2 ip = floor(vTx);
+  vec4 c = texture2D(tAtlas, vec2(mix(vRect.x, vRect.z, (ip.x + .5) / vSize.x), mix(vRect.y, vRect.w, (ip.y + .5) / vSize.y)));
+  if (c.a < .5) discard;
+  gl_FragColor = vec4(1.);
+}`;
+
 const SPRITE_FRAG = /* glsl */ `
 precision highp float;
 ${COMMON_GLSL}
@@ -78,6 +111,7 @@ void main(){
     discard;
   }
   vec3 n = normalize(vec3(0., .55, .83));
+  gPSh = 0.;
   vec3 L = uAmb + uKeyCol * .55 + pointLights(vWorld + n * 8., n, .65);
   L = quantL(L, ip);
   vec3 alb = c.rgb * vTint.rgb;
@@ -96,9 +130,8 @@ void main(){
       if (i >= uLN) break;
       vec3 d = uLP[i].xyz - vWorld;
       float dist = length(d);
-      float a = 1. - dist / (uLP[i].w * 1.15);
+      float a = lightFall(dist, uLP[i].w * 1.15, uLC[i].w);
       if (a <= 0.) continue;
-      a *= a;
       vec2 pd = vec2(dot(d, uCamRight), dot(d, uCamUp));
       sd += normalize(pd + 1e-3) * a * dot(uLC[i].rgb, vec3(.33));
       sc += uLC[i].rgb * a;
@@ -182,6 +215,7 @@ export function createSprites({ scene, uniforms, atlas }) {
     uniforms: { ...uniforms, tAtlas: { value: atlas.texture }, tEmit: { value: atlas.emitTexture }, uRimOn: { value: 1 } },
   });
   const sprites = new THREE.Mesh(S.geo, matS); sprites.frustumCulled = false; sprites.renderOrder = 10; sprites.name = 'sprites';
+  const depthMat = new THREE.ShaderMaterial({ vertexShader: SPRITE_DEPTH_VERT, fragmentShader: SPRITE_DEPTH_FRAG, side: THREE.DoubleSide, uniforms: { uSL: uniforms.uSL, tAtlas: { value: atlas.texture } } });
 
   const D = quadGeo(MAX_DECALS, [['iPos', 3], ['iRad', 4], ['iCol', 4], ['iH', 4]]);
   const matD = new THREE.ShaderMaterial({
@@ -195,6 +229,8 @@ export function createSprites({ scene, uniforms, atlas }) {
   const sd = S.data, dd = D.data;
   return {
     sprites, decals, matS,
+    /** shadow caster (shadow.addCaster) */
+    caster: { mesh: sprites, mat: depthMat },
     begin() { ns = 0; nd = 0; },
     /** Push one sprite. f = atlas frame. Returns false when full. */
     sprite(x, y, z, f, o) {
@@ -229,6 +265,6 @@ export function createSprites({ scene, uniforms, atlas }) {
     end() { S.geo.instanceCount = ns; S.buf.needsUpdate = true; D.geo.instanceCount = nd; D.buf.needsUpdate = true; },
     get count() { return ns; }, get decalCount() { return nd; },
     setRim(on) { matS.uniforms.uRimOn.value = on ? 1 : 0; },
-    dispose() { S.geo.dispose(); D.geo.dispose(); matS.dispose(); matD.dispose(); },
+    dispose() { S.geo.dispose(); D.geo.dispose(); matS.dispose(); matD.dispose(); depthMat.dispose(); },
   };
 }

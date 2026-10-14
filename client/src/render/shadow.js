@@ -2,6 +2,7 @@
 // trees) render a depth-only material variant into it (layer 1); receivers call shadowAt() from COMMON_GLSL (shaderlib.js), which
 // only attenuates the key light term - ambient, point lights and emissives are untouched, so shadows never re-grade the frame.
 import * as THREE from 'three';
+import { SPELL_REACH } from './shaderlib.js';
 
 export const SHADOW_LAYER = 1;
 
@@ -61,6 +62,7 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
       cam.position.copy(C).addScaledVector(L, 4000); cam.lookAt(C); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
       uniforms.uShadowM.value.multiplyMatrices(BIAS, cam.projectionMatrix).multiply(cam.matrixWorldInverse);
       uniforms.uShadowP.value.set(1 / size, strength, 0.0009, 1);
+      uniforms.uSL.value.set(L.x, L.y, L.z, 0);
       state.half = half;
 
       for (const c of casters) swap(c.mesh, c.mat);
@@ -77,8 +79,9 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
     renderPoint(scene, l) {
       if (!l || !state.enabled) { uniforms.uPSIdx.value = -1; return; }
       const t0 = performance.now();
-      const far = Math.max(60, l.radius);
+      const far = Math.max(60, l.radius * SPELL_REACH);   // spell lights reach farther on surfaces (shaderlib lightFall)
       LP.set(l.x, l.z, -l.y);
+      uniforms.uSL.value.set(LP.x, LP.y, LP.z, 1);
       for (const c of casters) swap(c.mesh, c.mat);
       for (const g of groups) for (const m of g.group.children) swap(m, g.mat);
       const prev = gl.getRenderTarget();

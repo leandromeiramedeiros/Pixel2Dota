@@ -1,6 +1,6 @@
 // Per-frame point lights: add() during the frame, finalize() sorts by contribution, caps at 32 and writes the shared uniforms.
 // Public API (also handed to fx): add({x,y,z,r,g,b,radius,intensity,flicker}) in WORLD coords (x east, y north, z up).
-import { MAX_LIGHTS } from './shaderlib.js';
+import { MAX_LIGHTS, SPELL_GAIN } from './shaderlib.js';
 import { createBeams } from './beams.js';
 
 export const CAP = MAX_LIGHTS;
@@ -43,7 +43,7 @@ export function createLights(uniforms, scene) {
           f = 1 - l.flicker * (0.5 + 0.5 * Math.sin(t * 17.3 + ph) * Math.sin(t * 7.1 + ph * 2.3));
         }
         P[i * 4] = l.x; P[i * 4 + 1] = l.z; P[i * 4 + 2] = -l.y; P[i * 4 + 3] = l.radius;
-        C[i * 4] = l.r * l.intensity * f; C[i * 4 + 1] = l.g * l.intensity * f; C[i * 4 + 2] = l.b * l.intensity * f; C[i * 4 + 3] = 1;
+        C[i * 4] = l.r * l.intensity * f; C[i * 4 + 1] = l.g * l.intensity * f; C[i * 4 + 2] = l.b * l.intensity * f; C[i * 4 + 3] = l.cast ? 1 + SPELL_GAIN : 1;   // .w: falloff kind + surface gain (shaderlib lightFall)
       }
       n = sel.length; uniforms.uLN.value = n;
       // the strongest casting (spell) light gets the cube shadow; sticky to last frame's light so bursts do not flip it every frame

@@ -245,7 +245,7 @@ window.__bench = (n = 60) => {
   return { frames: n, cpuMsPerFrame: +(cpu / n).toFixed(2), wallMsPerFrame: +wall.toFixed(2), fps: +(1000 / wall).toFixed(1), rt: r.stats.rt, sprites: r.stats.sprites, lights: r.stats.lights, tris: r.stats.tris, spawned: r.stats.spawned };
 };
 window.__pause = false;
-window.__units = units; window.__view = view; window.__demo = { fireball, iceRing, lightning, sunStrike };
+window.__r = r; window.__units = units; window.__view = view; window.__demo = { fireball, iceRing, lightning, sunStrike };
 
 function frame(now) {
   requestAnimationFrame(frame);

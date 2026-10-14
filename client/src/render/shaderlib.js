@@ -3,6 +3,12 @@ import * as THREE from 'three';
 
 export const MAX_LIGHTS = 32;
 export const LIGHT_LEVELS = 9;    // quantisation steps per 1.0 of light (trainer: 9-level Bayer)
+/** Spell lights (lights.js `cast`) light surfaces this much farther than their authored radius, with a broad (1 - x^2)^2 falloff instead
+ *  of the lantern (1 - x)^2, so a blast lights and shadows the towers and units around it. Surface lighting only: glints / bokeh in
+ *  post.js still use the authored radius and colour, so the effect itself does not get bigger or brighter. */
+export const SPELL_REACH = 1.5;
+export let SPELL_GAIN = 2;
+export function setSpellGain(g) { SPELL_GAIN = g; }
 
 export function createSharedUniforms() {
   const fogTex = new THREE.DataTexture(new Uint8Array([255, 255, 0, 0]), 1, 1, THREE.RGFormat, THREE.UnsignedByteType);
@@ -35,6 +41,7 @@ export function createSharedUniforms() {
     uPSMap: { value: null },                                                // spell-light cube shadow, 3x2 face atlas (shadow.js renderPoint)
     uPSM: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Matrix4()) },     // per face: world -> atlas uv (xy / w)
     uPSIdx: { value: -1 },                                                  // index into uLP of the shadow-casting light, -1 = none
+    uSL: { value: new THREE.Vector4(0, 1, 0, 0) },                         // light of the shadow pass being drawn: xyz = dir toward it (w 0) or its position (w 1)
     uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },                     // near, far, bias (world units), fade weight
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
@@ -120,18 +127,23 @@ float pointShadow(vec3 p, vec3 lp){
 }
 
 // sum of point lights at world point p with surface normal n; soft = how much of each light ignores the normal
+// distance falloff of light i: w = uLC[i].w (1 = lantern; 1 + gain = spell light, see SPELL_REACH)
+float lightFall(float dist, float R, float w){
+  if (w > 1.5) { float x = dist / (R * ${SPELL_REACH.toFixed(2)}); if (x >= 1.) return 0.; float q = 1. - x * x; return q * q * (w - 1.); }
+  float a = 1. - dist / R; return a > 0. ? a * a : 0.;
+}
+float gPSh = 1.;   // receivers that also cast as billboards (sprites) set 0: their own light-facing card would self-shadow them
 vec3 pointLights(vec3 p, vec3 n, float soft){
   vec3 acc = vec3(0.);
   for (int i = 0; i < ${MAX_LIGHTS}; i++){
     if (i >= uLN) break;
     vec3 d = uLP[i].xyz - p;
     float dist = length(d);
-    float a = 1. - dist / uLP[i].w;
+    float a = lightFall(dist, uLP[i].w, uLC[i].w);
     if (a <= 0.) continue;
-    a *= a;
-    if (i == uPSIdx) a *= mix(1., mix(.15, 1., pointShadow(p, uLP[i].xyz)), uPSP.w);
+    if (i == uPSIdx && gPSh > .5) a *= mix(1., mix(.03, 1., pointShadow(p, uLP[i].xyz)), uPSP.w);
     float ndl = max(dot(n, d / max(dist, 1.)), 0.);
-    acc += uLC[i].rgb * (a * mix(ndl, 1., soft));
+    acc += uLC[i].rgb * (a * mix(ndl, 1., uLC[i].w > 1.5 ? max(soft, .7) : soft));   // spell lights stay strong at grazing angles
   }
   return acc;
 }
