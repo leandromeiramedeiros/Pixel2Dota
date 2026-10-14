@@ -83,7 +83,8 @@ export function makeHero(w, o) {
   const keys = roster ? roster.abilities : d.abilities;
   u.abilities = keys.map((key) => {
     const ad = w.data.abilities[key];
-    return { key, level: 0, cd: 0, cdMax: 0, mana: 0, flags: abilityFlags(ad) };
+    const innate = !!ad && (ad.behavior || []).includes('PASSIVE') && (ad.behavior || []).includes('HIDDEN') && ad.maxLevel === 1;
+    return { key, level: innate ? 1 : 0, cd: 0, cdMax: 0, mana: 0, flags: abilityFlags(ad) };
   });
   for (let i = 0; i < INV_SLOTS; i++) u.items.push({ key: '', charges: 0, cd: 0, cdMax: 0 });
   u.skillPoints = 1;
