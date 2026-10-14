@@ -168,3 +168,7 @@ Commits from the last session:
 1. Update `docs/PROGRESS.md`: check off what's done and refresh the next items.
 2. Push.
 3. Send the user a short list of what changed, with screenshots of anything visual, plus the open questions.
+
+### Note from the local session (2026-10-14)
+- `c.ringDecal` (fx/common.js) now draws a geo3d TARGET disc plus a coloured ground light instead of the stretched `decal_ring_target` sprite (the director called it blocky). Every call site keeps its signature; `grow` is now a radius multiplier; `light: false` skips the light. Don't reintroduce `decal_ring_target` at large scales.
+- geo3d `outCol` and beams.js no longer use the Bayer ordered dither (it read as a fine white grid). Use stepped bands instead.
