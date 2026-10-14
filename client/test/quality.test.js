@@ -18,6 +18,7 @@ test('presets: low is a potato (no shadows/ambient/clutter/dof/ssr/rays/wind, fe
   const lo = presetSettings('low');
   assert.equal(lo.shadows, false); assert.equal(lo.shadowPoints, 0); assert.equal(lo.ambient, 0); assert.equal(lo.clutter, 0); assert.ok(lo.particles <= 0.5);
   assert.equal(lo.dof, false); assert.equal(lo.ssr, false); assert.equal(lo.rays, false); assert.equal(lo.wind, 0); assert.ok(lo.bloomLevels < DEFAULTS.bloomLevels);
+assert.equal(lo.atmos, 0); assert.equal(presetSettings("medium").atmos, 1); assert.equal(presetSettings("high").atmos, 2);
   assert.ok(lo.maxLights < DEFAULTS.maxLights);
   const keys = Object.keys(PRESETS.high).sort();
   for (const l of LEVELS) {

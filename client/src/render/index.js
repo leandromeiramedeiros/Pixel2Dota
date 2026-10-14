@@ -30,7 +30,7 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
   shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off)
-  wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5,   // wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
+  wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5, atmos: 2,   // atmos: showcase sky/mist/cloud tier 0|1|2; wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
   maxLights: 32, shadowPoints: 10,   // light pool size (lights.js) / spell lights with a cube shadow (shadow.js)
 };
 
@@ -231,7 +231,7 @@ export function createRenderer({ canvas, sheets }) {
     if (view.myTeam != null) myTeam = view.myTeam;
     uniforms.uTime.value = time;
     rig.update(dt);
-    post.state.dofStrength = dofForDistance(rig.distance); post.state.sky = showcaseK(rig.distance);   // sky + rolling distance fog fade in with the same factor   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
+    post.state.dofStrength = dofForDistance(rig.distance); post.state.sky = showcaseK(rig.distance); post.state.focus = rig.distance;   // sky + rolling distance fog fade in with the same factor   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
     fitRT(false);
     setNight(view.night, dt);
     const cam = rig.camera;
@@ -328,6 +328,7 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'dof') post.state.dof = !!value;
       if (name === 'ssr') post.state.ssr = !!value;
       if (name === 'rays') post.state.rays = !!value;
+      if (name === 'atmos') post.state.atmos = +value || 0;
       if (name === 'bloomLevels') post.state.bloomLevels = value | 0;
       if (name === 'maxLights') lights.setMax(value);
       if (name === 'shadowPoints') lights.setMaxShadow(value);
