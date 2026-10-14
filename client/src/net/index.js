@@ -76,7 +76,7 @@ export function createNet(endpoint) {
   const fxCbs = new Set(), changeCbs = new Set(), leaveCbs = new Set();
   const recs = new Map();                 // unit id -> sample ring
   const views = new Map();                // unit id -> reused UnitView
-  const unitList = [];
+  const unitList = [], visList = [];
   const trees = new Set();
   let treeSig = '';
   let stamp = 0;
@@ -181,15 +181,16 @@ export function createNet(endpoint) {
     }
   }
 
-  const out = { time: 0, night: false, myTeam: -1, myHeroId: '', treesDown: trees, units: unitList };
+  const out = { time: 0, night: false, myTeam: -1, myHeroId: '', treesDown: trees, units: unitList, vision: visList };
 
   // Interpolated frame. Returned object and UnitViews are reused: do not keep references across frames.
   function view(nowMs) {
     const st = net.state;
     out.time = st ? st.time : 0;
     out.night = st ? !!st.night : false;
-    unitList.length = 0;
+    unitList.length = 0; visList.length = 0;
     if (!st || !st.units) return out;
+    if (st.vision) st.vision.forEach((v) => visList.push(v));   // temporary team vision (Sun Strike, Arrow...): {team, x, y, r}, fog filters by team
     const rt = (nowMs == null ? performance.now() : nowMs) - clock.delay();
     st.units.forEach((u, id) => {
       const r = recs.get(id);

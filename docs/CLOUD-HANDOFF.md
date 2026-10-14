@@ -174,3 +174,4 @@ Commits from the last session:
 ### Note from the local session (2026-10-14)
 - `c.ringDecal` (fx/common.js) now draws a geo3d TARGET disc plus a coloured ground light instead of the stretched `decal_ring_target` sprite (the director called it blocky). Every call site keeps its signature; `grow` is now a radius multiplier; `light: false` skips the light. Don't reintroduce `decal_ring_target` at large scales.
 - geo3d `outCol` and beams.js no longer use the Bayer ordered dither (it read as a fine white grid). Use stepped bands instead.
+- Sprites now sort by the true height of each pixel above the foot (an upright card, `sprites.js` SPRITE_VERT), so orbs, 3D fx, lights and meshes occlude units consistently. Ground fx must be geo3d discs/quads at `heightAt`, never sprites drawn below their pivot.

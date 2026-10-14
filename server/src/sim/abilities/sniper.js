@@ -23,6 +23,7 @@ export default {
         }
         if (--left > 0) w2.after(1, pulse);
       };
+      w.addVision({ owner: u, x, y, r, dur: delay + dur });   // Shrapnel reveals its zone for its whole life; vision radius is not baked, so = the zone radius (Dota)
       w.after(delay, (w2) => { evSpell(w2, key, u.id, { x: Math.round(x), y: Math.round(y), r, dur, sub: 'zone' }); pulse(w2); });
       return { r, dur: delay + dur };
     },

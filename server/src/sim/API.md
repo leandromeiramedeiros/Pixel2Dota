@@ -47,6 +47,8 @@ w.killUnit(victim, killer, info?)
 w.knockback(u, { dir | dx,dy, dist, speed, onEnd? })    // force move; interrupts
 w.teleport(u, x, y)   w.blink(u, x, y)     // blink also emits EV.BLINK; caller checks range
 w.spawnSummon(owner, { key, x, y, hp, armor, dmgMin, dmgMax, atkRange, bat, projSpeed, ms, radius, dur, vision, kind?, think?(w,u,dt), noAttack?, noCollide? }) -> unit
+w.addVision({ owner|team, x, y, r, dur?, projectile?|follow?(w,src), linger? }) -> src   // temporary team vision (not a unit); projectile: rides a w.spawnProjectile() result until it ends, then lingers
+w.teamSees(team, x, y) -> bool   // unit vision radius + temporary sources (no LOS); client fog reads state.vision
 w.emit({e: EV.X, ...})   // or helpers from events.js (evBlink, evMsg, ...)
 ```
 

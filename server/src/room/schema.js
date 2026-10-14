@@ -22,6 +22,11 @@ export const Unit = schema({
   abilities: t.array(Ability), items: t.array(Item), buffs: t.array('string'),
 }, 'Unit');
 
+// Temporary team vision source (sim vision.js: Sun Strike, Mirana Arrow...). Not a unit: the client fog casts vision of radius r from (x, y) for `team`.
+export const VisionSrc = schema({
+  id: t.string(), team: t.int8(), x: t.float32(), y: t.float32(), r: t.uint16(),
+}, 'VisionSrc');
+
 export const Player = schema({
   sid: t.string(), name: t.string(), team: t.int8(), slot: t.int8(), hero: t.string(), isBot: t.boolean(), isHost: t.boolean(),
   connected: t.boolean(), claim: t.string(), heroId: t.string(), gold: t.uint32(), kills: t.uint16(), deaths: t.uint16(), assists: t.uint16(), lh: t.uint16(), dn: t.uint16(),
@@ -29,7 +34,7 @@ export const Player = schema({
 
 export const MatchState = schema({
   phase: t.string(), code: t.string(), time: t.float32(), night: t.boolean(), winner: t.int8(), spectators: t.boolean(),
-  players: t.map(Player), units: t.map(Unit), treesDown: t.array('uint16'),
+  players: t.map(Player), units: t.map(Unit), vision: t.map(VisionSrc), treesDown: t.array('uint16'),
 }, 'MatchState');
 
 // Primitive field lists used by the sim -> schema sync (MatchRoom).

@@ -28,6 +28,7 @@ for (const [combo, spell] of Object.entries({
 const KNOCK_SPEED = 150;
 const SPIRIT = { ms: 650, bat: 1.5, atkPoint: 0.4, projSpeed: 1000, radius: 16, vision: 1200, ring: 80 };
 const MELT = { maxArmor: 12, dur: 5 };
+const VISION_FALLBACK = { r: 400, dur: 4 };   // Sun Strike vision if the baked data ever loses vision_distance / vision_duration (Dota: 400 / 4 s)
 
 const orbLevel = (u, i) => { const ab = u.abilities[i]; return ab ? ab.level : 0; };
 /** Value of an invoked spell for caster u: orb-scaled when the value has a levelKey, else level 1. */
@@ -255,7 +256,7 @@ const spells = {
       const dist = V(w, u, key, 'travel_distance'), speed = V(w, u, key, 'travel_speed'), r = V(w, u, key, 'area_of_effect');
       const lift = V(w, u, key, 'lift_duration'), dmg = V(w, u, key, 'base_damage') + V(w, u, key, 'wex_damage') + V(w, u, key, 'quas_damage');
       const dir = dirTo(u, tg);
-      w.spawnProjectile({
+      const tp = w.spawnProjectile({
         src: u, dir, range: dist, speed, radius: r, pierce: true, k: key,
         onHit(w2, p, v) {
           if (v._building || (v._st & (ST.INVULN | ST.MAGIC_IMMUNE))) return;
@@ -269,6 +270,7 @@ const spells = {
           });
         },
       });
+      w.addVision({ owner: u, x: u.x, y: u.y, r: V(w, u, key, 'vision_distance'), projectile: tp, linger: V(w, u, key, 'end_vision_duration') });
       return { x2: Math.round(u.x + Math.cos(dir) * dist), y2: Math.round(u.y + Math.sin(dir) * dist), r, dur: dist / speed, lift };
     },
   },
@@ -289,6 +291,8 @@ const spells = {
       const key = 'invoker_sun_strike';
       const delay = V(w, u, key, 'delay'), r = V(w, u, key, 'area_of_effect'), dmg = V(w, u, key, 'damage');
       const x = tg.x, y = tg.y;
+      // vision of the target area from the cast through the delay and vision_duration after the strike (baked: 400 / 4 s)
+      w.addVision({ owner: u, x, y, r: V(w, u, key, 'vision_distance') || VISION_FALLBACK.r, dur: delay + (V(w, u, key, 'vision_duration') || VISION_FALLBACK.dur) });
       w.after(delay, (w2) => {
         const hit = w2.unitsInRadius(x, y, r, foes(u)).filter((v) => !(v._st & (ST.INVULN | ST.MAGIC_IMMUNE)));
         const heroes = hit.filter((v) => v.kind === 'hero').length;
@@ -340,6 +344,14 @@ const spells = {
         if (w2.time - t0 < roll - 1e-6) w2.after(iv, step);
       };
       w.after(land, step);
+      // vision on the landing spot while it falls, following the meteor as it rolls, then end_vision_duration where it stops
+      w.addVision({
+        owner: u, x: x0, y: y0, r: V(w, u, key, 'vision_distance'), linger: V(w, u, key, 'end_vision_duration'),
+        follow(w2) {
+          const el = clamp(w2.time - t0, 0, roll);
+          return { x: x0 + cs * speed * el, y: y0 + sn * speed * el, end: w2.time - t0 >= roll };
+        },
+      });
       return { x: Math.round(x0), y: Math.round(y0), x2: Math.round(x0 + cs * dist), y2: Math.round(y0 + sn * dist), r, dur: land + roll, land, roll };
     },
   },
@@ -367,6 +379,7 @@ const spells = {
           w2.knockback(v, { dx: l > 1e-3 ? dx : cs, dy: l > 1e-3 ? dy : sn, dist: kb * KNOCK_SPEED, speed: KNOCK_SPEED });
         },
       });
+      w.addVision({ owner: u, x: x0, y: y0, r: r1, projectile: p, linger: V(w, u, key, 'end_vision_duration') });   // the wave's own width; baked has no travel-vision radius
       return { x2: Math.round(x0 + cs * dist), y2: Math.round(y0 + sn * dist), r: r1, r0, dur: dist / speed };
     },
   },

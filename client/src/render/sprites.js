@@ -1,9 +1,10 @@
 // Instanced billboards. One draw call for every unit / tree / building sprite (alpha-cutout, depth writing) plus one for ground decals.
 //
 // 2.5D depth trick: each sprite is a camera-facing quad (so art keeps its authored look) but the fragment depth is NOT the quad's own
-// depth: gl_Position.z is replaced by the NDC depth of the sprite's FOOT point (pulled DEPTH_PULL units toward the camera). That makes the
-// whole sprite behave like a vertical plane standing at its feet: cliffs / terrain nearer to the camera than the feet hide it, taller
-// ground behind it does not, and sprites sort against each other and against trees by foot depth exactly like classic 2D y-sorting.
+// depth: each vertex gets the NDC depth of an UPRIGHT card standing at the sprite's foot (pulled DEPTH_PULL units toward the camera), at the
+// world height that projects to that vertex. Cliffs / terrain nearer to the camera than the feet hide it, taller ground behind it does not,
+// sprites sort against each other by foot like classic 2D y-sorting, and every true-3D thing (particles, orbs, projectiles, geo3d spells,
+// buildings, trees) sorts against a unit by its real height: an orb circling behind Invoker at chest height is hidden by his body.
 // The foot is snapped to the render-target pixel grid and the art-pixel size is an integer number of RT pixels (unless perspective
 // scaling is on), so sprites never shimmer or resample.
 import * as THREE from 'three';
@@ -26,7 +27,6 @@ varying vec3 vWorld, vFoot;
 varying vec4 vRect, vSize, vTint, vOut, vMisc;
 void main(){
   vec3 toCam = normalize(uCamPos - iPos);
-  vec4 fc = projectionMatrix * viewMatrix * vec4(iPos + toCam * ${DEPTH_PULL.toFixed(1)}, 1.);
   vec4 fp = projectionMatrix * viewMatrix * vec4(iPos, 1.);
   float s = uArtPx * iMisc.w * mix(1., uRefW / fp.w, uPersp);
   s = mix(max(1., floor(s + .5)), s, uPersp) / iDens;
@@ -40,7 +40,12 @@ void main(){
   vWorld = iPos + uCamRight * ((local.x - iSize.z - .5) * wpp) + vec3(0., 1., 0.) * max((iSize.w + .5 - local.y) * wpp * .7, 0.);
   vFoot = iPos;
   vRect = iRect; vSize = iSize; vTint = iTint; vOut = iOut; vMisc = iMisc;
-  gl_Position = vec4(ndc * fp.w, fc.z / fc.w * fp.w, fp.w);
+  // upright-card depth: world height of this vertex = its RT-px offset above the foot / RT px per world unit of height at the foot
+  // (pixels below the pivot, e.g. centred pickups, keep the foot depth so they never sink under the terrain)
+  vec4 fu = projectionMatrix * viewMatrix * vec4(iPos + vec3(0., 100., 0.), 1.);
+  float kpx = max((fu.y / fu.w - fp.y / fp.w) * .5 * uRT.y / 100., 1e-3);
+  vec4 fh = projectionMatrix * viewMatrix * vec4(iPos + vec3(0., max(off.y, 0.) / kpx, 0.) + toCam * ${DEPTH_PULL.toFixed(1)}, 1.);
+  gl_Position = vec4(ndc * fp.w, fh.z / fh.w * fp.w, fp.w);
 }`;
 
 // Shadow-caster variant: the same instances as vertical cards standing at the foot, turned to face the light of the pass (uSL: sun
