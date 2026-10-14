@@ -162,7 +162,7 @@ function unitTargetOk(w, u, t, d, h, itemSpec) {
   if (tt === 'FRIENDLY' && t.team !== u.team) return false;
   if (ty && ty.length) {
     const isH = t.kind === KIND.HERO, isB = t._building;
-    if (!((isH && ty.indexOf('HERO') >= 0) || (isB && ty.indexOf('BUILDING') >= 0) || (!isH && !isB && ty.indexOf('BASIC') >= 0))) return false;
+    if (!((isH && ty.indexOf('HERO') >= 0) || (isB && ty.indexOf('BUILDING') >= 0) || (!isH && !isB && (ty.indexOf('BASIC') >= 0 || ty.indexOf('CREEP') >= 0)))) return false;
   }
   if (t.team !== u.team && (t._st & ST.MAGIC_IMMUNE) && !(h && h.pierce) && !(itemSpec && itemSpec.pierce)) return false;
   if (t.team !== u.team && (t._st & ST.INVIS) && !(t._st & ST.REVEALED)) return false;
@@ -248,7 +248,8 @@ export function executeAbility(w, u, ab, tgt) {
   tgt = tgt || { unit: null, x: u.x, y: u.y };
   u.mana -= ab.mana; if (u.mana < 0) u.mana = 0;
   ab.cd = ab.cdMax;
-  for (const m of u._mods) if (m.breakOnAttack) { u._mods.splice(u._mods.indexOf(m), 1); u._dirty = true; break; }
+  const keepInvis = (w.data.abilities[ab.key]?.behavior || []).includes('IGNORE_INVISIBLE');
+  if (!keepInvis) for (const m of u._mods) if (m.breakOnAttack) { u._mods.splice(u._mods.indexOf(m), 1); u._dirty = true; break; }
   const ev = evSpell(w, ab.key, u.id, { t: tgt.unit ? tgt.unit.id : undefined, x: Math.round(tgt.x), y: Math.round(tgt.y), lv: ab.level });
   let res;
   if (h.cast) res = h.cast(w, u, ab, tgt);
