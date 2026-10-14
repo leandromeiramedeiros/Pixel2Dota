@@ -8,7 +8,7 @@ import { World } from '../sim/world.js';
 import { addXp } from '../sim/heroes.js';
 import { XP_TABLE } from '../../../shared/constants.js';
 import {
-  MatchState, Player, Unit, Ability, Item,
+  MatchState, Player, Unit, Ability, Item, VisionSrc,
   UNIT_FIELDS, ABILITY_FIELDS, ITEM_FIELDS, PLAYER_SIM_FIELDS,
 } from './schema.js';
 
@@ -47,6 +47,19 @@ function syncFields(dst, src, fields) {
     const f = fields[i], v = conv(f, src[f]);
     if (dst[f] !== v) dst[f] = v;
   }
+}
+
+/** Temporary vision sources (not units) -> state.vision, so the client fog can cast from them. */
+export function syncVision(st, w) {
+  const vs = w.visionSources;
+  for (const [id, s] of vs) {
+    let sv = st.vision.get(id);
+    if (!sv) { sv = new VisionSrc(); sv.id = id; sv.team = s.team; sv.r = Math.round(s.r); st.vision.set(id, sv); }
+    const x = Math.round(s.x * 4) / 4, y = Math.round(s.y * 4) / 4;
+    if (sv.x !== x) sv.x = x;
+    if (sv.y !== y) sv.y = y;
+  }
+  if (st.vision.size !== vs.size) for (const id of [...st.vision.keys()]) if (!vs.has(id)) st.vision.delete(id);
 }
 
 function syncList(dst, src, Ctor, fields) {
@@ -521,6 +534,7 @@ export class MatchRoom extends Room {
     if (map.size !== w.units.size) {
       for (const [id, e] of map) if (e.stamp !== stamp) { map.delete(id); st.units.delete(id); }
     }
+    syncVision(st, w);
   }
 }
 

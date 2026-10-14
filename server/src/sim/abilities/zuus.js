@@ -53,6 +53,11 @@ export default {
       const aoe = w.val(key, 'spread_aoe', lv), dmg = w.val(key, 'damage', lv), stun = w.val(key, 'ministun_duration', lv), sight = w.val(key, 'sight_duration', lv);
       const t = tg.unit || w.nearestUnit(tg.x, tg.y, aoe, { enemyOf: u, buildings: false });
       const x = t ? t.x : tg.x, y = t ? t.y : tg.y;
+      // vision of the strike spot for sight_duration (day / night radius); true sight over true_sight_radius reveals invisible enemies there
+      w.addVision({ owner: u, x, y, r: w.night ? w.val(key, 'sight_radius_night', lv) : w.val(key, 'sight_radius_day', lv), dur: sight });
+      for (const v of w.unitsInRadius(x, y, w.val(key, 'true_sight_radius', lv), { enemyOf: u, buildings: false })) {
+        if (v !== t && (v._st & ST.INVIS)) w.addModifier(v, { key: key + '_reveal', src: u, dur: sight, status: ST.REVEALED, debuff: true, hidden: true, purge: 'none', pierce: true });
+      }
       if (t) {
         w.damage(u, t, dmg, 'mag', { ability: key });
         if (!t._dead) {
@@ -80,6 +85,7 @@ export default {
       for (const v of [...w.units.values()]) {
         if (v.kind !== KIND.HERO || v._dead || v.team === u.team) continue;
         evSpell(w, key, u.id, { t: v.id, x: Math.round(v.x), y: Math.round(v.y), sub: 'strike' });
+        w.addVision({ owner: u, x: v.x, y: v.y, r: w.night ? w.val(key, 'sight_radius_night', lv) : w.val(key, 'sight_radius_day', lv), dur: sight });   // each struck spot stays visible
         w.damage(u, v, dmg, 'mag', { ability: key });
         if (!v._dead) w.addModifier(v, { key: key + '_reveal', src: u, dur: sight, status: ST.REVEALED, debuff: true, hidden: true, purge: 'none' });
       }

@@ -16,6 +16,7 @@ export default {
         w.damage(u, v, dmg, 'mag', { ability: key });
         if (!v._dead) w.addModifier(v, { key, src: u, dur, msPct: ms, as: as, debuff: true });
       }
+      w.addVision({ owner: u, x: tg.x, y: tg.y, r, dur: w.val(key, 'vision_duration', lv) });   // baked vision_duration; radius = the nova's (not baked)
       return { r };
     },
   },

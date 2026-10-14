@@ -26,7 +26,7 @@ export default {
         if (d < 40) return;
         w2.spawnProjectile({ src: u, x: p.x, y: p.y, x2: u.x, y2: u.y, range: d, speed, radius: 1, k: HOOK + '_back', filter: () => false, data: { hooked: !!hooked } });
       };
-      w.spawnProjectile({
+      const hook = w.spawnProjectile({
         src: u, dir, range, speed, radius: width / 2, k: HOOK, hitAllies: true, data: { hooked: null },
         filter: (v) => v !== u && !v._dead && !(v._st & ST.INVULN) && !v._building,
         onHit(w2, p, v) {
@@ -39,6 +39,7 @@ export default {
         },
         onEnd(w2, p) { back(w2, p, p.data.hooked); },
       });
+      w.addVision({ owner: u, x: ox, y: oy, r: w.val(HOOK, 'vision_radius', lv), projectile: hook, linger: w.val(HOOK, 'vision_duration', lv) });   // follows the hook head, then lingers where it ended
       return { x2: rnd(ox + Math.cos(dir) * range), y2: rnd(oy + Math.sin(dir) * range), r: width / 2, dur: range / speed };
     },
   },

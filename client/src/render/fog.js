@@ -103,6 +103,10 @@ export function createFog(uniforms) {
       if (!r) continue;
       castVision(map, vis, u.x, u.y, r, blockTree); n++;
     }
+    for (const v of view.vision || []) {   // spell vision sources (server sim vision.js)
+      if (myTeam === -2 ? v.team !== 0 && v.team !== 1 : v.team !== myTeam) continue;
+      castVision(map, vis, v.x, v.y, v.r, blockTree); n++;
+    }
     for (let j = 0; j < N; j++) if (vis[j]) explored[j] = 1;
     st.sources = n; st.castMs = performance.now() - t0;
     dirty = true;

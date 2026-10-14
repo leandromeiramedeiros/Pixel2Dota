@@ -14,6 +14,7 @@ import * as K from './creeps.js';
 import * as B from './buildings.js';
 import * as bots from './bots.js';
 import * as N from './neutrals.js';
+import * as V from './vision.js';
 import { stepKb, separate } from './move.js';
 import { evHeal, evMana, evBlink, evTree, evTreeGrow, emit } from './events.js';
 
@@ -50,6 +51,7 @@ export class World {
     this.units = new Map(); this.players = new Map(); this.treesDown = new Set();
     this.projs = []; this._ev = []; this._rm = []; this._hl = []; this._qb = []; this._qc = []; this._qd = []; this._qe = [];
     this._id = 0; this._pid = 0; this._timers = [];
+    this.visionSources = new Map();   // temporary team vision (vision.js), mirrored to state.vision by the room
     this.tick = 0; this.time = -(opts.pregame === undefined ? PREGAME : opts.pregame); this.night = false; this.winner = -1;
     this.waveNo = 0; this._nextWave = 0;
     this.nav = new Nav();
@@ -186,6 +188,11 @@ export class World {
   interrupt(u, clear) { S.interrupt(this, u, clear); }
   killUnit(v, killer, info) { C.killUnit(this, v, killer, info); }
   spawnProjectile(o) { return C.spawnProjectile(this, o); }
+  /** Temporary vision circle for a team: {team|owner, x, y, r, dur?, follow?(w,src), linger?} -> source (see vision.js). */
+  addVision(o) { return V.addVision(this, o); }
+  removeVision(src) { V.removeVision(this, src); }
+  /** Does `team` see (x, y) right now? (unit vision radius + temporary sources; no LOS/tree blocking). */
+  teamSees(team, x, y) { return V.teamSees(this, team, x, y); }
   /** Summon / ward / spirit owned by `owner`. See units.makeSummon for fields. Added to the world and returned. */
   spawnSummon(owner, o) {
     const u = makeSummon(this, owner, o);
@@ -264,6 +271,7 @@ export class World {
     bots.update(this, dt);
     for (const u of this.units.values()) this._think(u, dt);
     C.updateProjectiles(this, dt);
+    V.updateVision(this);
     if (this._timers.length) {
       const ts = this._timers;
       for (let i = ts.length - 1; i >= 0; i--) if (ts[i].t <= this.time) { const t = ts.splice(i, 1)[0]; t.fn(this); }

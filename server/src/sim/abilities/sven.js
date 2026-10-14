@@ -7,7 +7,7 @@ export default {
     cast(w, u, ab, tg) {
       const lv = ab.level, key = 'sven_storm_bolt';
       const aoe = w.val(key, 'bolt_aoe', lv), dmg = w.val(key, 'damage', lv), dur = w.val(key, 'bolt_stun_duration', lv);
-      w.spawnProjectile({
+      const bolt = w.spawnProjectile({
         src: u, tgt: tg.unit, speed: w.val(key, 'bolt_speed', lv), k: key,
         onHit(w2, p, t) {
           for (const v of w2.unitsInRadius(t.x, t.y, aoe, { enemyOf: u, buildings: false })) {
@@ -16,6 +16,7 @@ export default {
           }
         },
       });
+      w.addVision({ owner: u, x: u.x, y: u.y, r: w.val(key, 'vision_radius', lv), projectile: bolt });   // rides the bolt until it lands / fizzles
       return { r: aoe };
     },
   },

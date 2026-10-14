@@ -56,7 +56,7 @@ export default {
       const range = w.val(ARROW, 'arrow_range', lv), sMin = w.val(ARROW, 'arrow_min_stun', lv), sMax = w.val(ARROW, 'arrow_max_stun', lv);
       const sRange = w.val(ARROW, 'arrow_max_stunrange', lv);
       const dir = dirTo(u, tg), ox = u.x, oy = u.y;
-      w.spawnProjectile({
+      const arrow = w.spawnProjectile({
         src: u, dir, range, speed, radius: width / 2, k: ARROW,
         onHit(w2, p, v) {
           const dist = Math.hypot(v.x - ox, v.y - oy);
@@ -66,6 +66,7 @@ export default {
           evSpell(w2, ARROW, u.id, { sub: 'hit', t: v.id, x: rnd(v.x), y: rnd(v.y), dur: stun, r: 90 });
         },
       });
+      w.addVision({ owner: u, x: ox, y: oy, r: w.val(ARROW, 'arrow_vision', lv), projectile: arrow });   // rides the arrow until it ends
       return { x2: rnd(ox + Math.cos(dir) * range), y2: rnd(oy + Math.sin(dir) * range), r: width / 2, dur: range / speed };
     },
   },
