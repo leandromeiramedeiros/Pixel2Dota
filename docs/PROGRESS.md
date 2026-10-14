@@ -27,7 +27,8 @@
 - Bot-only matches are slow (~45-50 min); bots push buildings timidly
 - Invoker bot levels slowly
 - Art v2 approved by the creative director. v3 landed (verdicts pending): base ambiance, key-light + spell-light shadows, map-wide 3D clutter, 3D VFX pilot (Sun Strike, Laguna Blade, Freezing Field), 8-dir 2x sprite pilot (Lina)
-- v3 next (after verdicts): 8-dir 2x sprites for the other 12 heroes (spec in tools/art/heroes/lina.mjs); remaining ~37 spells to 3D fx; richer spell icons; unit sprites casting shadows
+- Spell lighting (e7ca48d): unit sprites cast real-time shadows (key + spell cube pass); spell lights light towers/units/ground with a broad falloff. Knobs in render/shaderlib.js: SPELL_REACH 1.5, SPELL_GAIN 2, spell shadow floor .03
+- v3 next: Lina redo (grounded, Dota silhouette), then 8-dir 2x sprites for the other 12 heroes; remaining ~37 spells to 3D fx; richer spell icons
 - Pudge / Mirana / Rubick use stand-in bodies (BODY_STANDIN in render/actors.js) and have no portraits yet
 - Fog of war quite dark
 - Weak sniper_headshot and gold icons
