@@ -1,9 +1,9 @@
 // Boot: lobby screen -> game screen. The game (three.js, renderer, HUD) loads only when a match starts.
-import { createNet, serverOverride } from './net/index.js';
+import { createNet, serverOverride, normalizeServer } from './net/index.js';
 import { createLobby } from './ui/lobby.js';
 
 const root = document.getElementById('app');
-const net = createNet(serverOverride() || import.meta.env?.VITE_P2D_ENDPOINT || undefined);
+const net = createNet(serverOverride() || normalizeServer(import.meta.env?.VITE_P2D_ENDPOINT) || undefined);
 let lobby = null, game = null;
 
 async function boot() {

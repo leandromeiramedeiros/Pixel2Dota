@@ -2,34 +2,31 @@
 
 **▶ Play: https://leandromeiramedeiros.github.io/Pixel2Dota/** (rebuilt from `main` on every push)
 
-The page is only the game client. Matches run on a game server that one player (the host) runs on their own machine. Everyone opens the page and points it at that server.
+Nothing to install.
 
-## Create a lobby (host)
+## Play with friends
 
-1. Install [Node 24+](https://nodejs.org), then:
-   ```
-   git clone https://github.com/leandromeiramedeiros/Pixel2Dota.git
-   cd Pixel2Dota
-   npm install
-   node server/src/index.js
-   ```
-   The server listens on port 2567.
-2. Open the Play link. The lobby's **Server** field defaults to `ws://localhost:2567`, which is your own server. If Chrome asks to allow access to devices on your local network, allow it.
-3. Type your name and click **Create lobby**. You get a 4-letter code.
-4. Pick a hero, or click **Take slot** to switch team. Add bots with **+ Bot** or **Fill with bots**, then click **Start match**.
+1. Open the Play link, type your name and click **Create lobby**.
+2. Click **Copy link** and send it to your friends. They open it and click **Join**.
+3. Pick heroes, fill empty slots with **+ Bot** or **Fill with bots**, and click **Start match**.
 
-**Let friends reach your server.** The Play page is served over https, so friends can only reach your server over a secure (`wss://`) address. The simplest way is a free tunnel:
+No link? Friends can type the 4-letter code into **Join** or pick the lobby from **Open lobbies**.
+
+The game server runs on a free cloud plan that sleeps when nobody plays. The first lobby after a quiet spell can take about a minute while the lobby shows "Waking up the server". After that it's instant.
+
+## Run your own server (optional)
+
+For LAN parties or development. Needs [Node 24+](https://nodejs.org).
 ```
-cloudflared tunnel --url http://localhost:2567
+git clone https://github.com/leandromeiramedeiros/Pixel2Dota.git
+cd Pixel2Dota
+npm install
+npm run build
+node server/src/index.js
 ```
-It prints an address like `https://something.trycloudflare.com`. Paste it into the **Server** field, click **Connect**, then create the lobby. **Copy link** in the lobby copies an invite link that already contains the server and the code.
+Open http://localhost:2567. Friends on your network open `http://<your-LAN-IP>:2567`. The public Play page can't use a server on your own computer, because browsers block https pages from reaching local addresses.
 
-On the same LAN you can skip Pages and the tunnel: run `npm run build` once, start the server, and friends open `http://<your-LAN-IP>:2567`.
-
-## Join a lobby
-
-- **With an invite link:** open it. The server and code are filled in. Type your name and click **Join**.
-- **With a code:** open the Play link, paste the host's address into **Server**, click **Connect**, type the 4-letter code and click **Join**. You can also pick the lobby from **Open lobbies**.
+To deploy the public server yourself: on [render.com](https://render.com) choose **New → Blueprint** and pick this repo (it reads `render.yaml`). Then set the repo variable `P2D_SERVER` to the service address so the Play page connects to it.
 
 ## About
 

@@ -3,7 +3,11 @@
 import { MSG, LOBBY, PHASE, TEAM_SIZE, EV } from '@p2d/shared/protocol.js';
 import { HEROES, HERO_KEYS } from '@p2d/shared/heroes.js';
 import { DATA } from '@p2d/shared/data.js';
+import { serverOverride } from '../net/index.js';
 import './lobby.css';
+
+const UNREACHABLE = 'Cannot reach the server';
+const WAKING = 'Waking up the server, this can take a minute...';
 
 // Hero portraits: sheets/<short>.js 'portrait' frame (ASCII rows) -> 1x PNG data URL, shown pixelated at 1x/3x via CSS.
 const sheetLoaders = import.meta.glob('../art/sheets/*.js');
@@ -50,6 +54,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
   let name = lsGet('p2d.name') || 'Player' + ((Math.random() * 900 + 100) | 0);
   let lobbies = [];
   let error = '';
+  let failSince = 0;
   let busy = false;
   let started = false;
   let destroyed = false;
@@ -100,8 +105,14 @@ export function createLobby(root, net, { onGameStart } = {}) {
 
   async function refreshList() {
     if (destroyed || mode !== 'browse') return;
-    try { lobbies = await net.listLobbies(); } catch { lobbies = []; setErr('Cannot reach the server'); return; }
-    if (error === 'Cannot reach the server') setErr('');
+    try { lobbies = await net.listLobbies(); } catch {
+      // a free cloud server sleeps when idle and takes about a minute to wake: say so instead of failing
+      lobbies = []; failSince ||= Date.now();
+      const local = /\/\/(localhost|127\.|\[::1\])/.test(net.endpoint || '');
+      setErr(!local && Date.now() - failSince < 120000 ? WAKING : UNREACHABLE); return;
+    }
+    failSince = 0;
+    if (error === UNREACHABLE || error === WAKING) setErr('');
     renderList();
   }
 
@@ -109,7 +120,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
   function inviteLink() {
     const u = new URL(location.href);
     u.search = ''; u.hash = '';
-    if (net.endpoint) u.searchParams.set('server', net.endpoint);
+    if (serverOverride()) u.searchParams.set('server', net.endpoint);   // only when not on the default server
     u.searchParams.set('join', net.room?.roomId || '');
     return u.href;
   }

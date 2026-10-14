@@ -1,0 +1,14 @@
+# Render Blueprint: the public game server (render.com -> New -> Blueprint -> this repo).
+# Serves the game server and the client on one https address and redeploys on every push to main.
+services:
+  - type: web
+    name: pixel2dota
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node server/src/index.js
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "24"

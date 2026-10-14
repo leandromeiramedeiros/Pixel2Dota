@@ -1,5 +1,5 @@
 # Build the client and publish it to GitHub Pages on every push to main.
-# Pages hosts the static client only; players point it at a game server (node server/src/index.js) via the lobby's Server field.
+# Pages hosts the static client only; it connects to the public game server in the P2D_SERVER repo variable (see render.yaml).
 name: pages
 on:
   push:
@@ -26,6 +26,7 @@ jobs:
       - run: npm run build
         env:
           P2D_BASE: /Pixel2Dota/
+          VITE_P2D_ENDPOINT: ${{ vars.P2D_SERVER }}   # repo variable: the public game server (render.yaml), e.g. pixel2dota.onrender.com
       - uses: actions/upload-pages-artifact@v3
         with:
           path: client/dist
