@@ -357,11 +357,130 @@ export function createParticles({ scene, uniforms, atlas, heightAt, getView }) {
   return api;
 }
 
-/** Ambient life around the camera: day dust motes + drifting leaves, night fireflies + cold mist motes. */
+// Base life: the map's ancients, fountains, lanterns and the buildings within BASE_R of an ancient. Read once from the map.
+import { getMap, sideOf } from '../../../shared/map.js';
+const BASE_R = 1500;   // base area radius around each ancient (world units)
+const CULL = 300;      // anchors this far outside the camera rect are skipped
+
+let layout = null;
+function baseLayout() {
+  if (layout) return layout;
+  const E = getMap().ents;
+  const sideOfEnt = (e) => (/bad/.test(e.name || '') ? 1 : /good/.test(e.name || '') ? 0 : sideOf(e.x, e.y));   // 0 Radiant, 1 Dire
+  const ancients = (E.fort || []).map((e) => ({ x: e.x, y: e.y, side: sideOfEnt(e) }));
+  const near = (e) => ancients.some((a) => Math.hypot(e.x - a.x, e.y - a.y) <= BASE_R);
+  const bldgs = [...(E.tower || []), ...(E.barracks || []), ...(E.filler || [])].filter(near).map((e) => ({ x: e.x, y: e.y, side: sideOfEnt(e) }));
+  layout = {
+    ancients,
+    fountains: (E.fountain || []).map((e) => ({ x: e.x, y: e.y, side: sideOfEnt(e) })),
+    lanterns: (E.lantern || []).map((e) => ({ x: e.x, y: e.y })),
+    bldgs,
+  };
+  return layout;
+}
+
+// Single base-life particles. Each takes the shared spawn options; positions are world coords (z up).
+const radiantFirefly = (particles, cx, cy, cz) => {     // slow orbit around the crystal core
+  const t = Math.random() * 6.2832, r = rnd(110, 260), s = rnd(10, 18) * (Math.random() < 0.5 ? -1 : 1);
+  const teal = Math.random() < 0.6;
+  particles.spawn({ x: cx + Math.cos(t) * r, y: cy + Math.sin(t) * r, z: cz + rnd(-60, 120), vel: [-Math.sin(t) * s, Math.cos(t) * s, 0],
+    life: [5, 9], size0: [8, 12], size1: 8, col0: teal ? [0.5, 2.2, 1.6] : [0.9, 2.5, 0.6], col1: [0.4, 1.2, 0.8], a0: 1, a1: 1, env: true, mode: 'glow', drag: 0.25 });
+};
+const radiantMote = (particles, cx, cy, cz) => {        // pale motes lifting off the core
+  particles.spawn({ x: cx + rnd(-30, 30), y: cy + rnd(-30, 30), z: cz + rnd(-20, 20), vel: [rnd(-3, 3), rnd(-3, 3), 0], up: rnd(16, 26), gravity: 2, drag: 0.35,
+    life: [4, 7], size0: [5, 8], size1: 5, col0: [1.6, 1.9, 1.8], col1: [0.8, 1.0, 1.0], a0: 0.9, a1: 0, mode: 'glow', env: true });
+};
+const direEmber = (particles, cx, cy, cz) => {          // embers rising off the Dire ancient
+  particles.spawn({ x: cx + rnd(-40, 40), y: cy + rnd(-40, 40), z: cz + rnd(-20, 20), vel: [rnd(-4, 4), rnd(-4, 4), 0], up: rnd(20, 32), gravity: 3, drag: 0.5,
+    life: [2.2, 3.6], px: [1, 2], ramp: 'fire', a0: 1, a1: 1, env: true });
+};
+const direAsh = (particles, cx, cy, cz) => {            // grey ash drifting up
+  particles.spawn({ x: cx + rnd(-60, 60), y: cy + rnd(-60, 60), z: cz + rnd(-30, 30), vel: [rnd(-5, 5), rnd(-5, 5), 0], up: rnd(5, 10), gravity: 0.6, drag: 0.4,
+    life: [5, 8], px: [1.5, 2.5], col0: [0.42, 0.4, 0.38], col1: [0.22, 0.21, 0.2], a0: 0.8, a1: 0, env: true, settle: false });
+};
+const direFlicker = (particles, cx, cy, cz) => {        // faint red glow puffs that flicker in and out
+  particles.spawn({ x: cx + rnd(-80, 80), y: cy + rnd(-80, 80), z: cz + rnd(-60, 40), life: [0.3, 0.8], size0: [60, 110], size1: 40,
+    col0: [1.4, 0.2, 0.1], col1: [0.5, 0.06, 0.04], a0: 0.25, a1: 0, mode: 'glow', env: true });
+};
+const spray = (particles, x, y, z) => {                 // fine sparkling fountain spray
+  particles.spawn({ x: x + rnd(-30, 30), y: y + rnd(-30, 30), z, shape: 'cone', dir: [0, 0, 1], spread: 0.5, speed: [50, 90], gravity: -90, drag: 0.1,
+    life: [0.9, 1.6], px: [1, 2], col0: [0.7, 1.7, 2.2], col1: [0.4, 0.9, 1.3], a0: 1, a1: 0.2, env: true, settle: false });
+};
+const lanternSpark = (particles, x, y, z) => {          // tiny ember sparks off lanterns and braziers
+  particles.spawn({ x: x + rnd(-6, 6), y: y + rnd(-6, 6), z, vel: [rnd(-3, 3), rnd(-3, 3), 0], up: rnd(12, 22), gravity: 1, drag: 0.7,
+    life: [1.4, 2.4], px: [1, 1.5], ramp: 'fire', a0: 1, a1: 1, env: true });
+};
+const nightFly = (particles, x, y, z, col) => {         // base-area fireflies at night
+  particles.spawn({ x, y, z, life: [4, 9], size0: [8, 12], size1: 8, col0: col, col1: [col[0] * 0.6, col[1] * 0.5, col[2] * 0.6], a0: 1, a1: 1, env: true,
+    speed: [3, 9], drag: 0.4, mode: 'glow', jitter: 4 });
+};
+const basePollen = (particles, x, y, z) => {            // Radiant dust/pollen by day
+  particles.spawn({ x, y, z, life: [5, 9], size0: [3, 5], size1: 3, col0: [0.95, 0.92, 0.55], col1: [0.7, 0.75, 0.4], a0: 0.9, a1: 0.9, env: true,
+    speed: [2, 6], drag: 0.3, mode: 'square', jitter: 2, keep: true });
+};
+const baseAsh = (particles, x, y, z) => {               // Dire ash flakes, slowly falling
+  particles.spawn({ x, y, z, life: [6, 10], px: [1, 2], col0: [0.45, 0.43, 0.41], col1: [0.25, 0.24, 0.23], a0: 0.8, a1: 0, env: true,
+    speed: [2, 6], gravity: -2, drag: 0.3, settle: false });
+};
+
+/** Ambient life around the camera: day dust motes + drifting leaves, night fireflies + cold mist motes.
+ *  Base life: teal fireflies and pale motes at the Radiant ancient, embers and ash and a red flicker at the Dire one,
+ *  spray at fountains, ember sparks at lanterns, and dust / ash / night fireflies among the buildings within BASE_R of an ancient. */
 export function createAmbient(particles, getHeight) {
   let acc = 0, accL = 0;
+  const L = baseLayout();
+  const anc = L.ancients.map((a) => ({ ...a, acc: [] }));
+  const fnt = L.fountains.map((f) => ({ ...f, acc: [] }));
+  const lan = L.lanterns.map((l) => ({ ...l, acc: [] }));
+  const bld = [[], []], bacc = [[], []];
+  for (const b of L.bldgs) bld[b.side].push(b);
+  const V = { x0: 0, x1: 0, y0: 0, y1: 0 };       // camera rect of the current frame
+  const vis = (x, y, m) => x > V.x0 - m && x < V.x1 + m && y > V.y0 - m && y < V.y1 + m;
+  // n spawns this frame for `rate` per second; the fraction carries in A[i]. Capped so a stalled frame cannot burst.
+  const take = (A, i, rate, dt) => { const v = (A[i] || 0) + rate * dt, n = Math.floor(v); A[i] = Math.min(v - n, 1); return Math.min(n, 6); };
+  const bldgPoint = (list) => {
+    const b = list[(Math.random() * list.length) | 0], t = Math.random() * 6.2832, r = Math.sqrt(Math.random()) * 400;
+    return [b.x + Math.cos(t) * r, b.y + Math.sin(t) * r];
+  };
+  function baseLife(dt, night) {
+    for (const a of anc) {
+      const cx = a.x, cy = a.y - 200, cz = getHeight(a.x, a.y) + 300;     // crystal core (matches the ancient's light)
+      if (!vis(cx, cy, CULL)) continue;
+      if (a.side === 0) {
+        for (let n = take(a.acc, 0, 1.2, dt); n > 0; n--) radiantFirefly(particles, cx, cy, cz);
+        for (let n = take(a.acc, 1, 1, dt); n > 0; n--) radiantMote(particles, cx, cy, cz);
+      } else {
+        for (let n = take(a.acc, 0, 2, dt); n > 0; n--) direEmber(particles, cx, cy, cz);
+        for (let n = take(a.acc, 1, 1, dt); n > 0; n--) direAsh(particles, cx, cy, cz);
+        for (let n = take(a.acc, 2, 1, dt); n > 0; n--) direFlicker(particles, cx, cy, cz);
+      }
+    }
+    for (const f of fnt) {
+      if (!vis(f.x, f.y, CULL)) continue;
+      for (let n = take(f.acc, 0, 3, dt); n > 0; n--) spray(particles, f.x, f.y, getHeight(f.x, f.y) + 150);
+    }
+    for (const l of lan) {
+      if (!vis(l.x, l.y, CULL)) continue;
+      for (let n = take(l.acc, 0, 0.5, dt); n > 0; n--) lanternSpark(particles, l.x, l.y, getHeight(l.x, l.y) + rnd(90, 130));
+    }
+    for (let s = 0; s < 2; s++) {
+      const list = bld[s];
+      if (!list.length) continue;
+      const col = s === 0 ? [0.5, 2.2, 1.6] : [2.4, 1.3, 0.4];          // teal-green Radiant, amber Dire
+      for (let n = take(bacc[s], 0, 3 * night, dt); n > 0; n--) {
+        const [x, y] = bldgPoint(list); if (!vis(x, y, 0)) continue;
+        nightFly(particles, x, y, getHeight(x, y) + rnd(20, 120), col);
+      }
+      for (let n = take(bacc[s], 1, s === 0 ? 2 * (1 - night) : 1.5, dt); n > 0; n--) {
+        const [x, y] = bldgPoint(list); if (!vis(x, y, 0)) continue;
+        const z = getHeight(x, y) + rnd(10, 120);
+        if (s === 0) basePollen(particles, x, y, z); else baseAsh(particles, x, y, z);
+      }
+    }
+  }
   return {
     update(dt, cx, cy, halfW, halfH, night) {
+      V.x0 = cx - halfW; V.x1 = cx + halfW; V.y0 = cy - halfH; V.y1 = cy + halfH;
       const area = (halfW * 2) * (halfH * 2) / 1e6;       // million square units
       acc += dt * (night ? 7 : 4) * area; accL += dt * (night ? 0 : 0.7) * area;
       let n = Math.floor(acc); acc -= n; if (n > 40) n = 40;
@@ -379,6 +498,7 @@ export function createAmbient(particles, getHeight) {
         const x = cx + rnd(-halfW, halfW), y = cy + rnd(-halfH, halfH);
         particles.spawn({ x, y, z: getHeight(x, y) + rnd(120, 260), life: [5, 9], size0: 16, size1: 16, col0: [0.45, 0.62, 0.28], col1: [0.5, 0.55, 0.25], a0: 0.9, a1: 0.9, vel: [rnd(15, 40), rnd(-15, 15), 0], speed: 0, gravity: -9, drag: 0.5, spin: rnd(-2, 2), stamp: 'p_leaf', rot: rnd(0, 6), settle: false, keep: true });
       }
+      baseLife(dt, night);
     },
   };
 }
