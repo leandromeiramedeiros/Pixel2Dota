@@ -1,10 +1,10 @@
 // Temporary vision sources (Sun Strike, Crystal Nova, Mirana Arrow...). Pure. Created through w.addVision(), see API.md.
 //
-// A source is a flying (no terrain/tree blocking, same as the client's "radius only" cast of a ward is NOT: the client casts rays
-// from it exactly like from a unit) vision circle owned by a team. They are NOT units: nothing can target, see or collide
+// A source is a vision circle owned by a team. By default it is FLYING (like Dota's unobstructed AddFOWViewer): it ignores cliffs and trees;
+// pass `ground: true` for a source that is blocked by high ground / trees like a unit. They are NOT units: nothing can target, see or collide
 // with them, and they never show in the minimap / unit lists. The room mirrors w.visionSources (Map id -> src) into
-// state.vision ({id, team, x, y, r}); the client fog treats each entry like a friendly unit with that radius.
-//   addVision(w, { team|owner, x, y, r, dur?, delay?, linger?, follow? })
+// state.vision ({id, team, x, y, r, fly}); the client fog casts each entry from its position (flying: radius only; ground: rays like a unit).
+//   addVision(w, { team|owner, x, y, r, dur?, delay?, linger?, follow?, ground? })
 //     dur     seconds the source lives (omit = until `follow` ends). Counted from now.
 //     projectile  shorthand for follow: the source rides w.spawnProjectile()'s projectile p until it ends (then lingers)
 //     follow  (w, src) -> {x, y, end?} | null   called every tick: moves the source; null or end:true = the moving phase is over
@@ -15,7 +15,7 @@ export function addVision(w, o) {
   const team = typeof o.team === 'number' ? o.team : o.owner ? o.owner.team : TEAM.NONE;
   if (!w.visionSources) w.visionSources = new Map();
   const src = {
-    id: 'v' + (w._vid = (w._vid || 0) + 1), team, x: o.x, y: o.y, r: o.r,
+    id: 'v' + (w._vid = (w._vid || 0) + 1), team, x: o.x, y: o.y, r: o.r, fly: !o.ground,
     until: o.dur ? w.time + o.dur : Infinity, follow: o.follow || (o.projectile ? followProjectile(o.projectile) : null), linger: o.linger || 0,
   };
   if (!(o.r > 0) || team < 0 || team > 1) return null;
@@ -42,7 +42,7 @@ export function updateVision(w) {
   }
 }
 
-/** Does `team` currently see (x, y)? Unit vision (radius only, no terrain/tree blocking) or a temporary source. */
+/** Does `team` currently see (x, y)? Radius only: NO cliff / tree blocking (the client fog adds those for ground sources; the sim does not use this for targeting). */
 export function teamSees(w, team, x, y) {
   if (w.visionSources) for (const s of w.visionSources.values()) if (s.team === team && Math.hypot(s.x - x, s.y - y) <= s.r) return true;
   for (const u of w.units.values()) {

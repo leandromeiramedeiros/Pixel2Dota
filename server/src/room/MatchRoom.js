@@ -54,7 +54,7 @@ export function syncVision(st, w) {
   const vs = w.visionSources;
   for (const [id, s] of vs) {
     let sv = st.vision.get(id);
-    if (!sv) { sv = new VisionSrc(); sv.id = id; sv.team = s.team; sv.r = Math.round(s.r); st.vision.set(id, sv); }
+    if (!sv) { sv = new VisionSrc(); sv.id = id; sv.team = s.team; sv.r = Math.round(s.r); sv.fly = !!s.fly; st.vision.set(id, sv); }
     const x = Math.round(s.x * 4) / 4, y = Math.round(s.y * 4) / 4;
     if (sv.x !== x) sv.x = x;
     if (sv.y !== y) sv.y = y;

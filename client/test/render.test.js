@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shelfPack, nextPow2, resolveKey, indexSheet } from '../src/art/atlas.js';
-import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig } from '../src/render/camera.js';
+import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig, cameraPose, stepYaw, viewFacing, wrapPi } from '../src/render/camera.js';
+import { ORBIT, dragToOrbit, pinchZoomFactor, inJoyZone } from '../src/ui/orbit.js';
 import { selectLights } from '../src/render/lights.js';
 import { castVision, visionRadius, VISION_FALLBACK } from '../src/render/fog.js';
 import { buildChunk, hash2, CHUNK } from '../src/render/terrainGeo.js';
@@ -72,7 +73,7 @@ test('camParams: game angle at default distance, closer is flatter', () => {
 test('camParams: showcase close-up below the close camera, continuous at closeDistance', () => {
   const sc = camParams(CAMERA.showcaseDistance), near = camParams(CAMERA.closeDistance), justIn = camParams(CAMERA.closeDistance - 0.01);
   assert.equal(sc.pitch, CAMERA.showcasePitch);
-  assert.ok(sc.pitch < near.pitch && sc.vfov < near.vfov);
+  assert.ok(sc.pitch < near.pitch && sc.vfov > near.vfov);   // low eye, wider lens
   assert.ok(Math.abs(justIn.pitch - near.pitch) < 0.01 && Math.abs(justIn.vfov - near.vfov) < 0.01);
   assert.equal(camParams(CAMERA.showcaseDistance - 100).pitch, CAMERA.showcasePitch);   // clamped
 });
@@ -189,4 +190,81 @@ test('CameraRig.setViewInset: keeps the aspect (x scale) and survives a resize',
   const sx = rig.camera.projectionMatrix.elements[0];
   rig.setViewInset(0.2, 0.2); assert.ok(Math.abs(rig.camera.projectionMatrix.elements[0] - sx) < 1e-9);
   rig.setAspect(1.5); assert.equal(rig.camera.aspect, 1.5); assert.ok(Math.abs(rig.camera.projectionMatrix.elements[0] - sx * 2 / 1.5) < 1e-9);
+});
+
+test('cameraPose: yaw swings the eye round the look point at constant distance; yaw 0 = north view', () => {
+  const d = 800, p0 = cameraPose(100, 200, 5, d, 0, 14, 70), p90 = cameraPose(100, 200, 5, d, Math.PI / 2, 14, 70), p180 = cameraPose(100, 200, 5, d, Math.PI, 14, 70);
+  assert.deepEqual(p0.look, [100, 75, -200]);
+  const len = (p) => Math.hypot(p.eye[0] - p.look[0], p.eye[1] - p.look[1], p.eye[2] - p.look[2]);
+  for (const p of [p0, p90, p180]) assert.ok(Math.abs(len(p) - d) < 1e-6);
+  assert.ok(p0.eye[2] > p0.look[2] && Math.abs(p0.eye[0] - 100) < 1e-6);          // south of the hero, looking north
+  assert.ok(p90.eye[0] > 100 && Math.abs(p90.eye[2] - p90.look[2]) < 1e-6);        // yaw +90: eye to the east
+  assert.ok(p180.eye[2] < p180.look[2]);                                           // yaw 180: eye to the north
+  assert.ok(Math.abs(p0.eye[1] - p90.eye[1]) < 1e-9);                              // height does not depend on yaw
+});
+
+test('viewFacing + dirOf / dir8Of: the sheet direction follows facing - cameraYaw', () => {
+  const P = Math.PI;
+  assert.equal(viewFacing(1.2, 0), 1.2);
+  // a hero walking east seen from the east side (yaw +90) walks towards or away from the camera; from the north side (yaw 180) it walks west on screen
+  assert.equal(dir8Of(viewFacing(0, P)), 'w');
+  assert.equal(dir8Of(viewFacing(0, P / 2)), 's');          // eye in the east, hero faces the eye = towards the screen
+  assert.equal(dir8Of(viewFacing(0, -P / 2)), 'n');
+  assert.equal(dir8Of(viewFacing(P / 2, P / 2)), 'e');      // facing north, camera east: north is screen right
+  assert.equal(dirOf(viewFacing(P, P)), 'e');
+  assert.equal(dir8Of(viewFacing(-P / 2, 0)), 's');         // unchanged at yaw 0
+});
+
+test('stepYaw: eases to the goal in the showcase, back to 0 (shortest way) outside it, never moves outside', () => {
+  let a = { yaw: 0, goal: 1 };
+  for (let i = 0; i < 120; i++) a = stepYaw(a.yaw, a.goal, true, 1 / 60);
+  assert.equal(a.yaw, 1);
+  assert.equal(a.goal, 1);
+  // a spin of 3 turns + a bit keeps its unwrapped goal until it is close, then folds both by whole turns (no jump)
+  const big = stepYaw(0.5, 2 * Math.PI * 3 + 0.2, true, 1 / 60);
+  assert.ok(Math.abs(big.goal - big.yaw) < 2 * Math.PI + 1e-9 || big.goal < 7);
+  // leaving the showcase: goal forced to 0, yaw wrapped (5.5 rad ~ -0.78) and eases to exactly 0
+  let b = { yaw: 5.5, goal: 5.5 }; const first = stepYaw(b.yaw, b.goal, false, 1 / 60);
+  assert.ok(Math.abs(first.yaw) < 0.8 && first.goal === 0);
+  b = first; for (let i = 0; i < 400; i++) b = stepYaw(b.yaw, b.goal, false, 1 / 60);
+  assert.equal(b.yaw, 0);
+  assert.ok(Math.abs(wrapPi(7) - (7 - 2 * Math.PI)) < 1e-12 && wrapPi(-Math.PI * 3) === wrapPi(Math.PI));
+});
+
+test('camParams: orbit pitch (userPitch) drives the showcase pose, lookH fades to 0 at the close camera', () => {
+  const lo = camParams(CAMERA.showcaseDistance, CAMERA, 6), hi = camParams(CAMERA.showcaseDistance, CAMERA, 55);
+  assert.equal(lo.pitch, 6); assert.equal(hi.pitch, 55);
+  assert.equal(lo.lookH, CAMERA.showcaseLookH);
+  assert.equal(camParams(CAMERA.closeDistance, CAMERA, 6).lookH, 0);
+  assert.ok(camParams(CAMERA.showcaseMin, CAMERA, 6).pitch === 6);               // below showcaseDistance the pose is constant
+  assert.equal(camParams(CAMERA.closeDistance, CAMERA, 6).pitch, camParams(CAMERA.closeDistance, CAMERA, 55).pitch);   // userPitch does not touch the close camera
+});
+
+test('CameraRig.orbit: only in the showcase; yaw returns to 0 when zooming out; pitch clamped; projection follows yaw', () => {
+  const rig = new CameraRig(); rig.setFar(1134); rig.setTarget(500, 500, true); rig.update(1);
+  assert.equal(rig.orbit(1, 5), false); assert.equal(rig.yawGoal, 0);               // normal view: no orbit
+  rig.distanceGoal = 700; rig.update(1);
+  assert.equal(rig.showcase, true);
+  assert.equal(rig.orbit(Math.PI / 2, 100), true);
+  assert.equal(rig.pitchGoal, CAMERA.orbitPitchMax);
+  rig.orbit(0, -500); assert.equal(rig.pitchGoal, CAMERA.orbitPitchMin);
+  for (let i = 0; i < 120; i++) rig.update(1 / 60);
+  assert.ok(Math.abs(rig.yaw - Math.PI / 2) < 1e-6);
+  rig.camera.updateMatrixWorld(true);
+  assert.ok(rig.camera.position.x > rig.target.x + 100);                            // eye east of the hero
+  // the hero stays on the screen centre whatever the yaw
+  const v = rig.camera.position.clone().set(rig.target.x, rig.tz + rig.params.lookH, -rig.target.y).project(rig.camera);
+  assert.ok(Math.abs(v.x) < 1e-6 && Math.abs(v.y) < 1e-6);
+  rig.distanceGoal = 1134; for (let i = 0; i < 600; i++) rig.update(1 / 60);
+  assert.equal(rig.yaw, 0); assert.equal(rig.yawGoal, 0);
+});
+
+test('orbit.js: drag / pinch maths and the joystick zone', () => {
+  const a = dragToOrbit(100, 0), b = dragToOrbit(-100, 0), c = dragToOrbit(0, 50);
+  assert.ok(a.dYaw < 0 && b.dYaw > 0 && a.dYaw === -b.dYaw && a.dPitch === 0);
+  assert.ok(c.dPitch > 0 && c.dYaw === 0);
+  assert.ok(Math.abs(a.dYaw + 100 * ORBIT.yawPerPx) < 1e-12);
+  assert.ok(pinchZoomFactor(100, 200) === 0.5 && pinchZoomFactor(200, 100) === 2 && pinchZoomFactor(0, 100) === 1);   // spread = closer
+  const rect = { left: 0, width: 1000 };
+  assert.equal(inJoyZone(100, rect), true); assert.equal(inJoyZone(500, rect), false);
 });

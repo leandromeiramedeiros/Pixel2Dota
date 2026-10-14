@@ -60,7 +60,7 @@ export function createRenderer({ canvas, sheets }) {
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
   for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
-  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d });
+  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d, yaw: () => rig.yaw });
 
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
   let rtSettledH = 0;
@@ -113,7 +113,9 @@ export function createRenderer({ canvas, sheets }) {
     uniforms.uAmb.value.set(mix(0.66, 0.24), mix(0.72, 0.34), mix(0.72, 0.42));   // v2 day: moody but readable (docs/ART-DIRECTION.md)
     uniforms.uKeyCol.value.set(mix(0.56, 0.14), mix(0.46, 0.25), mix(0.30, 0.36));
     uniforms.uRimKey.value.set(mix(0.58, 0.22), mix(0.48, 0.46), mix(0.30, 0.66));
-    uniforms.uKeyRimDir.value.set(mix(-0.6, 0.55), mix(0.8, 0.83));
+    // the key light stays in the world: its screen-plane x follows the orbit (x = east-west part, 0.6 x it = north-south part), y (up) is yaw independent
+    const kx = mix(-0.6, 0.55), cy = Math.cos(rig.yaw), sy = Math.sin(rig.yaw);
+    uniforms.uKeyRimDir.value.set(kx * (cy + 0.6 * sy), mix(0.8, 0.83));
     uniforms.uNight.value = k;
   }
 
@@ -262,7 +264,7 @@ export function createRenderer({ canvas, sheets }) {
     lights.finalize(time);
     sprites.end(); particles.flush();
     sprites.setRim(settings.rim);
-    clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight);
+    clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight, rig.showcase || rig.yaw !== 0);
 
     terrain.update(cam, rig.snap ? 999 : 6);
     shadow.setEnabled(settings.shadows);
@@ -286,6 +288,9 @@ export function createRenderer({ canvas, sheets }) {
     zoomBy(f) { rig.zoomBy(f); },
     setCameraFar(d, start) { rig.setFar(d, start); fitRT(true); },
     isShowcase() { return rig.showcase; },
+    /** Orbit the hero in the showcase (dYaw rad, + = eye towards east; dPitch deg, + = more top-down). false outside the showcase. */
+    orbit(dYaw, dPitch = 0) { return rig.orbit(dYaw, dPitch); },
+    getYaw() { return rig.yaw; },
     getTarget() { return rig.getTarget(); },
     update,
     fx(events) {

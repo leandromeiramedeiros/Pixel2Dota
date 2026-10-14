@@ -36,4 +36,7 @@ export const ST = {
 // Ability.flags bitmask
 export const ABF = { PASSIVE: 1, TOGGLE_ON: 2, AUTOCAST_ON: 4, CHANNELING: 8, HIDDEN: 16, NO_TARGET: 32, UNIT_TARGET: 64, POINT_TARGET: 128 };
 
-export const INV_SLOTS = 6;
+// Hero inventory: slots 0..ACTIVE_SLOTS-1 are the main (active) inventory; ACTIVE_SLOTS..INV_SLOTS-1 are the backpack (no stats / passives / use).
+export const INV_SLOTS = 9;
+export const ACTIVE_SLOTS = 6;
+export const BACKPACK_SWAP_CD = 6;   // s: an item moved from the backpack into the main inventory cannot be used (cd / cdMax carry it)

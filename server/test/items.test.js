@@ -43,9 +43,9 @@ test('buy: basic, stack, recipe from parts, recipe missing parts, full inventory
   const g3 = p.gold;
   assert.equal(buy('black_king_bar'), true);
   assert.equal(p.gold, g3 - w.data.items.item_black_king_bar.cost);
-  while (keys(h).length < 6) assert.equal(buy('sobi_mask') || buy('gauntlets'), true);
+  while (keys(h).length < 9) assert.equal(buy('sobi_mask') || buy('gauntlets'), true);
   assert.equal(h.items.every((i) => i.key), true);
-  assert.equal(buy('gauntlets'), false, 'full inventory refuses');
+  assert.equal(buy('gauntlets'), false, 'main + backpack full refuses');
   assert.equal(buy('tango'), true, 'but stacks still work');
 });
 

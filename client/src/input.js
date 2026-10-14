@@ -1,10 +1,12 @@
 // Input: Dota-style mouse + keyboard controls -> orders.  createInput({ canvas, renderer, send, hud, getState, mySid }) -> { destroy(), setQuickCast(bool), cancel() }
 //   Right-click: move / attack.  A + left-click: attack-move.  S stop, H hold.  Q W E R (+D F for Invoker): cast.  Z X C V B N: items (B opens the shop when slot 5 is empty).
 //   Ctrl+key: learn.  Shift: queue.  Alt+key / same key twice: self cast.  Y: camera lock.  F1 / Space: centre on hero.  F4: shop.  Tab: scoreboard.  Enter: chat.
-//   Wheel: zoom.  Edge / arrows / middle-drag: pan.
+//   Wheel: zoom.  Edge / arrows / middle-drag: pan.  Showcase (zoomed in past the close camera): middle-drag, Alt + left-drag or left-drag on empty ground
+//   orbit the hero (yaw / pitch), edge pan is off.  Touch orbit: ui/orbit.js.
 import { MSG } from '../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../shared/constants.js';
 import { GLYPHS } from './ui/glyphs.js';
+import { ORBIT, dragToOrbit, createOrbitTouch } from './ui/orbit.js';
 import { glyphCanvas } from './ui/pixels.js';
 import { prettyName } from './ui/format.js';
 import {
@@ -26,7 +28,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   let camLock = false, quickCast = false, touchMode = false;
   let mouse = { x: 0, y: 0, in: false, overCanvas: false };
   const held = new Set();
-  let midDrag = null, rightHeld = false, lastMoveAt = 0, hoverId = null, pickDirty = true;
+  let midDrag = null, orbitDrag = null, rightHeld = false, lastMoveAt = 0, hoverId = null, pickDirty = true;
 
   // ---- state helpers
   const state = () => getState();
@@ -34,6 +36,8 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   const hero = () => { const s = state(), p = me(); return s && p && p.heroId ? s.units.get(p.heroId) : null; };
   const ctx = () => { const s = state(), p = me(); return { myTeam: p ? p.team : -1, getUnit: (id) => (s && s.units ? s.units.get(id) : null) }; };
   const warn = (t) => call('message', t, true);
+  const showcase = () => !!(renderer.isShowcase && renderer.isShowcase());
+  const orbit = createOrbitTouch({ canvas, renderer });   // touch drag / pinch in the showcase (pointer events, only for non-mouse pointers)
 
   // ---- cursors (pixel glyphs)
   const cursorCache = {};
@@ -51,6 +55,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   }
   function setCursor() {
     let n = 'default';
+    if (orbitDrag && orbitDrag.moved) { if (canvas.style.cursor !== 'grabbing') canvas.style.cursor = 'grabbing'; return; }
     if (mode) n = mode.kind === 'amove' ? 'attack' : 'target';
     else if (hoverId) { const u = ctx().getUnit(hoverId); if (u && u.team !== ctx().myTeam) n = 'attack'; }
     const c = n === 'default' ? 'default' : cursorFor(n);
@@ -113,7 +118,8 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   // ---- mouse
   function onMouseDown(e) {
     mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
-    if (e.button === 1) { e.preventDefault(); midDrag = { x: e.clientX, y: e.clientY }; return; }
+    if (e.button === 1) { e.preventDefault(); if (showcase()) orbitDrag = { moved: true }; else midDrag = { x: e.clientX, y: e.clientY }; return; }
+    if (e.button === 0 && e.altKey && !mode && showcase()) { e.preventDefault(); orbitDrag = { moved: true }; return; }
     const p = pick(e.clientX, e.clientY);
     if (e.button === 0) {
       if (mode) {
@@ -127,8 +133,9 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
         }
         return;
       }
-      // select
+      // select (in the showcase a left press on empty ground may turn into an orbit drag: the deselect waits for the release)
       const id = p.unitId || null;
+      if (!id && showcase()) { orbitDrag = { moved: false, x0: e.clientX, y0: e.clientY, deselect: true }; return; }
       renderer.setSelected && renderer.setSelected(id);
       call('select', id);
     } else if (e.button === 2) {
@@ -138,7 +145,11 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     }
   }
   function onMouseUp(e) {
-    if (e.button === 1) midDrag = null;
+    if (e.button === 1) { midDrag = null; if (orbitDrag && !orbitDrag.deselect) orbitDrag = null; }
+    if (e.button === 0 && orbitDrag) {
+      if (orbitDrag.deselect && !orbitDrag.moved) { renderer.setSelected && renderer.setSelected(null); call('select', null); }
+      orbitDrag = null; setCursor();
+    }
     if (e.button === 2) rightHeld = false;
   }
   function onMouseMove(e) {
@@ -146,7 +157,10 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
     mouse.overCanvas = e.target === canvas;
     pickDirty = true;
-    if (midDrag) {
+    if (orbitDrag) {
+      if (!orbitDrag.moved && Math.hypot(e.clientX - orbitDrag.x0, e.clientY - orbitDrag.y0) > ORBIT.slop) { orbitDrag.moved = true; setCursor(); }
+      if (orbitDrag.moved) { const o = dragToOrbit(dx, dy); if (!(renderer.orbit && renderer.orbit(o.dYaw, o.dPitch))) orbitDrag = null; }
+    } else if (midDrag) {
       const rig = renderer.rig; const t = renderer.getTarget();
       const r = rect();
       const wx = ((rig && rig.visibleWidth) || 2100) / r.width, wy = (((rig && rig.visibleHeight) || 1190) / r.height) / 0.866;
@@ -213,7 +227,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     if (ARROWS[e.code]) held.delete(e.code);
     if (e.code === 'Tab') { e.preventDefault(); call('setScoreboard', false); }
   }
-  function onBlur() { held.clear(); call('setScoreboard', false); rightHeld = false; midDrag = null; }
+  function onBlur() { held.clear(); call('setScoreboard', false); rightHeld = false; midDrag = null; orbitDrag = null; }
 
   // ---- per-frame: pan, camera lock, hover, held right-click
   const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
@@ -225,7 +239,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     const vh = (rig && rig.visibleHeight) || 1190;
     let vx = 0, vy = 0;
     for (const k of held) { vx += ARROWS[k][0]; vy += ARROWS[k][1]; }
-    if (mouse.in && mouse.overCanvas && !midDrag && !touchMode) {
+    if (mouse.in && mouse.overCanvas && !midDrag && !orbitDrag && !touchMode && !showcase()) {   // no edge pan while orbiting the hero in the showcase
       const r = rect();
       if (mouse.x <= r.left + EDGE) vx -= 1; else if (mouse.x >= r.right - EDGE) vx += 1;
       if (mouse.y <= r.top + EDGE) vy += 1; else if (mouse.y >= r.bottom - EDGE) vy -= 1;
@@ -274,7 +288,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     cancel,
     activate, learn,
     destroy() {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf); orbit.destroy();
       canvas.removeEventListener('mousedown', onMouseDown);
       canvas.removeEventListener('contextmenu', noCtx);
       canvas.removeEventListener('wheel', onWheel);

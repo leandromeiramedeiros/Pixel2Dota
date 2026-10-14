@@ -90,6 +90,7 @@ Attack hooks get `info = { dmg, final, type, crit, pierce, noCleave }` (mutable 
 ## Items (`items.js`) and Bots (`bots.js`)
 
 Exports and signatures are documented at the top of each file. Item state: `u.items[i] = {key, charges, cd, cdMax}`; set `u._dirty = true` after changes.
+Inventory = `INV_SLOTS` 9 (`shared/protocol.js`): slots `0..ACTIVE_SLOTS-1` (6) are the main inventory, `6..8` the backpack. Backpack items give no stats / passives / hooks, cannot be used (`useInfo` null, item orders refused) and gain no charges; they still tick cooldowns and count for recipes, stacking and selling. Buying fills main then backpack; refused when all 9 are taken unless it completes a recipe. `{t:'swap',a,b}` works over all 9; an item moved backpack -> main gets `cd = max(cd, BACKPACK_SWAP_CD=6)` (and `cdMax`), which blocks use for every item, so the client shows it through the normal `cd/cdMax` item fields (no extra field). The Aegis only lives in main. New item code: loop `i < ACTIVE_SLOTS` for anything that acts (stats, passives, hooks, use).
 `useInfo(w,u,slot) -> null | {targeting, range, castPoint, ready, ...}` makes `{t:'item'}` orders work through the same cast flow as abilities.
 `use()` may return `{key, channel, tick?, end?}` (TP scroll). `onEnemySpell(w, u, caster, key)` (magic stick/wand) fires for enemy heroes within 1200 of any non-passive cast (orders.js).
 Bots: `update(w, dt)` runs once per tick before units think; use `w.order(pid, ...)`; stagger by `(w.tick + slot) % N`. Per-hero item builds: `BUILD` / `MELEE_CORE` tables.

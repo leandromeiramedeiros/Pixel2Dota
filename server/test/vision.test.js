@@ -181,3 +181,13 @@ test('room mirrors vision sources into state.vision and clears them on expiry', 
   syncVision(st, w);
   assert.equal(st.vision.size, 0);
 });
+
+test('addVision: flying (unobstructed) by default, ground:true opts into terrain blocking; the schema mirrors it', () => {
+  const st = new MatchState();
+  const w = new World({ seed: 1, pregame: 0, buildings: false });
+  const a = w.addVision({ team: R, x: 0, y: 0, r: 300, dur: 5 });
+  const b = w.addVision({ team: R, x: 100, y: 0, r: 300, dur: 5, ground: true });
+  assert.equal(a.fly, true); assert.equal(b.fly, false);
+  syncVision(st, w);
+  assert.equal(st.vision.get(a.id).fly, true); assert.equal(st.vision.get(b.id).fly, false);
+});

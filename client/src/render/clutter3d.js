@@ -347,7 +347,7 @@ void main(){
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
   col += uRimOn * .55 * (uRimKey * fr * (.3 + kf) + pl * fr * .5);
   col += vEm * vCol * (.5 * uNight * (.82 + .18 * sin(uTime * 1.3 + vPh * 3.)));   // mushroom caps: faint glow at night only
-  gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);
+  gl_FragColor = vec4(fogGrade(col, vFoot, dp), 1.);
 }`;
 
 const IFLOATS = [['iPos', 3], ['iXf', 4]];
@@ -374,16 +374,17 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
   const MARGIN = 150;
   const api = {
     group, stats, data, enabled: true, density: 1,   // density < 1 thins every cell evenly (quality)
-    /** cull to the camera view and fill the instance buffers. (tx, ty) = camera target, visW / visH = visible size at the target */
-    update(camera, tx, ty, visW, visH) {
+    /** cull to the camera view and fill the instance buffers. (tx, ty) = camera target, visW / visH = visible size at the target; round = orbiting camera (yaw != 0): symmetric search radius instead of the north-up box */
+    update(camera, tx, ty, visW, visH, round = false) {
       const t0 = performance.now();
       for (const t of vars) t.n = 0;
       let cells = 0;
       if (api.enabled) {
         pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
         const x0 = map.x0, y1 = map.y1;
-        const cx0 = Math.max(0, Math.floor((tx - visW * 0.95 - x0) / CELL)), cx1 = Math.min(GW - 1, Math.floor((tx + visW * 0.95 - x0) / CELL));
-        const cy0 = Math.max(0, Math.floor((y1 - (ty + visH * 1.7)) / CELL)), cy1 = Math.min(GH - 1, Math.floor((y1 - (ty - visH * 0.9)) / CELL));
+        const rx = round ? Math.max(visW * 0.95, visH * 1.7) : visW * 0.95, rN = round ? rx : visH * 1.7, rS = round ? rx : visH * 0.9;
+        const cx0 = Math.max(0, Math.floor((tx - rx - x0) / CELL)), cx1 = Math.min(GW - 1, Math.floor((tx + rx - x0) / CELL));
+        const cy0 = Math.max(0, Math.floor((y1 - (ty + rN)) / CELL)), cy1 = Math.min(GH - 1, Math.floor((y1 - (ty - rS)) / CELL));
         for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
           const ci = cy * GW + cx, a = keyStart[ci * NV], b = keyStart[ci * NV + NV]; if (a === b) continue;
           const wx = x0 + cx * CELL, zn = -(y1 - cy * CELL);

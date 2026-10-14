@@ -24,7 +24,7 @@ export const Unit = schema({
 
 // Temporary team vision source (sim vision.js: Sun Strike, Mirana Arrow...). Not a unit: the client fog casts vision of radius r from (x, y) for `team`.
 export const VisionSrc = schema({
-  id: t.string(), team: t.int8(), x: t.float32(), y: t.float32(), r: t.uint16(),
+  id: t.string(), team: t.int8(), x: t.float32(), y: t.float32(), r: t.uint16(), fly: t.boolean(),   // fly: ignores cliffs + trees (client fog)
 }, 'VisionSrc');
 
 export const Player = schema({

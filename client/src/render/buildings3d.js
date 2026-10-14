@@ -211,7 +211,7 @@ void main(){
   bool top = abs(n.y) > .6;
   vec2 dp = top ? floor(vW.xz / 6.) : vec2(floor((vW.x + vW.z) / 6.), floor(vW.y / 6.));
 #ifdef HULL
-  gl_FragColor = vec4(mix(vec3(.02, .017, .028), vHi.rgb, vHi.a) * fogBright(vFoot, dp), 1.);
+  gl_FragColor = vec4(fogGrade(mix(vec3(.02, .017, .028), vHi.rgb, vHi.a), vFoot, dp), 1.);
 #else
   float em = vE;
   vec3 alb = vCol * mix(1.2, 1., em);
@@ -233,7 +233,7 @@ void main(){
   col += uRimOn * (uRimKey * fr * (.3 + kf) + pl * fr * 1.1) * (1. - em);
   col += vHi.rgb * vHi.a * (.03 + fr * .8);
   col = mix(col, vec3(1.5, 1.45, 1.35), vSt.z * .7);
-  gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);
+  gl_FragColor = vec4(fogGrade(col, vFoot, dp), 1.);
 #endif
 }`;
 

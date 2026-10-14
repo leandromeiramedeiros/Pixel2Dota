@@ -4,7 +4,7 @@
 // use consumables / BKB / TP, retreat (hp < 30 %, enemy tower without creeps, outnumbered), cast abilities on enemy heroes in range
 // (from DATA behaviour), last-hit / deny, attack towers together with creeps, else amove along the lane behind the front creep.
 // Orders are only re-issued when they change (a non-queued order cancels attack windups and channels).
-import { KIND, TEAM, ST, ABF } from '../../../shared/protocol.js';
+import { KIND, TEAM, ST, ABF, ACTIVE_SLOTS } from '../../../shared/protocol.js';
 import { SHOP_RANGE, TOWER_RANGE, armorMult } from '../../../shared/constants.js';
 import { lanePath } from './creeps.js';
 
@@ -43,7 +43,8 @@ const RECIPE = { invoker_cold_snap: 'QQQ', invoker_sun_strike: 'EEE', invoker_to
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const lvl = (arr, level) => (arr && arr.length ? arr[Math.min(Math.max(level, 1), arr.length) - 1] : 0);
 const has = (u, key) => u.items.some((it) => it.key === key);
-const slotOf = (u, key) => u.items.findIndex((it) => it.key === key);
+const slotOf = (u, key) => { const i = u.items.findIndex((it) => it.key === key); return i < ACTIVE_SLOTS ? i : -1; };   // usable (main inventory) slot
+const slotAny = (u, key) => u.items.findIndex((it) => it.key === key);                                            // main or backpack
 
 export function update(w, dt) {
   if (w.winner >= 0) return;
@@ -229,6 +230,17 @@ function buyChoice(w, u, p) {
   return best;
 }
 
+/** Keep core items in the main inventory: consumables / junk go to the backpack (swap, 6 s lock on the item entering main). One swap per call. */
+const keepScore = (it) => (!it.key ? 0 : it.key === 'item_tpscroll' ? 2 : JUNK.includes(it.key) ? 1 : 3);
+function tidy(w, pid, u) {
+  let bi = -1, bs = 0;
+  for (let i = ACTIVE_SLOTS; i < u.items.length; i++) { const sc = keepScore(u.items[i]); if (sc > bs) { bs = sc; bi = i; } }
+  if (bi < 0) return;
+  let mi = -1, ms = bs;
+  for (let i = 0; i < ACTIVE_SLOTS; i++) { const sc = keepScore(u.items[i]); if (sc < ms) { ms = sc; mi = i; } }
+  if (mi >= 0) w.order(pid, { t: 'swap', a: mi, b: bi });
+}
+
 function shopping(w, pid, p, u, st) {
   if (w.time - st.buyT < 2) return;
   st.buyT = w.time;
@@ -245,8 +257,8 @@ function shopping(w, pid, p, u, st) {
     if (!k) return;
     if (w.order(pid, { t: 'buy', key: k })) continue;
     // full inventory: sell junk to make room
-    if (u.items.every((it) => it.key)) {
-      for (const jk of JUNK) { const s = slotOf(u, jk); if (s >= 0) { w.order(pid, { t: 'sell', slot: s }); break; } }
+    if (u.items.every((it) => it.key)) {   // main + backpack full: sell junk
+      for (const jk of JUNK) { const s = slotAny(u, jk); if (s >= 0) { w.order(pid, { t: 'sell', slot: s }); break; } }
     }
     return;
   }
@@ -367,6 +379,7 @@ function think(w, pid, p, u, st) {
   learnSkills(w, pid, u);
   rotControl(w, pid, u);
   if (nearShop(w, u)) shopping(w, pid, p, u, st);
+  if (w.tick % (THINK * 5) < THINK) tidy(w, pid, u);
   if (u._channel) return;                                        // TP / channelled spell: do not touch
   const q0 = u._q[0];
   if (q0 && (q0.t === 'cast' || q0.t === 'item') && w.time - st.cmdT < 2.5) return;   // let a cast finish
