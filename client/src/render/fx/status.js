@@ -23,16 +23,18 @@ export function register(c, R) {
     for (let i = 0; i < n; i++) {
       const ch = s[i] === 'q' || s[i] === 'w' || s[i] === 'e' ? s[i].toUpperCase() : s[i];
       const o = ORB[ch]; if (!o) continue;
-      const a = ph + i * (TAU / 3), R0 = 78;
+      const a = ph + i * (TAU / 3), R0 = 88;
+      const back = Math.sin(a), dk = 1 - 0.35 * Math.max(0, back);   // far half of the ring: dimmer and smaller (reads as depth in a still frame)
       const ox = u.x + Math.cos(a) * R0, oy = u.y + Math.sin(a) * R0, oz = zc + Math.sin(a) * 16;
       const mul = elemMul(ch, c.T, i * 7.3 + u.id.length);
       // body: sprite quad + two halo glows (soft wide + tight hot)
       const f = fOrb[ch];
-      if (f) Q.put(ox, oy, oz, f, 1.5, o.lt[0] * 1.5, o.lt[1] * 1.5, o.lt[2] * 1.5, 1, 1.2 * (0.8 + 0.2 * mul), 0, 0, 0, 0, false, 1.1);
-      P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 18 + (ch === 'W' ? 5 * mul : 0), size1: 16, col0: o.pal.mid, col1: o.pal.mid, a0: 0.22 * (0.7 + 0.3 * mul), a1: 0.2, mode: 'glow', speed: 0, noScale: true });
-      P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 7, size1: 6, col0: o.pal.hot, col1: o.pal.hot, a0: 1, a1: 1, mode: 'glow', speed: 0, noScale: true });
+      if (f) Q.put(ox, oy, oz, f, 1.5 * (0.85 + 0.15 * dk), o.lt[0] * 1.05 * dk, o.lt[1] * 1.05 * dk, o.lt[2] * 1.05 * dk, 1, 0.75 * (0.8 + 0.2 * mul), 0, 0, 0, 0, false, 1.1);
+      P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 18 + (ch === 'W' ? 5 * mul : 0), size1: 16, col0: o.pal.mid, col1: o.pal.mid, a0: 0.13 * (0.7 + 0.3 * mul), a1: 0.12, mode: 'glow', speed: 0, noScale: true });
+      P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 6, size1: 5, col0: o.pal.hot, col1: o.pal.hot, a0: 0.6, a1: 0.6, mode: 'glow', speed: 0, noScale: true });
       // per-orb light (trainer behaviour: E flickers, W strobes, Q steady and a bit tighter)
-      c.lightNow(ox, oy, oz, o.lt, ch === 'Q' ? 160 : ch === 'W' ? 160 : 190, 0.3 * mul, 0);
+      // stronger than the orb looks: it lights Invoker (faint coloured rim + fill) and the ground, and casts a soft shadow (spell light, cube shadow when in budget)
+      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 230 : 210, 0.45 * mul, 0);
       // element-specific wisps
       const nn = c.n((ch === 'E' ? 60 : ch === 'W' ? 40 : 45) * dt);
       for (let k = 0; k < nn; k++) {
@@ -40,8 +42,11 @@ export function register(c, R) {
         else if (ch === 'W') { if (mul > 1) P.spawn(c.pix(o.pal, { x: ox, y: oy, z: oz, life: [0.15, 0.4], px: [0.8, 1.6], col0: [5, 4.2, 6.5], speed: [60, 180], shape: 'sphere', gravity: -200, drag: 1.2 })); }
         else P.spawn(c.pix(o.pal, { x: ox - Math.sin(a) * 10 + rnd(-3, 3), y: oy + Math.cos(a) * 8 + rnd(-3, 3), z: oz + rnd(-4, 4), life: [0.4, 0.8], px: [0.8, 1.6], speed: [0, 6], up: [-10, 14], settle: false }));
       }
-      // orbit trail: little comet tail along the path
-      P.spawn(c.pix(o.pal, { x: ox - Math.sin(a) * 9, y: oy + Math.cos(a) * 7, z: oz, life: 0.22, px: 1, speed: 0, settle: false }));
+      // orbit trail: comet tail laid along the ring behind the orb (fading pixels), so the circling reads even in a still frame
+      for (let k = 1; k <= 5; k++) {
+        const b = a - k * 0.13;
+        P.spawn(c.pix(o.pal, { x: u.x + Math.cos(b) * R0, y: u.y + Math.sin(b) * R0, z: zc + Math.sin(b) * 16, life: 0.05, px: k < 3 ? 1.6 : 1, a0: 1 - k * 0.16, a1: 0, speed: 0, settle: false, keep: true }));
+      }
     }
   }
 

@@ -60,8 +60,8 @@ void main(){
   float v = body * along * drift * vK * uBeamK;
   float fb = fogBright(vW, gl_FragCoord.xy);
   v *= clamp((fb - uFogLv.x) / (1. - uFogLv.x), 0., 1.);
-  v = floor(v * 6. + bayer4(gl_FragCoord.xy)) / 6.;                             // Bayer-quantised: dithered edges, no smooth gradient
-  if (v <= 0.) discard;
+  float q = floor(v * 6. + .5) / 6.; v = q < .08 ? v : q;                       // stepped bands, smooth faint tail (ordered dither read as a grid)
+  if (v <= .004) discard;
   gl_FragColor = vec4(vC * (v * 3.6), 0.);
 }`;
 

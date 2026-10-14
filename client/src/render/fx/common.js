@@ -108,8 +108,25 @@ export function createCtx(args) {
     });
   };
   /** ring decal sized to world radius R */
+  //   3D: a shader-drawn targeting circle (geo3d disc TARGET: rim, turning dashed ring, inner ring, rays) at render resolution, plus a
+  //   coloured ground light, instead of the 78 px decal sprite stretched to 6+ world units per art px (read as a blocky staircase).
+  //   o: {emit, spin, roll, pulse, pulseHz, follow, grow:[k0,k1] (radius multipliers), growSpeed, fadeIn, fadeOut, light:false}
   c.ringDecal = (x, y, R, dur, tint, o) => {
-    o = o || {}; o.tint = tint; return c.decal(x, y, 'decal_ring_target', R / 78, dur, o);
+    o = o || {};
+    const t = tint || [1, 1, 1], m = Math.max(t[0], t[1], t[2], 1e-3), em = o.emit == null ? 1 : o.emit;
+    const col = [t[0] / m * 0.6 * em, t[1] / m * 0.6 * em, t[2] / m * 0.6 * em];   // hue from the tint, shell kept under the bloom threshold
+    const opt = { n: 12, seed: Math.random() * 50, p0: o.roll || 0, p1: 0.12, p2: 0.35 };
+    const lt = o.light === false ? null : c.glow(x, y, heightAt(x, y) + 30, [t[0] / m, t[1] / m, t[2] / m], R * 1.25, 0.55 * em, dur, { mode: 'flat', follow: o.follow, dz: 30 });
+    return c.run(dur, (r) => {
+      let px = x, py = y;
+      if (o.follow) { const u = unitById(o.follow); if (!u) return false; px = u.x; py = u.y; }
+      const k = r.k, fi = o.fadeIn || 0.08, fo = o.fadeOut || 0.3;
+      const a = Math.max(0, Math.min(1, k / fi, (1 - k) / fo));
+      const g = o.grow ? o.grow[0] + (o.grow[1] - o.grow[0]) * Math.min(1, k * (o.growSpeed || 1)) : 1;
+      const pul = o.pulse ? 1 + o.pulse * Math.sin(c.T * (o.pulseHz || 8)) : 1;
+      opt.p0 = (o.roll || 0) + (o.spin || 0) * r.t;
+      c.G.disc(px, py, heightAt(px, py), R * g, 1, col, a * pul, opt);
+    });
   };
 
   // ---------------------------------------------------------------------------------------------------------------- updates

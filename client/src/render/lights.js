@@ -17,11 +17,12 @@ function albedoAt(x, y) {
 
 export const CAP = MAX_LIGHTS;
 
-/** Pure: pick the best `cap` lights for a view centre (cx, cy). Score = intensity * radius^2 / (1 + dist/1000). */
+/** Pure: pick the best `cap` lights for a view centre (cx, cy). Score = intensity * radius / (1 + dist/1000): linear in radius so wide
+ *  telegraph rings don't crowd out the small bright cores where the particles are. */
 export function selectLights(list, cx, cy, cap = CAP) {
   const sc = list.map((l) => {
     const d = Math.hypot(l.x - cx, l.y - cy);
-    return { l, s: (l.intensity * l.radius * l.radius) / (1 + d / 1000) };
+    return { l, s: (l.intensity * l.radius) / (1 + d / 1000) };
   });
   sc.sort((a, b) => b.s - a.s);
   return sc.slice(0, cap).map((e) => e.l);
