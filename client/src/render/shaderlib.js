@@ -32,6 +32,10 @@ export function createSharedUniforms() {
     uPersp: { value: 0 },                                                   // 0 = constant sprite scale, 1 = perspective scale
     uShadowMap: { value: null },                                            // key-light depth map (shadow.js)
     uShadowM: { value: new THREE.Matrix4() },                               // world (three coords) -> shadow map uv + depth
+    uPSMap: { value: null },                                                // spell-light cube shadow, 3x2 face atlas (shadow.js renderPoint)
+    uPSM: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Matrix4()) },     // per face: world -> atlas uv (xy / w)
+    uPSIdx: { value: -1 },                                                  // index into uLP of the shadow-casting light, -1 = none
+    uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },                     // near, far, bias (world units), unused
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
@@ -98,6 +102,23 @@ float shadowAt(vec3 p, vec3 n, vec2 dp){
 // ambient occlusion by the key shadow: open-sky light is also partly blocked by the caster
 vec3 shadowAmb(float sh){ return uAmb * mix(.8, 1., sh); }
 
+// shadow of the ONE casting point light (uPSIdx) at p: the cube face is the major axis of p - lp, its view depth is that axis length
+uniform sampler2D uPSMap;
+uniform mat4 uPSM[6];
+uniform int uPSIdx;
+uniform vec4 uPSP;
+float pointShadow(vec3 p, vec3 lp){
+  vec3 d = p - lp, a = abs(d);
+  mat4 M; float z;
+  if (a.x >= a.y && a.x >= a.z) { M = d.x > 0. ? uPSM[0] : uPSM[1]; z = a.x; }
+  else if (a.y >= a.z) { M = d.y > 0. ? uPSM[2] : uPSM[3]; z = a.y; }
+  else { M = d.z > 0. ? uPSM[4] : uPSM[5]; z = a.z; }
+  vec4 s = M * vec4(p, 1.);
+  float zd = texture2D(uPSMap, s.xy / s.w).r;
+  float lin = uPSP.x * uPSP.y / (uPSP.y - zd * (uPSP.y - uPSP.x));
+  return step(z - uPSP.z, lin);
+}
+
 // sum of point lights at world point p with surface normal n; soft = how much of each light ignores the normal
 vec3 pointLights(vec3 p, vec3 n, float soft){
   vec3 acc = vec3(0.);
@@ -108,6 +129,7 @@ vec3 pointLights(vec3 p, vec3 n, float soft){
     float a = 1. - dist / uLP[i].w;
     if (a <= 0.) continue;
     a *= a;
+    if (i == uPSIdx) a *= mix(.15, 1., pointShadow(p, uLP[i].xyz));
     float ndl = max(dot(n, d / max(dist, 1.)), 0.);
     acc += uLC[i].rgb * (a * mix(ndl, 1., soft));
   }

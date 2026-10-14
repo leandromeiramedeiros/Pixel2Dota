@@ -84,7 +84,7 @@ export function createCtx(args) {
     r.seed = Math.random() * 100;
     gl.push(r); return r;
   };
-  const _l = { x: 0, y: 0, z: 0, r: 1, g: 1, b: 1, radius: 1, intensity: 1, flicker: 0 };
+  const _l = { x: 0, y: 0, z: 0, r: 1, g: 1, b: 1, radius: 1, intensity: 1, flicker: 0, cast: true };   // spell lights may cast the cube shadow (lights.js)
   /** Immediate (this frame only) light; only valid from update-time code. */
   c.lightNow = (x, y, z, col, radius, intensity, flicker) => {
     _l.x = x; _l.y = y; _l.z = z; _l.r = col[0]; _l.g = col[1]; _l.b = col[2]; _l.radius = radius; _l.intensity = intensity; _l.flicker = flicker || 0;

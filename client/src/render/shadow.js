@@ -25,6 +25,17 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
   const state = { enabled: true, ms: 0, half: 0 };
   uniforms.uShadowMap.value = depthTexture;
 
+  // spell-light cube shadow: 6 x 90 deg faces packed 3x2 into one depth atlas
+  const PF = 256;
+  const pDepth = new THREE.DepthTexture(PF * 3, PF * 2, THREE.UnsignedIntType);
+  pDepth.magFilter = pDepth.minFilter = THREE.NearestFilter;
+  const prt = new THREE.WebGLRenderTarget(PF * 3, PF * 2, { depthBuffer: true, depthTexture: pDepth, generateMipmaps: false });
+  const DIRS = [[1, 0, 0, 0, -1, 0], [-1, 0, 0, 0, -1, 0], [0, 1, 0, 0, 0, 1], [0, -1, 0, 0, 0, -1], [0, 0, 1, 0, -1, 0], [0, 0, -1, 0, -1, 0]];
+  const pcams = DIRS.map(() => { const c = new THREE.PerspectiveCamera(90, 1, 8, 600); c.layers.set(SHADOW_LAYER); return c; });
+  const ATL = pcams.map((_, f) => { const fx = f % 3, fy = (f / 3) | 0; return new THREE.Matrix4().set(0.5 / 3, 0, 0, (0.5 + fx) / 3, 0, 0.25, 0, (0.5 + fy) / 2, 0, 0, 0.5, 0.5, 0, 0, 0, 1); });
+  uniforms.uPSMap.value = pDepth;
+  const LP = new THREE.Vector3(), LT = new THREE.Vector3();
+
   function swap(m, mat) { if (m.isMesh && m.visible) { swapped.push(m, m.material); m.material = mat; m.layers.enable(SHADOW_LAYER); } }
 
   return {
@@ -62,6 +73,34 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
       swapped.length = 0;
       state.ms = performance.now() - t0;
     },
-    dispose() { rt.dispose(); depthTexture.dispose(); },
+    /** cube shadow from point light l (world coords {x,y,z,radius}) or null; uniforms.uPSIdx is set by lights.js */
+    renderPoint(scene, l) {
+      if (!l || !state.enabled) { uniforms.uPSIdx.value = -1; return; }
+      const t0 = performance.now();
+      const far = Math.max(60, l.radius);
+      LP.set(l.x, l.z, -l.y);
+      for (const c of casters) swap(c.mesh, c.mat);
+      for (const g of groups) for (const m of g.group.children) swap(m, g.mat);
+      const prev = gl.getRenderTarget();
+      prt.scissorTest = false; prt.viewport.set(0, 0, PF * 3, PF * 2);
+      gl.setRenderTarget(prt); gl.clear(true, true, false);
+      prt.scissorTest = true;
+      for (let f = 0; f < 6; f++) {
+        const c = pcams[f], d = DIRS[f], fx = f % 3, fy = (f / 3) | 0;
+        c.far = far; c.updateProjectionMatrix();
+        c.position.copy(LP); c.up.set(d[3], d[4], d[5]); c.lookAt(LT.set(LP.x + d[0], LP.y + d[1], LP.z + d[2])); c.updateMatrixWorld();
+        uniforms.uPSM.value[f].multiplyMatrices(ATL[f], c.projectionMatrix).multiply(c.matrixWorldInverse);
+        prt.viewport.set(fx * PF, fy * PF, PF, PF); prt.scissor.set(fx * PF, fy * PF, PF, PF);
+        gl.setRenderTarget(prt);
+        gl.render(scene, c);
+      }
+      prt.scissorTest = false;
+      gl.setRenderTarget(prev);
+      for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
+      swapped.length = 0;
+      uniforms.uPSP.value.set(8, far, 10, 0);
+      state.pointMs = performance.now() - t0;
+    },
+    dispose() { rt.dispose(); depthTexture.dispose(); prt.dispose(); pDepth.dispose(); },
   };
 }

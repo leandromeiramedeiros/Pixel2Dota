@@ -94,7 +94,7 @@ void main(){
   vec3 v = normalize(uCamPos - vW);
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
-  col += uRimOn * step(.05, vSw) * (uRimKey * fr * (.3 + kf) + pl * fr * .5);
+  col += uRimOn * (step(.05, vSw) * uRimKey * fr * (.3 + kf) + pl * fr * .9);   // spell / practical light rims trunks too
   gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);
 }`;
 

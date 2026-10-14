@@ -230,7 +230,7 @@ void main(){
   vec3 v = normalize(uCamPos - vW);
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
-  col += uRimOn * (uRimKey * fr * (.3 + kf) + pl * fr * .6) * (1. - em);
+  col += uRimOn * (uRimKey * fr * (.3 + kf) + pl * fr * 1.1) * (1. - em);
   col += vHi.rgb * vHi.a * (.03 + fr * .8);
   col = mix(col, vec3(1.5, 1.45, 1.35), vSt.z * .7);
   gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);

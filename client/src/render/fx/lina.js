@@ -69,7 +69,7 @@ export function register(c, R) {
     const G = c.G, crim = PAL.blood;
     const x1 = ev.x2 != null ? ev.x2 : tu ? tu.x : su.x, y1 = ev.y2 != null ? ev.y2 : tu ? tu.y : su.y, dur = ev.dur || 0.6;
     const sid = su.id, tz = tu ? c.chest(tu) : c.zAt(x1, y1) + 90;
-    const RED = [1.25, 0.12, 0.08], CORE = [3.4, 1.7, 1.4], WHITE = [2.4, 2.0, 1.9], EMB = [1.0, 0.32, 0.06], FLARE = [1.25, 0.2, 0.1];
+    const RED = [0.8, 0.08, 0.05], CORE = [1.9, 0.95, 0.78], WHITE = [1.35, 1.1, 1.05], EMB = [0.68, 0.22, 0.04], FLARE = [0.8, 0.13, 0.06];   // toned down (director: too bright)
     // charge: red crackling gather on the hand, small ribbon arcs lashing out
     const arcs = [G.newBolt(), G.newBolt()], ao = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }], aopt = { depth: 2, jag: 9, branches: 0 };
     c.run(dur, (r, dt) => {
@@ -94,7 +94,7 @@ export function register(c, R) {
       let sx = sx0, sy = sy0, ex = x1, ey = y1, ez = tz, grounded = c.zAt(x1, y1), spark = 0;
       const ang0 = c.ang(sx0, sy0, x1, y1);
       c.flash(sx0 + Math.cos(ang0) * 30, sy0 + Math.sin(ang0) * 30, sz, crim, 70, 0.2);
-      c.flash(x1, y1, tz, crim, 130, 0.3);
+      c.flash(x1, y1, tz, crim, 90, 0.22);
       c.sparks(x1, y1, tz, crim, { count: 18, speed: [160, 480] });
       c.stars(x1, y1, tz, PAL.steel, { count: 10 });
       c.embers(x1, y1, grounded + 30, PAL.fire, { count: 14, speed: [120, 420] });
@@ -106,7 +106,7 @@ export function register(c, R) {
         const hz = uu ? c.chest(uu) : sz, hx = sx + Math.cos(ang0) * 28, hy = sy + Math.sin(ang0) * 28, a = r.t < 0.3 ? 1 : Math.max(0, 1 - (r.t - 0.3) / 0.25);
         if (mainB.roll(c.T, 0.05, hx, hy, hz, ex, ey, ez, mopt) && spark++ < 40) c.boltSparks(mainB, crim, 0.35);
         echoB.roll(c.T, 0.05, hx, hy, hz - 8, ex, ey, ez + 6, eopt);
-        G.bolt(mainB, RED, 5, CORE, 2, a);
+        G.bolt(mainB, RED, 4, CORE, 1.5, a);
         G.bolt(echoB, RED, 3, WHITE, 1, a * 0.8);
         // arcs crackling around the target
         for (let i = 0; i < 3; i++) {

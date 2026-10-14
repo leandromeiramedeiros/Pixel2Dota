@@ -18,7 +18,7 @@ export function selectLights(list, cx, cy, cap = CAP) {
 export function createLights(uniforms, scene) {
   const list = [];
   const beams = scene ? createBeams(scene, uniforms) : null;     // volumetric shafts, drawn into the scene target (beams.js)
-  let n = 0, cx = 0, cy = 0, viewR = 2600;
+  let n = 0, cx = 0, cy = 0, viewR = 2600, shadowLight = null, px = 1e9, py = 1e9;
   return {
     /** call at the start of each frame */
     clear() { list.length = 0; n = 0; },
@@ -26,7 +26,7 @@ export function createLights(uniforms, scene) {
       if (!l || !(l.radius > 0)) return;
       list.push({
         x: l.x, y: l.y, z: l.z == null ? 40 : l.z, r: l.r == null ? 1 : l.r, g: l.g == null ? 1 : l.g, b: l.b == null ? 1 : l.b,
-        radius: l.radius, intensity: l.intensity == null ? 1 : l.intensity, flicker: l.flicker || 0, beam: l.beam,
+        radius: l.radius, intensity: l.intensity == null ? 1 : l.intensity, flicker: l.flicker || 0, beam: l.beam, cast: !!l.cast,
       });
     },
     setView(x, y, r) { cx = x; cy = y; if (r) viewR = r; },
@@ -46,10 +46,21 @@ export function createLights(uniforms, scene) {
         C[i * 4] = l.r * l.intensity * f; C[i * 4 + 1] = l.g * l.intensity * f; C[i * 4 + 2] = l.b * l.intensity * f; C[i * 4 + 3] = 1;
       }
       n = sel.length; uniforms.uLN.value = n;
+      // the strongest casting (spell) light gets the cube shadow; sticky to last frame's light so bursts do not flip it every frame
+      let best = -1, bs = 0;
+      for (let i = 0; i < n; i++) {
+        const l = sel[i]; if (!l.cast || l.intensity < 0.5) continue;
+        let s = l.intensity * l.radius * l.radius; if (Math.hypot(l.x - px, l.y - py) < 80) s *= 1.6;
+        if (s > bs) { bs = s; best = i; }
+      }
+      uniforms.uPSIdx.value = best; shadowLight = best >= 0 ? sel[best] : null;
+      if (shadowLight) { px = shadowLight.x; py = shadowLight.y; } else { px = py = 1e9; }
       if (beams) beams.update(sel, C, uniforms.uNight.value);
       return sel;
     },
     beams,
+    /** the light that casts the cube shadow this frame (world coords) or null */
+    get shadowLight() { return shadowLight; },
     get count() { return n; },
     get pending() { return list.length; },
   };

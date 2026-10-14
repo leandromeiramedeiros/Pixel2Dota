@@ -252,6 +252,7 @@ export function createRenderer({ canvas, sheets }) {
 
     terrain.update(cam, rig.snap ? 999 : 6);
     shadow.setEnabled(settings.shadows);
+    shadow.renderPoint(scene, lights.shadowLight);
     shadow.render(scene, tg.x, heightAt(tg.x, tg.y), -tg.y, Math.max(rig.visibleWidth * 0.75, rig.visibleHeight * 1.15));
     post.render(scene, cam, time, nightK, outW, outH);
     drawBars(view);
