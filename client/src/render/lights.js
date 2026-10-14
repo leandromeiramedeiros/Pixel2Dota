@@ -57,6 +57,7 @@ export function createLights(uniforms, scene) {
       // shadow weight follows the light's intensity, so it fades in/out with the light instead of popping at the selection gate
       const k = shadowLight ? Math.min(1, Math.max(0, (shadowLight.intensity - 0.12) / 0.6)) : 0;
       uniforms.uPSP.value.w = k * k * (3 - 2 * k);
+      if (uniforms.uPSP.value.w < 0.1) { uniforms.uPSIdx.value = -1; shadowLight = null; }   // too faint to see: skip the 6-face depth pass
       if (shadowLight) { px = shadowLight.x; py = shadowLight.y; } else { px = py = 1e9; }
       if (beams) beams.update(sel, C, uniforms.uNight.value);
       return sel;
