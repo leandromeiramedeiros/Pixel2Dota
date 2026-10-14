@@ -1,5 +1,5 @@
 // Hero roster. Slot order is AUTHORED here (docs/DECISIONS.md), not read from the game files (current-patch files add innates /
-// facets / shard slots we skip). Values for these keys come from shared/data/abilities.json.
+// facets / shard slots we skip). Values for these keys come from DATA.abilities (shared/data.js).
 // slots: Q W E R (D F for Invoker's invoked spells). Invoker: [quas, wex, exort, empty1 (D), empty2 (F), invoke (R)].
 
 export const HEROES = {

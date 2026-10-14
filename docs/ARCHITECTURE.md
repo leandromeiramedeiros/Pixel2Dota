@@ -7,7 +7,8 @@ This file is the contract between agents. If you need to change a shape here, ch
 ```
 shared/            pure data + helpers imported by server AND client (no DOM, no node-only APIs)
   data/dotaworld.js  real map (from InvokerTrainer, extracted from game files) — DO NOT EDIT
-  data/*.json        baked from local game files by tools/bake.mjs — DO NOT EDIT BY HAND
+  data/{heroes,abilities,items,units,meta}.js  baked from local game files by tools/bake.mjs — DO NOT EDIT BY HAND
+  data.js            DATA loader (re-exports the baked modules)
   data/lanes.js      lane waypoints (world coords)
   map.js             decoded grid: tile/height/walkable queries
   protocol.js        message names, order types, event types, status bits, anims  (contract, owned by orchestrator)
@@ -109,14 +110,15 @@ w.drainEvents()                          // -> [event]
 w.units  (Map id -> unit plain object), w.players (Map pid -> player plain object), w.time, w.night, w.winner, w.treesDown (Set)
 ```
 Modules: `world.js` (loop, spawns, clock, win), `units.js` (factory: hero/creep/building stats), `nav.js` (A* on 48u tiles, 8-dir + string pulling, trees + buildings block, port trainer nav.js), `move.js` (steering, unit separation, turn rate), `combat.js` (attack cycle: acquisition, attack point, backswing, projectiles, armor/MR, crit/cleave hooks, deny < 50% hp), `status.js` (modifiers: stun, root, silence, hex, slow, haste, magic immune, invis, invuln, disarm, taunt, dot, stat buffs, auras; status bitmask), `heroes.js` (attributes -> stats, XP/levels, skill points, respawn, gold/bounties), `creeps.js` (waves every 30 s from 0:00: 3 melee + 1 ranged, +1 siege every 5th wave, lane waypoints, aggro rules), `buildings.js` (towers T1-T4, rax, ancient, fountain heal/attack, tier protection: next tier invulnerable until previous falls; ancient invulnerable until both T4 die; win when an ancient dies), `items.js` (shop, recipes, stats, actives), `abilities/index.js` (registry: `{ key: { cast(w,u,ab,target), passive?(w,u,ab), tick?(w,u,ab,dt) } }`), `bots.js` (lane AI), `events.js`.
-Rules constants live in `shared/constants.js`. Values (damage, cooldowns, mana, ranges) come from `shared/data/abilities.json` / `items.json` / `heroes.json` / `units.json` — never hard-code what the bake provides.
+Rules constants live in `shared/constants.js`. Values (damage, cooldowns, mana, ranges) come from `DATA` (shared/data.js) — never hard-code what the bake provides.
 
 ## Shared data shapes (tools/bake.mjs output)
-- `heroes.json`: `{ "npc_dota_hero_lina": { short, name, attr ("str"|"agi"|"int"|"all"), str, agi, int, strGain, agiGain, intGain, dmgMin, dmgMax, armor, mr, ms, turnRate, atkRange, projSpeed, bat, atkPoint, baseAS, hp, hpRegen, mana, manaRegen, visionDay, visionNight, hull, abilities: [keys in slot order] } }`
-- `abilities.json`: `{ key: { maxLevel, ult, behavior:[flags], targetTeam, targetType, damageType, castRange:[per lvl], castPoint:[..], cooldown:[..], manaCost:[..], channel:[..], values:{ name:[per lvl] } } }` (arrays always, length = levels; single values repeated).
-- `items.json`: `{ key: { cost, recipe:null|{ cost, parts:[keys] }, stats:{ str,agi,int,dmg,armor,as,ms,msPct,hp,mana,hpRegen,manaRegen,mr }, cooldown, manaCost, castRange, behavior, values:{...}, charges, stack, consumable, sell } }` (only the items in DECISIONS.md, plus parts).
-- `units.json`: creeps (melee/ranged/siege per team), towers by tier, barracks melee/ranged, fort, fountain: `{ hp, hpRegen, mana, armor, mr, dmgMin, dmgMax, bat, atkPoint, atkRange, projSpeed, ms, goldMin, goldMax, xp, vision, hull }`.
-- `meta.json`: `{ source: "local game files", patch, date, vpk }`.
+- Data files are ES modules (`shared/data/heroes.js` etc., `export default {...}`) loaded through `shared/data.js` (`export const DATA = { heroes, abilities, items, units, meta }`). Shapes:
+- `heroes`: `{ "npc_dota_hero_lina": { short, name, attr ("str"|"agi"|"int"|"all"), str, agi, int, strGain, agiGain, intGain, dmgMin, dmgMax, armor, mr, ms, turnRate, atkRange, projSpeed, bat, atkPoint, baseAS, hp, hpRegen, mana, manaRegen, visionDay, visionNight, hull, abilities: [keys in slot order] } }`
+- `abilities`: `{ key: { maxLevel, ult, behavior:[flags], targetTeam, targetType, damageType, castRange:[per lvl], castPoint:[..], cooldown:[..], manaCost:[..], channel:[..], values:{ name:[per lvl] } } }` (arrays always, length = levels; single values repeated).
+- `items`: `{ key: { cost, recipe:null|{ cost, parts:[keys] }, stats:{ str,agi,int,dmg,armor,as,ms,msPct,hp,mana,hpRegen,manaRegen,mr }, cooldown, manaCost, castRange, behavior, values:{...}, charges, stack, consumable, sell } }` (only the items in DECISIONS.md, plus parts).
+- `units`: creeps (melee/ranged/siege per team), towers by tier, barracks melee/ranged, fort, fountain: `{ hp, hpRegen, mana, armor, mr, dmgMin, dmgMax, bat, atkPoint, atkRange, projSpeed, ms, goldMin, goldMax, xp, vision, hull }`.
+- `meta`: `{ source: "local game files", patch, date, vpk }`.
 
 ## Art sheets (client/src/art/sheets/<name>.js)
 Same ASCII format as the trainer: `export default { pal: {ch: '#rrggbb'|'#rrggbbaa'}, anchor: [x, y], frames: { key: [rows] } }`, 1 char = 1 px, `.` = transparent.
@@ -160,7 +162,7 @@ createNet(endpoint) -> { listLobbies() -> Promise<[{code, players, host}]>, crea
 | Area | Files |
 |---|---|
 | orchestrator | docs/*, shared/protocol.js, shared/constants.js, shared/map.js, shared/heroes.js, shared/data/lanes.js, tools/vpk.mjs, client/src/game.js, package.json files |
-| data | tools/bake.mjs, shared/data/*.json, shared/data.js (loader), shared/test/* |
+| data | tools/bake.mjs, shared/data/{heroes,abilities,items,units,meta}.js, shared/data.js (loader), shared/test/* |
 | sim | server/src/sim/** except abilities/ and items.js, bots.js; server/test/sim*.test.js |
 | abilities | server/src/sim/abilities/**, server/test/abilities*.test.js |
 | items+bots | server/src/sim/items.js, server/src/sim/bots.js, server/test/items*.test.js, bots*.test.js |
