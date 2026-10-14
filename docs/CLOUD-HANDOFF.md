@@ -36,7 +36,7 @@ The **user is the creative director**: ask for verdicts with screenshots, never 
 
 ## Backlog (priority order)
 **P3. Readable ability and item icons** — Mirana's and other abilities read grey/weak at HUD size; `sniper_headshot` and the gold icon too. Stronger silhouettes
-and contrast, Dota-like detail (rule above). `tools/art/icons/*.mjs` -> `node tools/art/icons/icons.mjs` -> `node tools/art/icons/check.mjs`.
+and contrast, Dota-like detail (rule above). `tools/art/icons/*.mjs` -> `node tools/art/icons/icons.mjs` -> `node tools/art/icons/check.mjs`. Icons now taken from the Trainer frames (`tools/art/icons/extract_trainer.mjs`) must be redrawn by hand as pixel art: keep the Valve/Dota icon style and composition, but no extracted pixels. Then retire the extractor.
 Acceptance: contact sheet of all icons sent to the director; tests green.
 
 **P4. Real bodies and portraits for Pudge, Mirana, Rubick** — stand-ins now (`BODY_STANDIN`), no portraits. Follow EXTENDING "Add a hero" step 5 (8-dir 2x via
