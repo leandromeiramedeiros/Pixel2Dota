@@ -32,3 +32,21 @@ export function shaft(c, x, y, a, len, ramp, w = 1, outline = true) {
   return [x1, y1];
 }
 export { ang };
+
+// Palette that never reuses a character: rig.mjs's POOL literal lists 'x' twice, so a hero with ~60+ colours would silently
+// overwrite an earlier 'x' colour. New hero generators use SafePal (existing heroes keep Pal so their sheets stay byte-identical).
+import { Pal } from './rig.mjs';
+export class SafePal extends Pal {
+  c(hex, emit) {
+    hex = hex.toLowerCase();
+    if (this.by.has(hex)) return super.c(hex, emit);
+    const used = new Map(Object.entries(this.map)), oldEmit = { ...this.emit };
+    let ch = super.c(hex, emit);
+    if (used.has(ch)) {
+      this.map[ch] = used.get(ch); this.by.delete(hex);
+      if (ch in oldEmit) this.emit[ch] = oldEmit[ch]; else delete this.emit[ch];
+      ch = super.c(hex, emit);
+    }
+    return ch;
+  }
+}

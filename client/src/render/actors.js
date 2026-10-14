@@ -32,7 +32,7 @@ export function neutralLook(u) {
   return { scale: Math.min(2.4, 0.85 + Math.sqrt(u.maxHp || 300) / 60), tint: [0.55 + 0.45 * c[0], 0.55 + 0.45 * c[1], 0.55 + 0.45 * c[2]] };
 }
 
-const BODY_STANDIN = { pudge: 'axe', mirana: 'drow_ranger', rubick: 'lina' };
+const BODY_STANDIN = {};
 
 /** Which sheet / key prefix a unit uses. Returns { sheet, prefix, kind } where kind is 'unit' | 'building'. */
 export function appearance(u, atlas) {
