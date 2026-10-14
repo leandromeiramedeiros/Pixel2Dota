@@ -49,11 +49,14 @@ export function createLights(uniforms, scene) {
       // the strongest casting (spell) light gets the cube shadow; sticky to last frame's light so bursts do not flip it every frame
       let best = -1, bs = 0;
       for (let i = 0; i < n; i++) {
-        const l = sel[i]; if (!l.cast || l.intensity < 0.5) continue;
+        const l = sel[i]; if (!l.cast || l.intensity < 0.12) continue;
         let s = l.intensity * l.radius * l.radius; if (Math.hypot(l.x - px, l.y - py) < 80) s *= 1.6;
         if (s > bs) { bs = s; best = i; }
       }
       uniforms.uPSIdx.value = best; shadowLight = best >= 0 ? sel[best] : null;
+      // shadow weight follows the light's intensity, so it fades in/out with the light instead of popping at the selection gate
+      const k = shadowLight ? Math.min(1, Math.max(0, (shadowLight.intensity - 0.12) / 0.6)) : 0;
+      uniforms.uPSP.value.w = k * k * (3 - 2 * k);
       if (shadowLight) { px = shadowLight.x; py = shadowLight.y; } else { px = py = 1e9; }
       if (beams) beams.update(sel, C, uniforms.uNight.value);
       return sel;

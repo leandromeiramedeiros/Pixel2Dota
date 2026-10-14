@@ -107,8 +107,8 @@ void main(){
       vec2 st = stepDir(sd);
       float p1 = 1. - step(.5, fetchA(ip + st).a);
       float p2 = p1 > 0. ? 1. : 1. - step(.5, fetchA(ip + st * 2.).a);
-      float pl = p1 > 0. ? 1. : p2 * .5;
-      rimc += mix(sc, vec3(max(sc.r, max(sc.g, sc.b))), .5) * pl * 1.25;
+      float pl = p1 > 0. ? 1. : p2 * .7;
+      rimc += mix(sc, vec3(max(sc.r, max(sc.g, sc.b))), .5) * pl * 1.8;   // spell / lantern light wraps the silhouette
     }
     col += rimc * vMisc.z * (.4 + .6 * c.a);
   }

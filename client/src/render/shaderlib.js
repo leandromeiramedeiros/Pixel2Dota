@@ -35,7 +35,7 @@ export function createSharedUniforms() {
     uPSMap: { value: null },                                                // spell-light cube shadow, 3x2 face atlas (shadow.js renderPoint)
     uPSM: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Matrix4()) },     // per face: world -> atlas uv (xy / w)
     uPSIdx: { value: -1 },                                                  // index into uLP of the shadow-casting light, -1 = none
-    uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },                     // near, far, bias (world units), unused
+    uPSP: { value: new THREE.Vector4(8, 600, 10, 0) },                     // near, far, bias (world units), fade weight
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
@@ -129,7 +129,7 @@ vec3 pointLights(vec3 p, vec3 n, float soft){
     float a = 1. - dist / uLP[i].w;
     if (a <= 0.) continue;
     a *= a;
-    if (i == uPSIdx) a *= mix(.15, 1., pointShadow(p, uLP[i].xyz));
+    if (i == uPSIdx) a *= mix(1., mix(.15, 1., pointShadow(p, uLP[i].xyz)), uPSP.w);
     float ndl = max(dot(n, d / max(dist, 1.)), 0.);
     acc += uLC[i].rgb * (a * mix(ndl, 1., soft));
   }

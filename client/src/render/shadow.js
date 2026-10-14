@@ -98,7 +98,7 @@ export function createShadow(gl, uniforms, { size = 1024, strength = 1 } = {}) {
       gl.setRenderTarget(prev);
       for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
       swapped.length = 0;
-      uniforms.uPSP.value.set(8, far, 10, 0);
+      uniforms.uPSP.value.x = 8; uniforms.uPSP.value.y = far; uniforms.uPSP.value.z = 10;   // .w = fade weight, set by lights.js
       state.pointMs = performance.now() - t0;
     },
     dispose() { rt.dispose(); depthTexture.dispose(); prt.dispose(); pDepth.dispose(); },
