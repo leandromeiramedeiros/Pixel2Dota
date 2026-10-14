@@ -151,6 +151,7 @@ export function createRenderer({ canvas, sheets }) {
       const fx = Math.floor((nx * 0.5 + 0.5) * rtW + 0.5), fy = Math.floor((ny * 0.5 + 0.5) * rtH + 0.5);
       let s = art * p.scale * (1 + (ref / w - 1) * persp);
       s = persp ? s : Math.max(1, Math.floor(s + 0.5));
+      if (f.dens > 1) s /= f.dens;                                   // double-resolution hero sheets: dense px = 1/dens of a snapped art px
       const lx = Math.floor((mx - fx) / s + f.ax + 0.5), ly = Math.floor(f.ay + 0.5 - (my - fy) / s);
       if (lx < -2 || ly < -2 || lx > f.w + 1 || ly > f.h + 1) continue;
       let hit = false;
@@ -205,7 +206,7 @@ export function createRenderer({ canvas, sheets }) {
       const aw = BAR_W[u.kind] != null ? BAR_W[u.kind] : 6;
       if (!aw) continue;
       const w = Math.round(aw * cssPerArt * 0.95);
-      const s = worldToScreen(u.x, u.y, p.z + p.f.ay * ART_UNITS_PER_PX * 0.92);
+      const s = worldToScreen(u.x, u.y, p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92);
       const mine = u.team === myTeam;
       overlay.bar({ sx: s.x, sy: s.y - 6, w, h: hero ? 5 : 3, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', ticks: hero ? Math.max(0, Math.min(14, Math.round(u.maxHp / 250))) : 0, level: hero ? u.level : null });
     }

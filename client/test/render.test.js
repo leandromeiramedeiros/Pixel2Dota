@@ -6,7 +6,7 @@ import { camParams, visibleHeight } from '../src/render/camera.js';
 import { selectLights } from '../src/render/lights.js';
 import { castVision, visionRadius, VISION_FALLBACK } from '../src/render/fog.js';
 import { buildChunk, hash2, CHUNK } from '../src/render/terrainGeo.js';
-import { dirOf } from '../src/render/actors.js';
+import { dirOf, dir8Of } from '../src/render/actors.js';
 import { getMap, TT } from '../../shared/map.js';
 import { CAMERA } from '../../shared/constants.js';
 
@@ -29,6 +29,28 @@ test('resolveKey: direction fallback, west mirrors east, non-loop clamp', () => 
   assert.equal(resolveKey({}, counts, 'stunned', 's', 0).key, 'idle_s_0');      // falls back to idle
   assert.equal(resolveKey({}, counts, 'cast', 'e', 0).key, 'attack_e_0');
   assert.equal(resolveKey({}, {}, 'idle', 's', 0), null);
+});
+
+test('resolveKey: 8-dir sheets mirror sw/nw, 1x sheets fall back diagonal -> e', () => {
+  const c8 = { idle_s: 2, idle_se: 2, idle_e: 2, idle_ne: 2, idle_n: 2 };
+  assert.deepEqual(resolveKey({}, c8, 'idle', 'sw', 1), { key: 'idle_se_1', flip: true, n: 2 });
+  assert.deepEqual(resolveKey({}, c8, 'idle', 'nw', 0), { key: 'idle_ne_0', flip: true, n: 2 });
+  assert.deepEqual(resolveKey({}, c8, 'idle', 'ne', 0), { key: 'idle_ne_0', flip: false, n: 2 });
+  const c4 = { idle_s: 1, idle_e: 1, idle_n: 1 };
+  assert.deepEqual(resolveKey({}, c4, 'idle', 'sw', 0), { key: 'idle_e_0', flip: true, n: 1 });   // 1x sheet: sw -> mirrored e
+  assert.deepEqual(resolveKey({}, c4, 'idle', 'ne', 0), { key: 'idle_e_0', flip: false, n: 1 });
+  assert.deepEqual(resolveKey({}, c4, 'idle', 'nw', 0), { key: 'idle_e_0', flip: true, n: 1 });
+});
+
+test('indexSheet: counts 8-dir keys, anim names with underscores', () => {
+  const idx = indexSheet({ frames: { idle_se_0: ['.'], idle_se_1: ['.'], idle_sw_0: ['.'], walk_ne_2: ['.'], portrait: ['.'] } });
+  assert.equal(idx.idle_se, 2); assert.equal(idx.idle_sw, 1); assert.equal(idx.walk_ne, 3);
+});
+
+test('dir8Of: 45 degree sectors, 0 = east, CCW, y north', () => {
+  const P = Math.PI;
+  assert.deepEqual([0, P / 4, P / 2, 3 * P / 4, P, -3 * P / 4, -P / 2, -P / 4].map(dir8Of), ['e', 'ne', 'n', 'nw', 'w', 'sw', 's', 'se']);
+  assert.equal(dir8Of(P / 8 - 0.01), 'e'); assert.equal(dir8Of(P / 8 + 0.01), 'ne'); assert.equal(dir8Of(2 * P + 0.1), 'e');
 });
 
 test('indexSheet counts frames per sequence', () => {

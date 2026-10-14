@@ -19,7 +19,7 @@ for (const n of names) {
   const { pal, frames, anchor, emit = {} } = S;
   for (const k of Object.keys(emit)) if (!pal[k]) err.push(`emit key ${k} not in pal`);
   const need = ['portrait'];
-  for (const [a, c] of Object.entries(ANIMS)) for (const d of 'sne') for (let i = 0; i < c; i++) need.push(`${a}_${d}_${i}`);
+  for (const [a, c] of Object.entries(ANIMS)) for (const d of (S.px > 1 ? ['s', 'se', 'e', 'ne', 'n'] : 'sne')) for (let i = 0; i < c; i++) need.push(`${a}_${d}_${i}`);
   for (const k of need) if (!frames[k]) err.push(`missing ${k}`);
   let W0 = 0, H0 = 0;
   for (const [k, rows] of Object.entries(frames)) {

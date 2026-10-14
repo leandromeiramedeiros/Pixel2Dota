@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { COMMON_GLSL, UNIFORMS_GLSL } from './shaderlib.js';
 
-export const STRIDE = 23;                 // floats per sprite instance
+export const STRIDE = 24;                 // floats per sprite instance
 export const MAX_SPRITES = 9000;
 export const MAX_DECALS = 1024;
 export const DEPTH_PULL = 12;             // world units toward the camera for the foot depth
@@ -19,7 +19,9 @@ ${UNIFORMS_GLSL}
 attribute vec2 corner;
 attribute vec3 iPos;
 attribute vec4 iRect, iSize, iTint, iOut, iMisc;
+attribute float iDens;                                          // art pixels per 1x pixel (2 = hero sheets drawn at double resolution)
 varying vec2 vTx;
+varying float vDens;
 varying vec3 vWorld, vFoot;
 varying vec4 vRect, vSize, vTint, vOut, vMisc;
 void main(){
@@ -27,13 +29,14 @@ void main(){
   vec4 fc = projectionMatrix * viewMatrix * vec4(iPos + toCam * ${DEPTH_PULL.toFixed(1)}, 1.);
   vec4 fp = projectionMatrix * viewMatrix * vec4(iPos, 1.);
   float s = uArtPx * iMisc.w * mix(1., uRefW / fp.w, uPersp);
-  s = mix(max(1., floor(s + .5)), s, uPersp);
+  s = mix(max(1., floor(s + .5)), s, uPersp) / iDens;
   vec2 rtpx = floor((fp.xy / fp.w * .5 + .5) * uRT + .5);
-  vec2 local = mix(vec2(-1.), iSize.xy + 1., corner);            // art px, from frame top-left, 1 px margin for outline / rim
+  vec2 local = mix(vec2(-iDens), iSize.xy + iDens, corner);      // art px, from frame top-left, 1 (1x) px margin for outline / rim
+  vDens = iDens;
   vTx = local;
   vec2 off = vec2(local.x - (iSize.z + .5), -(local.y - (iSize.w + .5))) * s;
   vec2 ndc = (rtpx + off) / uRT * 2. - 1.;
-  float wpp = 6. * iMisc.w;                                      // world units per art px (for lighting only)
+  float wpp = 6. * iMisc.w / iDens;                                      // world units per art px (for lighting only)
   vWorld = iPos + uCamRight * ((local.x - iSize.z - .5) * wpp) + vec3(0., 1., 0.) * max((iSize.w + .5 - local.y) * wpp * .7, 0.);
   vFoot = iPos;
   vRect = iRect; vSize = iSize; vTint = iTint; vOut = iOut; vMisc = iMisc;
@@ -46,6 +49,7 @@ ${COMMON_GLSL}
 uniform sampler2D tAtlas, tEmit;
 uniform float uRimOn;
 varying vec2 vTx;
+varying float vDens;
 varying vec3 vWorld, vFoot;
 varying vec4 vRect, vSize, vTint, vOut, vMisc;
 
@@ -67,7 +71,8 @@ void main(){
   if (c.a < .5) {
     // 1 px outline (team / selection colour)
     if (vOut.a > 0.) {
-      float nb = fetchA(ip + vec2(1., 0.)).a + fetchA(ip - vec2(1., 0.)).a + fetchA(ip + vec2(0., 1.)).a + fetchA(ip - vec2(0., 1.)).a;
+      float nb = fetchA(ip + vec2(vDens, 0.)).a + fetchA(ip - vec2(vDens, 0.)).a + fetchA(ip + vec2(0., vDens)).a + fetchA(ip - vec2(0., vDens)).a;
+      if (vDens > 1.5) nb += fetchA(ip + vec2(1., 0.)).a + fetchA(ip - vec2(1., 0.)).a + fetchA(ip + vec2(0., 1.)).a + fetchA(ip - vec2(0., 1.)).a;   // outline stays 1 (1x) px thick on dense sheets
       if (nb > .5) { gl_FragColor = vec4(vOut.rgb * fogBright(vFoot, ip), 1.); return; }
     }
     discard;
@@ -171,7 +176,7 @@ function quadGeo(maxInstances, attrs) {
 }
 
 export function createSprites({ scene, uniforms, atlas }) {
-  const S = quadGeo(MAX_SPRITES, [['iPos', 3], ['iRect', 4], ['iSize', 4], ['iTint', 4], ['iOut', 4], ['iMisc', 4]]);
+  const S = quadGeo(MAX_SPRITES, [['iPos', 3], ['iRect', 4], ['iSize', 4], ['iTint', 4], ['iOut', 4], ['iMisc', 4], ['iDens', 1]]);
   const matS = new THREE.ShaderMaterial({
     vertexShader: SPRITE_VERT, fragmentShader: SPRITE_FRAG, side: THREE.DoubleSide,
     uniforms: { ...uniforms, tAtlas: { value: atlas.texture }, tEmit: { value: atlas.emitTexture }, uRimOn: { value: 1 } },
@@ -208,6 +213,7 @@ export function createSprites({ scene, uniforms, atlas }) {
         sd[i + 11] = 1; sd[i + 12] = 1; sd[i + 13] = 1; sd[i + 14] = 0; sd[i + 15] = 0; sd[i + 16] = 0; sd[i + 17] = 0; sd[i + 18] = 0;
         sd[i + 19] = 1; sd[i + 20] = 1; sd[i + 21] = 1; sd[i + 22] = 1;
       }
+      sd[i + 23] = f.dens || 1;
       return true;
     },
     /** Ground decal: kind 0 blob shadow, 1 ring (dashed if dash). h = 4 corner heights nw,ne,sw,se. */

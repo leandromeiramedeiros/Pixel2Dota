@@ -20,6 +20,18 @@ export function dirOf(facing) {
   return s > 0 ? 'n' : 's';
 }
 
+const DIRS8 = ['e', 'ne', 'n', 'nw', 'w', 'sw', 's', 'se'];
+/** 8-way facing sector (45 deg each, centred on the axes): for sheets painted with diagonals (px >= 2 hero sheets). */
+export function dir8Of(facing) {
+  return DIRS8[(((Math.round(facing / (Math.PI / 4)) % 8) + 8) % 8)];
+}
+
+/** Placeholder look for neutral camp creeps / Roshan (team 2): the lane-creep sprite, scaled by max hp and tinted per type. Art comes later. */
+export function neutralLook(u) {
+  const c = tintFor(u.key || 'x');
+  return { scale: Math.min(2.4, 0.85 + Math.sqrt(u.maxHp || 300) / 60), tint: [0.55 + 0.45 * c[0], 0.55 + 0.45 * c[1], 0.55 + 0.45 * c[2]] };
+}
+
 /** Which sheet / key prefix a unit uses. Returns { sheet, prefix, kind } where kind is 'unit' | 'building'. */
 export function appearance(u, atlas) {
   const key = u.key || '';
@@ -207,18 +219,19 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         let f, flipScale = 1;
         const tint = [1, 1, 1];
         let alpha = 1, rim = 1, emit = emitK;
-        let bType = null;
+        let bType = null, uscale = 1;
         if (ap.kind === 'building') {
           bType = buildingType(u);
           f = buildings.frame(bType);
           if (st.collapse == null) st.collapse = dead ? 1 : 0;           // buildings already destroyed when first seen stay rubble
           st.collapse = dead ? Math.min(1, st.collapse + dt / 1.1) : Math.max(0, st.collapse - dt * 2);
         } else {
-          const dir = dirOf(u.facing || 0);
+          const dir = (atlas.sheets[ap.sheet] && atlas.sheets[ap.sheet].def.px > 1) ? dir8Of(u.facing || 0) : dirOf(u.facing || 0);
           const sc = {};
           f = unitFrame(u, ap, dir, time, sc);
           if (!f) continue;
           if (ap.ph) { const tc = tintFor(u.key || 'x'); tint[0] = tc[0]; tint[1] = tc[1]; tint[2] = tc[2]; }
+          if (u.team === 2 && u.kind === 'creep') { const nl = neutralLook(u); tint[0] = nl.tint[0]; tint[1] = nl.tint[1]; tint[2] = nl.tint[2]; uscale = nl.scale; }
           if (dead) {
             // no death frames: sink + fade (Bayer dissolve)
             const hasDeath = atlas.frameCount(ap.sheet, 'death', dir, ap.prefix || '') > 0 && sc.anim === 'death' && /death/.test(f.key);
@@ -245,13 +258,13 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         else if (state.outlines && u.kind === 'hero' && !dead) { const c = TEAM_COL[u.team === 1 ? 1 : 0]; outline = [c[0] * 0.75, c[1] * 0.75, c[2] * 0.75, 1]; }
         const bR = bType ? BINFO[bType].R : 0;
         if (bType) { if (inView(u.x, u.y, z, bR)) buildings.add(bType, u.x, u.y, z, { team: u.team === 1 ? 1 : 0, hp: u.maxHp > 0 ? Math.max(0, Math.min(1, u.hp / u.maxHp)) : 1, destroyed: st.collapse, flash: st.flash * 0.85, hi: outline, phase: (u.x * 0.013 + u.y * 0.007) % 6.28 }); }
-        else sprites.sprite(u.x, u.y, z, f, { tint, flash: st.flash * 0.85, outline, alpha, rim, emit, scale: 1 });
+        else sprites.sprite(u.x, u.y, z, f, { tint, flash: st.flash * 0.85, outline, alpha, rim, emit, scale: uscale });
         if (alpha > 0.1) {
           // shadow + selection ring
-          const sr = Math.max(14, bType ? bR * 1.25 : f.w * 2.2);
+          const sr = Math.max(14, bType ? bR * 1.25 : f.w / (f.dens || 1) * 2.2);
           sprites.decal(u.x, u.y, sr, 0, 0, 0, 0, dead ? 0.25 : 0.5, decalHeights(u.x, u.y, sr), false, 0.6);
           if (isSel || mineHero || (isHover && !mine)) {
-            const rr = Math.max(26, bType ? bR * 1.35 : f.w * 3.4);
+            const rr = Math.max(26, bType ? bR * 1.35 : f.w / (f.dens || 1) * 3.4);
             const c = isHover && !mine ? HOVER_COL : mine ? SEL_COL : HOVER_COL;
             sprites.decal(u.x, u.y, rr, 1, c[0], c[1], c[2], isSel ? 1 : 0.7, decalHeights(u.x, u.y, rr), isSel, 0.6);
           }

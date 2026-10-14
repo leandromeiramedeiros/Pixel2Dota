@@ -1,7 +1,8 @@
 // Sprite sheet loader + atlas packer. Pure logic (shelfPack, parseColor, resolveKey) is DOM-free so node can test it.
 //   loadSheets() -> Promise<{ [name]: sheetDef }>
 //   buildAtlas(sheets) -> { texture, emitTexture, width, height, frame(sheet, key), resolve(sheet, anim, dir, i), has(sheet, key), sheets }
-// Sheet format: { pal:{ch:'#rrggbb[aa]'}, anchor:[x,y], emit?:{ch:strength}, frames:{ key:[rows] } }, '.' = transparent.
+// Sheet format: { pal:{ch:'#rrggbb[aa]'}, anchor:[x,y], px?:N, emit?:{ch:strength}, frames:{ key:[rows] } }, '.' = transparent.
+//   Dirs: s e n (+ mirrored w) for 1x sheets; 8-dir sheets also paint se ne (sw/nw mirror se/ne). px = pixel density (2 = drawn at 2x, shown at the same world size).
 import * as THREE from 'three';
 
 let sheetMods = {};
@@ -44,14 +45,15 @@ export function shelfPack(items, maxW, pad = 1) {
 
 export const nextPow2 = (n) => { let p = 1; while (p < n) p <<= 1; return p; };
 
-const DIR_FALLBACK = { w: 'e', e: 's', n: 's', s: 's' };
+const DIR_FALLBACK = { se: 'e', ne: 'e', e: 's', n: 's', s: 's' };
+const MIRROR = { w: 'e', sw: 'se', nw: 'ne' };
 const ANIM_FALLBACK = { channel: ['cast', 'idle'], dead: ['death', 'stunned', 'idle'], death: ['stunned', 'idle'], stunned: ['idle'], cast: ['attack', 'idle'], attack: ['idle'], walk: ['idle'], idle: [] };
 
 /** Index a sheet's frame keys: counts[anim_dir] = n frames. */
 export function indexSheet(def) {
   const counts = {};
   for (const k in def.frames) {
-    const m = /^(.*)_([snew])_(\d+)$/.exec(k);
+    const m = /^(.*)_([sn][ew]|[snew])_(\d+)$/.exec(k);
     if (!m) continue;
     const id = m[1] + '_' + m[2];
     counts[id] = Math.max(counts[id] || 0, +m[3] + 1);
@@ -66,12 +68,12 @@ export function resolveKey(def, counts, anim, dir, i, prefix = '', clamp = false
   if (anims[anims.length - 1] !== 'idle') anims.push('idle');
   for (const a of anims) {
     let d = dir, flip = false;
-    if (d === 'w') { d = 'e'; flip = true; }
+    if (MIRROR[d]) { d = MIRROR[d]; flip = true; }
     for (let t = 0; t < 3; t++) {
       const n = counts[prefix + a + '_' + d];
       if (n) { const k = clamp ? Math.max(0, Math.min(n - 1, i | 0)) : (((i | 0) % n) + n) % n; return { key: prefix + a + '_' + d + '_' + k, flip, n }; }
       if (d === 's') break;
-      d = DIR_FALLBACK[d] || 's'; flip = false;
+      d = DIR_FALLBACK[d] || 's'; if (d === 's') flip = false;
     }
   }
   return null;
@@ -134,7 +136,7 @@ export function buildAtlas(sheets, opts = {}) {
     const x0 = it.x / W, x1 = (it.x + it.w) / W, y0 = it.y / H, y1 = (it.y + it.h) / H;
     f = {
       sheet: name, key, u0: flip ? x1 : x0, u1: flip ? x0 : x1, v0: y0, v1: y1, w: it.w, h: it.h,
-      ax: flip ? it.w - 1 - anchor[0] : anchor[0], ay: anchor[1], flip, rows: it.rows, def: r.def, px: it.x, py: it.y,
+      ax: flip ? it.w - 1 - anchor[0] : anchor[0], ay: anchor[1], flip, rows: it.rows, def: r.def, px: it.x, py: it.y, dens: r.def.px || 1,
     };
     cache.set(ck, f); return f;
   }
@@ -142,11 +144,11 @@ export function buildAtlas(sheets, opts = {}) {
     texture, emitTexture, width: W, height: H, sheets: reg,
     /** frame(sheet, 'walk_w_1') -> frame rect (west = mirrored east); null if missing. */
     frame(name, key) {
-      const m = /^(.*)_w_(\d+)$/.exec(key);
-      if (m) { const k2 = m[1] + '_e_' + m[2]; return build(name, reg[name] && reg[name].frames[key] ? key : k2, !(reg[name] && reg[name].frames[key])); }
+      const m = /^(.*)_(w|sw|nw)_(\d+)$/.exec(key);
+      if (m) { const k2 = m[1] + '_' + MIRROR[m[2]] + '_' + m[3]; return build(name, reg[name] && reg[name].frames[key] ? key : k2, !(reg[name] && reg[name].frames[key])); }
       return build(name, key, false);
     },
-    has(name, key) { return !!(reg[name] && (reg[name].frames[key] || (/_w_/.test(key) && reg[name].frames[key.replace('_w_', '_e_')]))); },
+    has(name, key) { return !!(reg[name] && (reg[name].frames[key] || (/_(w|sw|nw)_\d+$/.test(key) && reg[name].frames[key.replace(/_(w|sw|nw)_(\d+)$/, (_, d, i) => '_' + MIRROR[d] + '_' + i)]))); },
     hasSheet(name) { return !!reg[name]; },
     /** resolve(sheet, anim, dir 's'|'n'|'e'|'w', i) -> frame with the fallback chain. */
     resolve(name, anim, dir, i, prefix = '', clamp = false) {
