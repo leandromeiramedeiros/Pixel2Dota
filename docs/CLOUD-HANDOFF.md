@@ -18,13 +18,21 @@ The **user is the creative director**:
 - Never self-certify visuals.
 - Keep messages to the user terse.
 
+## Parallel work with the local session
+
+Another Claude session (on the user's PC) works on the same repo **at the same time**:
+- **Local session owns P0, P1, P2 and P8:** net, input, menu, quality presets, renderer lights/post/exposure, bots. Don't touch `client/src/net/`, `client/src/input.js`, `client/src/ui/menu.js`, `client/src/render/{index,post,lights,quality}.js`, `server/`.
+- **You own P3, P4, P5, P6 and P7:** icons, hero sheets/portraits, sprites, per-spell fx (`client/src/art/`, `tools/art/`, `client/src/render/fx/`, `client/src/render/actors.js` stand-in table).
+- **Before every push:** `git pull --rebase origin main`, re-run `npm test`, then push. Never force-push.
+- `docs/PROGRESS.md`: only append under your own heading to avoid conflicts.
+
 ## Budget and orchestration (2 full 5-hour windows today, Claude Pro)
 
 - **Opus (you):** plan, review diffs, make the decisions, run the final verification, commit and push. Don't hand-write large features yourself; delegate them.
 - **Sonnet subagents:** implement one backlog item each, with a precise spec, file list and acceptance tests. Run up to 2 or 3 in parallel only when their files don't overlap.
 - **Haiku subagents:** grep/explore, run the tests, do mechanical edits, write PROGRESS notes.
-- **Window 1:** P0 → P1 → P2.
-- **Window 2:** P3 → P4, then P5/P6 pilots for the creative director's verdict.
+- **Window 1:** P3 → P4.
+- **Window 2:** P5/P6 pilots for the creative director's verdict, then P6 batches.
 - Leave about 10% of each window to update `docs/PROGRESS.md` and push.
 
 **Rules for subagents (put them in every agent prompt):**
