@@ -67,6 +67,7 @@ const NAME_OVERRIDES = {
   item_mantle: 'Mantle of Intelligence', item_circlet: 'Circlet', item_robe: 'Robe of the Magi', item_recipe: 'Recipe',
   invoker_empty1: 'Empty', invoker_empty2: 'Empty', zuus_thundergods_wrath: "Thundergod's Wrath", axe_berserkers_call: "Berserker's Call",
   sven_gods_strength: "God's Strength", sven_storm_bolt: 'Storm Hammer', lion_voodoo: 'Hex', crystal_maiden_brilliance_aura: 'Arcane Aura',
+  rubick_empty1: 'Empty', rubick_empty2: 'Empty', mirana_starfall: 'Starstorm', mirana_arrow: 'Sacred Arrow', mirana_invis: 'Moonlight Shadow',
   drow_ranger_wave_of_silence: 'Gust', juggernaut_omni_slash: 'Omnislash', invoker_emp: 'E.M.P.', lion_impale: 'Earth Spike',
 };
 const SHORTS = Object.values(HEROES).map((h) => h.short).sort((a, b) => b.length - a.length);

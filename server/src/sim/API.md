@@ -101,4 +101,6 @@ Hero: `xp skillPoints respawn str agi int` (+ `w.players.get(u.owner)`: `gold ki
 ## Rules implemented
 
 Tier protection / ancient win (DECISIONS), fountain heal+invuln, wave every WAVE_EVERY with siege every SIEGE_EVERY, creep aggro/leash, tower targeting, XP split, last-hit gold, kill streak, respawn timers, day/night, tree cutting.
-Not implemented: neutrals, Roshan, mega creeps, backdoor protection, denies on heroes, tower/building bounty (DATA gold = 0), creep stat scaling, item recipes/actives, bots.
+Neutrals (`neutrals.js`): 28 camp boxes tiered small/medium/large/ancient, spawn 1:00 and every minute if the box is empty, leash 600; Roshan at the first non-trigger `ents.roshan` pit (slam, Aegis on death, respawn 8-11 min). Wards (`wards.js`): `item_ward_observer`/`item_ward_sentry` ground-target items, shop stock per team (`items.stockLeft`), `KIND.WARD` summons that are invisible and die in 2 hits; sentry reveals enemy INVIS units within true sight. World opts `neutrals`, `camps`, `roshan`.
+
+Not implemented: neutral abilities, mega creeps, backdoor protection, denies on heroes, tower/building bounty (DATA gold = 0), creep stat scaling, item recipes/actives, bots.

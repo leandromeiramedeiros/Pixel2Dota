@@ -37,7 +37,7 @@ for (const e of map.ents.fort) mk({ kind: 'ancient', key: 'fort', team: tn(e.nam
 for (const e of map.ents.fountain) mk({ kind: 'fountain', key: 'fountain', team: tn(e.name), x: e.x, y: e.y, hp: 500, maxHp: 500 });
 
 // heroes
-const HEROES = [[0, 'sven'], [0, 'lina'], [0, 'crystal_maiden'], [0, 'sniper'], [0, 'axe'], [1, 'zuus'], [1, 'lion'], [1, 'drow_ranger'], [1, 'juggernaut'], [1, 'invoker']];
+const HEROES = [[0, 'sven'], [0, 'lina'], [0, 'crystal_maiden'], [0, 'sniper'], [0, 'axe'], [1, 'zuus'], [1, 'lion'], [1, 'drow_ranger'], [1, 'juggernaut'], [1, 'invoker'], [0, 'pudge'], [0, 'mirana'], [1, 'rubick']];
 const mid = LANES.mid;
 const heroes = HEROES.map(([team, short], i) => {
   const p = mid[team === 0 ? 3 : 5];

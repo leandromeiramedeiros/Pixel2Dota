@@ -13,6 +13,7 @@
 import { INV_SLOTS, KIND, ST } from '../../../shared/protocol.js';
 import { SHOP_RANGE, SELL_RATIO, SELL_FULL_WINDOW } from '../../../shared/constants.js';
 import { evSpell, evTp, evMsg } from './events.js';
+import { placeWard } from './wards.js';
 
 const STAT = ['str', 'agi', 'int', 'dmg', 'armor', 'as', 'ms', 'msPct', 'hp', 'mana', 'hpRegen', 'manaRegen', 'mr', 'range'];
 const BOOTS = { item_boots: 1, item_phase_boots: 1, item_power_treads: 1 };   // movement speed does not stack between boots
@@ -144,8 +145,32 @@ function autoCombine(w, u) {
   while (u.items.length > INV_SLOTS && !u.items[u.items.length - 1].key) u.items.pop();
 }
 
+// ---- shop stock (wards): per team, DATA `stock` {initial, max, time}; one charge restocks every `time` s while below max
+function stockOf(w, team, key, d) {
+  const all = w._stock || (w._stock = {});
+  const s = all[team + key] || (all[team + key] = { n: d.stock.initial, t: null });
+  while (s.t !== null && s.n < d.stock.max && w.time >= s.t) { s.n++; s.t += d.stock.time; }
+  if (s.n >= d.stock.max) s.t = null;
+  return s;
+}
+/** Units left in the team's stock for a stocked item (null when the item is not stocked). */
+export function stockLeft(w, team, key) {
+  const d = w.data.items[key];
+  return d && d.stock ? stockOf(w, team, key, d).n : null;
+}
+
 export function buy(w, u, key) {
   key = norm(w, key);
+  const d = w.data.items[key];
+  if (key === 'item_aegis') return false;
+  const st = d && d.stock && !u._dead && nearShop(w, u) ? stockOf(w, u.team, key, d) : null;
+  if (st && st.n < 1) { msg(w, u, 'Out of stock'); return false; }
+  const ok = buyInner(w, u, key);
+  if (ok && st) { if (st.t === null) st.t = w.time + d.stock.time; st.n--; }
+  return ok;
+}
+
+function buyInner(w, u, key) {
   const d = w.data.items[key];
   const p = w.players.get(u.owner);
   if (!d || !p || u._dead) return false;
@@ -185,6 +210,7 @@ export function sell(w, u, slot) {
   const it = u.items[slot], p = w.players.get(u.owner);
   if (!it || !it.key || !p || u._dead || !nearShop(w, u)) return false;
   const d = w.data.items[it.key];
+  if (d && d.sell === false) return false;
   const cost = it._paid || (d ? d.cost : 0);
   p.gold += Math.round(cost * (w.time - (it._t === undefined ? -1e9 : it._t) <= SELL_FULL_WINDOW ? 1 : SELL_RATIO));
   u.items[slot] = empty();
@@ -240,6 +266,7 @@ export function useInfo(w, u, slot) {
     case 'item_power_treads': return { ...base, ready: true };
     case 'item_black_king_bar': return { ...base, ready: cdOk && u.mana + 1e-6 >= (d.manaCost || 0) };
     case 'item_blink': return { ...base, targeting: 'point', ready: cdOk && !rooted(u) };
+    case 'item_ward_observer': case 'item_ward_sentry': return { ...base, targeting: 'point', range: d.castRange || 500, ready: cdOk && it.charges > 0 };
     default: return null;
   }
 }
@@ -344,6 +371,14 @@ export function use(w, u, slot, target) {
       evSpell(w, 'item_black_king_bar', u.id, { dur });
       return;
     }
+    case 'item_ward_observer': case 'item_ward_sentry': {
+      if (it.charges <= 0 || it.cd > 0) return;
+      const ward = placeWard(w, u, it.key, tx, ty);
+      evSpell(w, it.key, u.id, { x: Math.round(ward.x), y: Math.round(ward.y) });
+      setCd(it, d.cooldown || 1);
+      consume(u, it);
+      return;
+    }
     case 'item_blink': {
       if (it.cd > 0 || rooted(u)) return;
       let dx = tx - u.x, dy = ty - u.y; const dist = Math.hypot(dx, dy);
@@ -428,5 +463,29 @@ export function onEnemySpell(w, u, caster, key) {
 export function onDeath(w, u, killer) {}
 
 export function tick(w, u, dt) {
-  for (let i = 0; i < u.items.length; i++) { const it = u.items[i]; if (it.cd > 0) it.cd = Math.max(0, it.cd - dt); }
+  for (let i = 0; i < u.items.length; i++) {
+    const it = u.items[i];
+    if (it.cd > 0) it.cd = Math.max(0, it.cd - dt);
+    if (it._exp !== undefined && w.time >= it._exp) { u.items[i] = empty(); u._dirty = true; }   // Aegis timeout
+  }
+}
+
+// ------------------------------------------------------------------------------------------------ Aegis of the Immortal
+/** Put an Aegis (expires after DATA disappear_time, 5 min) in u's first free slot. Returns false when the inventory is full. */
+export function grantAegis(w, u) {
+  const d = w.data.items.item_aegis, exp = w.time + (d && d.values ? d.values.disappear_time : 300);
+  const have = u.items.find((it) => it.key === 'item_aegis');
+  if (have) { have._exp = exp; return true; }
+  const free = u.items.findIndex((it) => !it.key);
+  if (free < 0) return false;
+  u.items[free] = { key: 'item_aegis', charges: 0, cd: 0, cdMax: 0, _t: w.time, _paid: 0, _exp: exp };
+  u._dirty = true;
+  return true;
+}
+/** Dying hero: spend its Aegis. Returns true when it had one (killUnit then makes it reincarnate). */
+export function consumeAegis(w, u) {
+  const i = u.items.findIndex((it) => it.key === 'item_aegis');
+  if (i < 0) return false;
+  u.items[i] = empty(); u._dirty = true;
+  return true;
 }

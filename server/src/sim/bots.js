@@ -4,7 +4,7 @@
 // use consumables / BKB / TP, retreat (hp < 30 %, enemy tower without creeps, outnumbered), cast abilities on enemy heroes in range
 // (from DATA behaviour), last-hit / deny, attack towers together with creeps, else amove along the lane behind the front creep.
 // Orders are only re-issued when they change (a non-queued order cancels attack windups and channels).
-import { KIND, TEAM, ST } from '../../../shared/protocol.js';
+import { KIND, TEAM, ST, ABF } from '../../../shared/protocol.js';
 import { SHOP_RANGE, TOWER_RANGE, armorMult } from '../../../shared/constants.js';
 import { lanePath } from './creeps.js';
 
@@ -25,8 +25,11 @@ const BUILD = {
   npc_dota_hero_crystal_maiden: ['item_boots', 'item_null_talisman', 'item_magic_wand', 'item_blink', 'item_black_king_bar'],
   npc_dota_hero_zuus: ['item_null_talisman', 'item_boots', 'item_magic_wand', 'item_black_king_bar', 'item_blink'],
   npc_dota_hero_invoker: ['item_null_talisman', 'item_boots', 'item_magic_wand', 'item_black_king_bar', 'item_blink'],
+  npc_dota_hero_pudge: ['item_phase_boots', 'item_bracer', 'item_magic_wand', 'item_black_king_bar', 'item_blink'],
+  npc_dota_hero_mirana: ['item_power_treads', 'item_wraith_band', 'item_lesser_crit', 'item_black_king_bar', 'item_blink'],
+  npc_dota_hero_rubick: ['item_null_talisman', 'item_boots', 'item_magic_wand', 'item_black_king_bar', 'item_blink'],
 };
-const MELEE_CORE = { npc_dota_hero_sven: 1, npc_dota_hero_axe: 1, npc_dota_hero_juggernaut: 1, npc_dota_hero_sniper: 2, npc_dota_hero_drow_ranger: 2 };
+const MELEE_CORE = { npc_dota_hero_sven: 1, npc_dota_hero_axe: 1, npc_dota_hero_juggernaut: 1, npc_dota_hero_sniper: 2, npc_dota_hero_drow_ranger: 2, npc_dota_hero_pudge: 1, npc_dota_hero_mirana: 2 };
 const JUNK = ['item_tango', 'item_flask', 'item_clarity', 'item_branches', 'item_faerie_fire', 'item_enchanted_mango', 'item_quelling_blade', 'item_tpscroll'];
 const INVOKER_ORBS = [0, 1, 2], INVOKER_INVOKE = 5;
 const RECIPE = { invoker_cold_snap: 'QQQ', invoker_sun_strike: 'EEE', invoker_tornado: 'WWQ' };
@@ -116,13 +119,13 @@ function alliedCreepsNear(w, u, x, y, r) {
 function learnSkills(w, pid, u) {
   if (u.skillPoints <= 0) return;
   const inv = u.abilities.length > 5 && u.abilities[5].key === 'invoker_invoke';
-  const cand = inv ? [0, 2, 1] : [0, 1, 2, 3];
+  const ult = inv ? -1 : u.abilities.findIndex((a) => { const d = w.data.abilities[a.key]; return d && d.ult; });
+  const cand = inv ? [0, 2, 1] : u.abilities.map((a, i) => i).filter((i) => i !== ult);
   for (let guard = 0; guard < 3 && u.skillPoints > 0; guard++) {
     // ult first whenever allowed
-    if (!inv && w.order(pid, { t: 'learn', slot: 3 })) continue;
+    if (ult >= 0 && w.order(pid, { t: 'learn', slot: ult })) continue;
     let best = -1, bl = 99;
     for (const s of cand) {
-      if (!inv && s === 3) continue;
       const ab = u.abilities[s]; if (!ab) continue;
       const d = w.data.abilities[ab.key];
       if (!d || d.behavior.indexOf('NOT_LEARNABLE') >= 0 || ab.level >= d.maxLevel) continue;
@@ -193,6 +196,15 @@ function shopping(w, pid, p, u, st) {
 }
 
 // ------------------------------------------------------------------------------------------------ casting
+/** Pudge: Rot on while an enemy hero is within its radius (and Pudge is healthy), off otherwise. */
+function rotControl(w, pid, u) {
+  const i = u.abilities.findIndex((a) => a.key === 'pudge_rot');
+  if (i < 0 || u.abilities[i].level < 1) return;
+  const ab = u.abilities[i], on = (ab.flags & ABF.TOGGLE_ON) !== 0;
+  const want = u.hp > u.maxHp * 0.35 && foesNear(w, u, w.val('pudge_rot', 'rot_radius', ab.level) - 20).length > 0;
+  if (want !== on) w.order(pid, { t: 'cast', slot: i });
+}
+
 function foesNear(w, u, r) { return w.unitsInRadius(u.x, u.y, r, { enemyOf: u, heroes: true }); }
 
 function tryCasts(w, pid, p, u, st, foes, hpPct) {
@@ -211,7 +223,13 @@ function tryCasts(w, pid, p, u, st, foes, hpPct) {
     let tgt = null, bd = Infinity;
     const reach = b.indexOf('NO_TARGET') >= 0 ? 450 : (range || 700) + 60;
     for (const f of foes) { const dd = dist(f, u); if (dd < reach && dd < bd && !(f._st & ST.INVULN)) { bd = dd; tgt = f; } }
-    if (d.ult && tgt && tgt.hp > tgt.maxHp * 0.65) continue;
+    if (d.ult && ab.key !== 'rubick_spell_steal' && tgt && tgt.hp > tgt.maxHp * 0.65) continue;
+    if (ab.key === 'rubick_spell_steal') {   // only with something stealable, and not again within 4 s
+      const lc = tgt && tgt._lastCast;
+      if (!lc || /^(invoker_(quas|wex|exort|invoke)|rubick_)/.test(lc.key) || w.time - (st.stealT || -99) < 4) continue;
+      st.stealT = w.time;
+    }
+    if (ab.key === 'mirana_leap' && (!tgt || bd < 300)) continue;
     if (b.indexOf('UNIT_TARGET') >= 0) {
       if (d.targetTeam === 'FRIENDLY') { if (hpPct < 0.7) { if (cmd(w, pid, u, st, { t: 'cast', slot: i, id: u.id })) return true; } continue; }
       if (!tgt || (tgt._st & ST.MAGIC_IMMUNE && !(d.dispellable === 'strong'))) continue;
@@ -290,6 +308,7 @@ function useItems(w, pid, u, st, hpPct, foes) {
 function think(w, pid, p, u, st) {
   if (u._dead) { st.mode = 'lane'; st.sig = ''; st.tpTried = false; return; }
   learnSkills(w, pid, u);
+  rotControl(w, pid, u);
   if (nearShop(w, u)) shopping(w, pid, p, u, st);
   if (u._channel) return;                                        // TP / channelled spell: do not touch
   const q0 = u._q[0];
@@ -363,7 +382,7 @@ function think(w, pid, p, u, st) {
   let lh = null, lhHp = Infinity;
   const near = w.unitsInRadius(u.x, u.y, u.atkRange + 260, { buildings: false });
   for (const v of near) {
-    if (v.kind !== KIND.CREEP || v._dead) continue;
+    if (v.kind !== KIND.CREEP || v._dead || v.team === TEAM.NEUTRAL) continue;   // bots leave neutral camps and Roshan alone
     const enemy = v.team !== team;
     const real = dmg * (enemy ? armorMult(v.armor) : armorMult(v.armor));
     if (v.hp <= real * (u._ranged ? 1.0 : 1.1) && (enemy || v.hp < v.maxHp * 0.5) && v.hp < lhHp) { lhHp = v.hp; lh = v; }

@@ -67,7 +67,7 @@ function toggleImmediate(w, u, ab) {
   const h = getHandler(ab.key), d = w.data.abilities[ab.key];
   const b = d ? d.behavior : [];
   if (h.autocast || b.indexOf('AUTOCAST') >= 0) { ab.flags ^= ABF.AUTOCAST_ON; if (h.toggle) h.toggle(w, u, ab); return true; }
-  if (b.indexOf('TOGGLE') >= 0) { ab.flags ^= ABF.TOGGLE_ON; u._dirty = true; if (h.cast) h.cast(w, u, ab, null); return true; }
+  if (b.indexOf('TOGGLE') >= 0) { ab.flags ^= ABF.TOGGLE_ON; u._dirty = true; u._lastCast = { key: ab.key, level: ab.level, t: w.time }; if (h.cast) h.cast(w, u, ab, null); return true; }
   return false;
 }
 
@@ -181,7 +181,7 @@ function castSpec(w, u, o) {
     if (mode === 'passive') return null;
     return {
       ab, h, d, mode, itemSpec: null,
-      range: h.castRange ? h.castRange(w, u, ab) : lv(d && d.castRange, ab.level),
+      range: (h.castRange ? h.castRange(w, u, ab) : lv(d && d.castRange, ab.level)) + (u._castRangeBonus && mode !== 'none' ? u._castRangeBonus : 0),   // Rubick Arcane Supremacy
       point: h.castPoint ? h.castPoint(w, u, ab) : lv(d && d.castPoint, ab.level),
       ready: () => (canCast(u) ? (ab.cd > 0 ? 'cooldown' : u.mana + 1e-6 < ab.mana ? 'mana' : h.canCast ? h.canCast(w, u, ab, null) : true) : 'silenced'),
       exec: (tgt) => executeAbility(w, u, ab, tgt),
@@ -252,8 +252,11 @@ export function executeAbility(w, u, ab, tgt) {
   const keepInvis = (w.data.abilities[ab.key]?.behavior || []).includes('IGNORE_INVISIBLE');
   if (!keepInvis) for (const m of u._mods) if (m.breakOnAttack) { u._mods.splice(u._mods.indexOf(m), 1); u._dirty = true; break; }
   const ev = evSpell(w, ab.key, u.id, { t: tgt.unit ? tgt.unit.id : undefined, x: Math.round(tgt.x), y: Math.round(tgt.y), lv: ab.level });
+  u._lastCast = { key: ab.key, level: ab.level, t: w.time };   // Rubick Spell Steal reads this
   let res;
+  const post = u._castCtx ? u._castCtx(w, u, ab) : null;   // Rubick: stolen-spell context (restored right after h.cast)
   if (h.cast) res = h.cast(w, u, ab, tgt);
+  if (post) post();
   // orchestrator hook: enemy heroes in range see the cast (magic stick/wand charges)
   if (items.onEnemySpell && !(w.data.abilities[ab.key]?.behavior || []).includes('PASSIVE')) {
     for (const v of w.unitsInRadius(u.x, u.y, 1200, { enemyOf: u, heroes: true })) items.onEnemySpell(w, v, u, ab.key);

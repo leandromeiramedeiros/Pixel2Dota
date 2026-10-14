@@ -8,6 +8,7 @@ import * as H from './heroes.js';
 import { faceToward } from './move.js';
 import { evAtk, evHit, evDeath, evKill, evGold, evProj, evProjEnd } from './events.js';
 
+const AEGIS_REVIVE = 5;   // item_aegis reincarnate_time
 export const isHero = (u) => u.kind === KIND.HERO;
 /** The hero responsible for u (u itself, or the owner of a summon), else null. */
 export function heroOf(w, u) {
@@ -33,6 +34,12 @@ export function inAttackRange(a, t, extra) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- targeting
+/** Real players (and their summons) may pick idle neutrals; creeps, towers, bots and other neutrals may not. */
+function playerSide(w, u) {
+  const p = (u.kind === KIND.HERO || u.owner) && w.players.get(u.owner);
+  return !!p && !p.isBot;
+}
+
 /** Best enemy for u within `range` (edge distance). Priority: attackers of allied heroes > units > heroes (for non-heroes) > buildings. */
 export function acquire(w, u, range) {
   const cand = w.index.query(u.x, u.y, range + 200, w._qb);
@@ -41,6 +48,7 @@ export function acquire(w, u, range) {
   for (let i = 0; i < cand.length; i++) {
     const v = cand[i];
     if (v._dead || v.team === u.team || !attackable(u, v)) continue;
+    if (v.team === TEAM.NEUTRAL && !v._aggro && !playerSide(w, u)) continue;   // idle camps are left alone by lane creeps, towers, bots
     const dx = v.x - u.x, dy = v.y - u.y, d = Math.sqrt(dx * dx + dy * dy) - v.radius;
     if (d > range) continue;
     let s = d;
@@ -133,11 +141,14 @@ export function damage(w, src, tgt, amount, type, info) {
   if (tgt._st & ST.INVULN) return 0;
   if ((tgt._st & ST.MAGIC_IMMUNE) && !info.pierce && !info.attack && type !== 'phys') return 0;
   let d = amount;
+  if (src && src._spellAmp && info.ability && type !== 'phys') d *= 1 + src._spellAmp / 100;   // Rubick Arcane Supremacy
   if (type === 'phys') d *= armorMult(tgt.armor);
   else if (type === 'mag') d *= 1 - tgt._mr;
   if (d <= 0) return 0;
+  if (tgt._wardHits && info.attack) d = tgt.maxHp / tgt._wardHits;   // wards die in N hits regardless of armor
   if (d > tgt.hp && info.noKill) d = Math.max(0, tgt.hp - 1);
   tgt.hp -= d;
+  if (tgt._onHurt && src && src.team !== tgt.team) tgt._onHurt(w, tgt, src);
   const sh = heroOf(w, src);
   if (sh && sh.team !== tgt.team) {
     if (tgt.kind === KIND.HERO) {
@@ -195,10 +206,12 @@ export function killUnit(w, v, killer, info) {
     for (const ab of kh.abilities) if (ab.level > 0) { const h = getHandler(ab.key); if (h.onKill) h.onKill(w, kh, ab, v); }
     items.onKill(w, kh, v);
   }
+  if (v._onDeath) v._onDeath(w, v, killer, kh);
   if (v.kind === KIND.HERO) {
     v.respawn = H.respawnTime(v);
     const p = w.players.get(v.owner);
-    if (p) p.deaths++;
+    if (items.consumeAegis(w, v)) { v.respawn = AEGIS_REVIVE; v._reviveAt = { x: v.x, y: v.y }; }   // reincarnate where it fell, no death counted
+    else if (p) p.deaths++;
   } else w._rm.push(v);
 }
 

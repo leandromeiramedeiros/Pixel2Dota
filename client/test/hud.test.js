@@ -166,7 +166,7 @@ test('self cast + cast order shape', () => {
 test('categories cover every item exactly once', () => {
   const seen = new Map();
   for (const c of SHOP_CATEGORIES) for (const k of c.items) { assert.ok(DATA.items[k], k); seen.set(k, (seen.get(k) || 0) + 1); }
-  for (const k of Object.keys(DATA.items)) { if (/recipe/.test(k)) continue; assert.equal(seen.get(k), 1, k + ' category count'); }
+  for (const k of Object.keys(DATA.items)) { if (/recipe/.test(k) || DATA.items[k].sell === false) continue; assert.equal(seen.get(k), 1, k + ' category count'); }
   assert.equal(categoryOf('item_blink'), 'upgrades'); assert.equal(categoryOf('zzz'), null);
 });
 

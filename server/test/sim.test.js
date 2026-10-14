@@ -11,7 +11,7 @@ import { HERO_KEYS } from '../../shared/heroes.js';
 const DT = 1 / 30;
 const run = (w, sec) => { for (let i = 0, n = Math.round(sec / DT); i < n; i++) w.step(DT); };
 const tower = (w, team, lane, tier) => w.towers.find((t) => t.team === team && t._lane === lane && t._tier === tier);
-const creeps = (w, team) => [...w.units.values()].filter((u) => u.kind === KIND.CREEP && !u._dead && (team === undefined || u.team === team));
+const creeps = (w, team) => [...w.units.values()].filter((u) => u.kind === KIND.CREEP && u.team !== TEAM.NEUTRAL && !u._dead && (team === undefined || u.team === team));   // lane creeps (camps / Roshan are neutrals.test.js)
 const SVEN = 'npc_dota_hero_sven';
 const put = (w, u, x, y) => { w.teleport(u, x, y); w.index.insert(u); };
 
@@ -211,7 +211,7 @@ test('20 game minutes headless: no exceptions, creeps keep pushing', () => {
         }
       }
       w.step(DT);
-      if (i > ticks - 30 * 60 && i % 300 === 0) for (const c of w.units.values()) if (c.kind === KIND.CREEP && !c._dead) maxLiLate = Math.max(maxLiLate, c._li);
+      if (i > ticks - 30 * 60 && i % 300 === 0) for (const c of w.units.values()) if (c.kind === KIND.CREEP && c.team !== TEAM.NEUTRAL && !c._dead) maxLiLate = Math.max(maxLiLate, c._li);
       if (i % 3000 === 0) w.drainEvents();
       if (w.winner >= 0) break;
     }

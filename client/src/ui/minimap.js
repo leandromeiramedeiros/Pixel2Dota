@@ -2,7 +2,7 @@
 //   createMinimap(parent, { renderer, send, size?:92 }) -> { el, update({ state, myTeam, hero, mySid }), destroy() }
 //   left click / drag: move camera (renderer.setTarget).  right click: move order (shift = queued).
 import { getMap, TT, worldToTile } from '../../../shared/map.js';
-import { TEAM, KIND, MSG } from '../../../shared/protocol.js';
+import { TEAM, KIND, MSG, ST } from '../../../shared/protocol.js';
 import { orderMove } from './targeting.js';
 
 const TYPE_RGB = {
@@ -68,6 +68,10 @@ export function createMinimap(parent, { renderer, send, size = 92 }) {
     fogG.putImageData(fogImg, 0, 0);
   }
 
+  const campPx = (m.ents.camp || []).map((c) => toPx(c.x, c.y));
+  const pit = (m.ents.roshan || []).find((e) => !/trigger/.test(e.name || '')) || (m.ents.roshan || [])[0];
+  const pitPx = pit ? toPx(pit.x, pit.y) : null;
+
   const COL = { [TEAM.RADIANT]: '#58d96c', [TEAM.DIRE]: '#ee5a4a', [TEAM.NEUTRAL]: '#c9b45a' };
   const BUILD = new Set([KIND.TOWER, KIND.RAX, KIND.ANCIENT, KIND.BUILDING, KIND.FOUNTAIN]);
   let fogVis = null;
@@ -85,12 +89,21 @@ export function createMinimap(parent, { renderer, send, size = 92 }) {
     fogVis = fg ? fg.visible : null;
     g.clearRect(0, 0, size, size);
     if (hasFog) g.drawImage(fogC, 0, 0);
+    // neutral camp spots (dim gold) + Roshan's pit (orange diamond): static map markers, drawn under the unit dots
+    g.fillStyle = 'rgba(214,186,88,0.55)';
+    for (const [px, py] of campPx) g.fillRect(Math.round(px) - 1, Math.round(py) - 1, 2, 2);
+    if (pitPx) {
+      const [px, py] = pitPx, cx = Math.round(px), cy = Math.round(py);
+      g.fillStyle = '#05070b'; g.fillRect(cx - 3, cy - 1, 7, 3); g.fillRect(cx - 1, cy - 3, 3, 7);
+      g.fillStyle = '#f08a2a'; g.fillRect(cx - 2, cy, 5, 1); g.fillRect(cx, cy - 2, 1, 5);
+    }
     if (!state || !state.units) return;
     const heroes = [], rest = [];
     state.units.forEach((u) => {
       if (u.hp <= 0 && u.kind !== KIND.HERO) return;
       const mine = u.team === myTeam;
       if (!mine && !visibleAt(u.x, u.y)) { if (!BUILD.has(u.kind)) return; }
+      if (!mine && (u.status & ST.INVIS) && !(u.status & ST.REVEALED)) return;   // unrevealed enemy wards stay off the map
       (u.kind === KIND.HERO ? heroes : rest).push(u);
     });
     for (const u of rest) {

@@ -32,13 +32,17 @@ export function neutralLook(u) {
   return { scale: Math.min(2.4, 0.85 + Math.sqrt(u.maxHp || 300) / 60), tint: [0.55 + 0.45 * c[0], 0.55 + 0.45 * c[1], 0.55 + 0.45 * c[2]] };
 }
 
+const BODY_STANDIN = { pudge: 'axe', mirana: 'drow_ranger', rubick: 'lina' };
+
 /** Which sheet / key prefix a unit uses. Returns { sheet, prefix, kind } where kind is 'unit' | 'building'. */
 export function appearance(u, atlas) {
   const key = u.key || '';
   const t = u.team === 1 ? 'd' : 'r';
   if (u.kind === 'hero') {
     const short = key.replace(/^npc_dota_hero_/, '');
-    return atlas.hasSheet(short) ? { sheet: short, prefix: '', kind: 'unit' } : { sheet: 'ph_unit', prefix: '', kind: 'unit', ph: true };
+    // Stand-in sheets until the 8-direction sheets for these heroes exist: drop an entry here as soon as atlas.hasSheet(<short>) is true (it wins automatically).
+    const sheet = atlas.hasSheet(short) ? short : atlas.hasSheet(BODY_STANDIN[short]) ? BODY_STANDIN[short] : '';
+    return sheet ? { sheet, prefix: '', kind: 'unit' } : { sheet: 'ph_unit', prefix: '', kind: 'unit', ph: true };
   }
   if (u.kind === 'creep') {
     const type = /siege/.test(key) ? 'siege' : /ranged|range/.test(key) ? 'ranged' : 'melee';

@@ -4,7 +4,7 @@ import { SHOP_RANGE, SELL_RATIO, SELL_FULL_WINDOW } from '../../../shared/consta
 import { INV_SLOTS } from '../../../shared/protocol.js';
 
 export const SHOP_CATEGORIES = [
-  { id: 'consumables', name: 'Consumables', items: ['item_tango', 'item_flask', 'item_clarity', 'item_faerie_fire', 'item_enchanted_mango', 'item_tpscroll'] },
+  { id: 'consumables', name: 'Consumables', items: ['item_tango', 'item_flask', 'item_clarity', 'item_faerie_fire', 'item_enchanted_mango', 'item_tpscroll', 'item_ward_observer', 'item_ward_sentry'] },
   { id: 'attributes', name: 'Attributes', items: ['item_branches', 'item_gauntlets', 'item_slippers', 'item_mantle', 'item_circlet', 'item_belt_of_strength', 'item_boots_of_elves', 'item_robe', 'item_ogre_axe', 'item_blade_of_alacrity', 'item_staff_of_wizardry'] },
   { id: 'equipment', name: 'Equipment', items: ['item_ring_of_protection', 'item_quelling_blade', 'item_blades_of_attack', 'item_chainmail', 'item_gloves', 'item_broadsword', 'item_claymore', 'item_mithril_hammer'] },
   { id: 'misc', name: 'Misc', items: ['item_boots', 'item_ring_of_regen', 'item_sobi_mask', 'item_magic_stick'] },

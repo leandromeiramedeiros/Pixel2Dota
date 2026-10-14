@@ -18,6 +18,7 @@ const ITEM_NAMES = [
   'claymore', 'chainmail', 'ogre_axe', 'mithril_hammer', 'blade_of_alacrity', 'staff_of_wizardry', 'boots', 'gloves', 'ring_of_regen',
   'sobi_mask', 'belt_of_strength', 'boots_of_elves', 'robe', 'magic_stick',
   'magic_wand', 'bracer', 'wraith_band', 'null_talisman', 'phase_boots', 'power_treads', 'lesser_crit', 'black_king_bar', 'blink',
+  'ward_observer', 'ward_sentry', 'aegis',
 ].map((n) => 'item_' + n);
 
 // Engine hull radii (not in KV): documented Dota values.
@@ -210,6 +211,7 @@ function bakeItem(name) {
     behavior: flags(def.AbilityBehavior, 'DOTA_ABILITY_BEHAVIOR_'),
     values: sortObj(outValues),
     charges: n0(def.ItemInitialCharges), stack: def.ItemStackable === '1',
+    ...(def.ItemStockMax ? { stock: { max: n0(def.ItemStockMax), initial: n0(def.ItemStockInitial), time: n0(def.ItemStockTime) } } : {}),
     consumable: def.ItemPermanent === '0' || def.ItemQuality === 'consumable', sell: def.ItemSellable !== '0',
   });
 }
@@ -233,7 +235,7 @@ const unitKv = kvOf('scripts/npc/npc_units.txt').DOTAUnits;
 function bakeUnit(npc) {
   const u = unitKv[npc];
   if (!u) throw new Error('unit missing: ' + npc);
-  const hull = HULL[u.BoundsHullName];
+  const hull = HULL[u.BoundsHullName || 'DOTA_HULL_SIZE_HERO']; // neutrals / Roshan inherit the HERO hull from npc_dota_neutral_default
   if (hull === undefined) throw new Error(`unknown hull ${u.BoundsHullName} for ${npc}`);
   return sortObj({
     key: npc,
@@ -250,6 +252,12 @@ const UNIT_SRC = {
   melee_rax: 'npc_dota_goodguys_melee_rax_mid', ranged_rax: 'npc_dota_goodguys_range_rax_mid',
   fort: 'npc_dota_goodguys_fort', fountain: 'dota_fountain',
 };
+// neutral camps + Roshan (key = npc name without the npc_dota_ prefix)
+const NEUTRALS = ['kobold', 'kobold_tunneler', 'kobold_taskmaster', 'forest_troll_berserker', 'forest_troll_high_priest', 'giant_wolf', 'alpha_wolf',
+  'ogre_mauler', 'ogre_magi', 'centaur_outrunner', 'centaur_khan', 'satyr_trickster', 'satyr_soulstealer', 'satyr_hellcaller', 'wildkin', 'enraged_wildkin',
+  'rock_golem', 'granite_golem', 'black_drake', 'black_dragon', 'big_thunder_lizard', 'small_thunder_lizard'];
+for (const n of NEUTRALS) UNIT_SRC['neutral_' + n] = 'npc_dota_neutral_' + n;
+UNIT_SRC.roshan = 'npc_dota_roshan';
 const unitsOut = {};
 for (const [k, npc] of Object.entries(UNIT_SRC)) unitsOut[k] = bakeUnit(npc);
 // buildings are identical across teams and lanes in the game files; verify so a patch that changes that doesn't pass silently
@@ -275,7 +283,7 @@ const sizes = {
   heroes: writeModule('heroes', heroesOut, 'npc_dota_hero_* stats for the roster in shared/heroes.js (KV base values; attribute bonuses are applied by the sim).'),
   abilities: writeModule('abilities', abilitiesOut, 'Per-level arrays. damageType: mag|phys|pure. levelKeys (Invoker): value arrays indexed by that orb level.'),
   items: writeModule('items', itemsOut, 'Items from docs/DECISIONS.md plus recipe parts. cost = total gold cost; recipe.cost = recipe scroll (0 = none).'),
-  units: writeModule('units', unitsOut, 'Lane creeps, towers (all lanes/teams identical), barracks, ancient, fountain.'),
+  units: writeModule('units', unitsOut, 'Lane creeps, towers (all lanes/teams identical), barracks, ancient, fountain, neutral_* camp creeps, roshan.'),
   meta: writeModule('meta', meta, 'Source patch.'),
 };
 console.log(`baked patch ${meta.patch} (${meta.date}) from ${DOTA_DIR}`);

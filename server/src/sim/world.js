@@ -13,6 +13,7 @@ import * as O from './orders.js';
 import * as K from './creeps.js';
 import * as B from './buildings.js';
 import * as bots from './bots.js';
+import * as N from './neutrals.js';
 import { stepKb, separate } from './move.js';
 import { evHeal, evMana, evBlink, evTree, evTreeGrow, emit } from './events.js';
 
@@ -41,7 +42,7 @@ function pass(u, o) {
 }
 
 export class World {
-  /** opts: {seed=1, data?, pregame=PREGAME, buildings=true} */
+  /** opts: {seed=1, data?, pregame=PREGAME, buildings=true, neutrals=(buildings), camps?:[{x,y,tier}], roshan?:{x,y}} */
   constructor(opts = {}) {
     this.seed = opts.seed === undefined ? 1 : opts.seed;
     this._rng = mulberry32(this.seed >>> 0);
@@ -57,6 +58,8 @@ export class World {
     this.rax = []; this.towers = []; this.forts = []; this.fountains = []; this.buildings = []; this.shops = [[], []];
     this._slots = [0, 0];
     if (opts.buildings !== false) { B.spawnBuildings(this); K.buildLanePaths(this); }   // lane A* up front so the first step() stays cheap
+    this.camps = null; this.rosh = null;
+    if (opts.neutrals !== undefined ? opts.neutrals : opts.buildings !== false) N.initNeutrals(this, opts);   // camps spawn at 1:00, Roshan at 0:00
   }
 
   // ------------------------------------------------------------------------------------------------------- basics
@@ -257,6 +260,7 @@ export class World {
     const idx = this.index; idx.clear();
     for (const u of this.units.values()) if (!u._dead) idx.insert(u);
     if (this.time >= this._nextWave - 1e-6 && this.buildings.length) { this.waveNo++; this._nextWave += WAVE_EVERY; K.spawnWave(this, this.waveNo); }
+    if (this.camps) N.updateNeutrals(this);
     bots.update(this, dt);
     for (const u of this.units.values()) this._think(u, dt);
     C.updateProjectiles(this, dt);
@@ -280,6 +284,7 @@ export class World {
     else if (u._expire !== undefined && u._expire <= this.time) { C.killUnit(this, u, null, null); return; }
     if (u._kb) { u._tgt = null; stepKb(this, u, dt); }
     else if (k === KIND.HERO) O.think(this, u, dt);
+    else if (u._camp) N.neutralThink(this, u, dt);
     else if (k === KIND.CREEP) K.creepThink(this, u, dt);
     else if (u._building) B.buildingThink(this, u, dt);
     else K.summonThink(this, u, dt);

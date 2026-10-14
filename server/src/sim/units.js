@@ -56,6 +56,17 @@ export function makeCreep(w, team, type, x, y, lane) {
   return u;
 }
 
+/** Neutral camp creep / Roshan from baked DATA.units['neutral_<name>'] | ['roshan']. Team NEUTRAL, KIND.CREEP, no lane. o: {radius?} */
+export function makeNeutral(w, name, x, y, o = {}) {
+  const d = w.data.units[name === 'roshan' ? 'roshan' : 'neutral_' + name];
+  if (!d) throw new Error('unknown neutral ' + name);
+  const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: 0.5 };
+  const ranged = d.projSpeed > 0 && d.atkRange >= 300;
+  const u = common(w, { kind: KIND.CREEP, key: d.key, team: TEAM.NEUTRAL, x, y, base, radius: o.radius || Math.max(d.hull, 16), projKey: ranged ? 'creep_ranged' : '', visDay: d.vision || 800, visNight: Math.min(d.vision || 800, 800) });
+  u._neutral = name;
+  return u;
+}
+
 export function makeBuilding(w, ent, info) {
   // info: {kind, team, tier, lane, dataKey, rax}
   const d = w.data.units[info.dataKey];

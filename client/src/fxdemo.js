@@ -3,8 +3,8 @@
 //   I = next item;  M = next basic-attack projectile;  X = fire every spell of the current hero at once.  window.__fx.fire('lina_dragon_slave'), __fx.all(delayMs).
 import { EV } from '../../shared/protocol.js';
 
-const ORDER = ['sven', 'lina', 'lion', 'crystal_maiden', 'axe', 'sniper', 'zuus', 'drow_ranger', 'juggernaut', 'invoker'];
-const ATKS = ['lina', 'sniper', 'drow_ranger', 'lion', 'crystal_maiden', 'zuus', 'invoker', 'creep_ranged', 'tower', 'siege', 'invoker_forged_spirit'];
+const ORDER = ['sven', 'lina', 'lion', 'crystal_maiden', 'axe', 'sniper', 'zuus', 'drow_ranger', 'juggernaut', 'invoker', 'pudge', 'mirana', 'rubick'];
+const ATKS = ['lina', 'sniper', 'drow_ranger', 'lion', 'crystal_maiden', 'zuus', 'invoker', 'creep_ranged', 'tower', 'siege', 'invoker_forged_spirit', 'mirana', 'rubick'];
 const ITEMS = ['blink', 'tp', 'item_black_king_bar', 'item_tango', 'item_quelling_blade', 'item_flask', 'item_clarity', 'item_faerie_fire', 'item_enchanted_mango', 'item_magic_stick', 'item_magic_wand', 'item_phase_boots', 'item_power_treads'];
 const RECIPE = { invoker_cold_snap: 'QQQ', invoker_ghost_walk: 'QQW', invoker_ice_wall: 'QQE', invoker_emp: 'WWW', invoker_tornado: 'WWQ', invoker_alacrity: 'WWE', invoker_sun_strike: 'EEE', invoker_forge_spirit: 'EEQ', invoker_chaos_meteor: 'EEW', invoker_deafening_blast: 'QWE' };
 
@@ -101,6 +101,36 @@ export function installFxDemo({ r, units, mouse, myHero, heightAt }) {
   inv('invoker_forge_spirit', ({ S }, o, t0) => o.push({ at: t0, ev: sp('invoker_forge_spirit', S, { n: 3, dur: 20, r: 80 }) }));
   inv('invoker_chaos_meteor', ({ S, G }, o, t0) => o.push({ at: t0, ev: sp('invoker_chaos_meteor', S, { x: G.x - 250, y: G.y, x2: G.x + 700, y2: G.y, r: 275, dur: 3.1, land: 1.3, roll: 1.8 }) }));
   inv('invoker_deafening_blast', ({ S }, o, t0) => { const p = proj('invoker_deafening_blast', S, S.x, S.y, { ...dirx(S, 1000), sp: 1100 }); o.push({ at: t0, ev: p }, { at: t0, ev: sp('invoker_deafening_blast', S, { ...dirx(S, 1000), r: 225, r0: 175, dur: 0.9 }) }); ends(o, t0 + 1000 / 1100, p.id); });
+  // Pudge / Mirana / Rubick (events as emitted by server/src/sim/abilities/{pudge,mirana,rubick}.js)
+  one('pudge_meat_hook', ({ S, T }, o) => {
+    const d = Math.hypot(T.x - S.x, T.y - S.y), sp0 = 1600, tt = d / sp0, a = proj('pudge_meat_hook', S, S.x, S.y, { x2: Math.round(T.x), y2: Math.round(T.y), sp: sp0 });
+    const b = proj('pudge_meat_hook_back', S, T.x, T.y, { x2: Math.round(S.x), y2: Math.round(S.y), sp: sp0 });
+    o.push({ at: 0, ev: sp('pudge_meat_hook', S, { x2: Math.round(T.x), y2: Math.round(T.y), r: 70, dur: tt }) }, { at: 0, ev: a },
+      { at: tt, ev: sp('pudge_meat_hook', S, { sub: 'hit', t: T.id, x: Math.round(T.x), y: Math.round(T.y), x2: Math.round(S.x), y2: Math.round(S.y) }) }, { at: tt, ev: b });
+  });
+  one('pudge_rot', ({ S }, o) => { o.push({ at: 0, ev: sp('pudge_rot', S, { sub: 'on', r: 250 }) }, { at: 5, ev: sp('pudge_rot', S, { sub: 'off', r: 250 }) }); });
+  one('pudge_flesh_heap', ({ S }, o) => o.push({ at: 0, ev: sp('pudge_flesh_heap', S, { r: 140, dur: 6 }) }));
+  one('pudge_dismember', ({ S, T }, o) => { T.x = S.x + 110; T.y = S.y; o.push({ at: 0, ev: sp('pudge_dismember', S, { t: T.id, dur: 3, r: 120 }) }); });
+  one('mirana_starfall', ({ S, T }, o) => {
+    T.x = S.x + 330; T.y = S.y + 40;
+    o.push({ at: 0, ev: sp('mirana_starfall', S, { r: 650 }) });
+    for (let i = 0; i < 5; i++) o.push({ at: 0, ev: sp('mirana_starfall', S, { sub: 'rain', x: Math.round(S.x + 120 + i * 110), y: Math.round(S.y + ((i * 83) % 260) - 130), r: 90 }) });
+    o.push({ at: 0, ev: sp('mirana_starfall', S, { sub: 'star', t: T.id, x: Math.round(T.x), y: Math.round(T.y), r: 120 }) }, { at: 0.57, ev: sp('mirana_starfall', S, { sub: 'star2', t: T.id, x: Math.round(T.x), y: Math.round(T.y), r: 140 }) });
+  });
+  one('mirana_arrow', ({ S, T }, o) => {
+    const d = Math.hypot(T.x - S.x, T.y - S.y), tt = d / 857, a = proj('mirana_arrow', S, S.x, S.y, { x2: Math.round(T.x), y2: Math.round(T.y), sp: 857 });
+    o.push({ at: 0, ev: sp('mirana_arrow', S, { x2: Math.round(T.x), y2: Math.round(T.y), r: 50, dur: tt }) }, { at: 0, ev: a },
+      { at: tt, ev: sp('mirana_arrow', S, { sub: 'hit', t: T.id, x: Math.round(T.x), y: Math.round(T.y), dur: 3.6, r: 90 }) });
+  });
+  one('mirana_leap', ({ S }, o) => o.push({ at: 0, ev: sp('mirana_leap', S, { x2: Math.round(S.x + 600), y2: Math.round(S.y), r: 100, dur: 0.4 }) }));
+  one('mirana_invis', ({ S, A }, o) => o.push({ at: 0, ev: sp('mirana_invis', S, { dur: 6, r: 200 }) }, { at: 0, ev: sp('mirana_invis', S, { sub: 'fade', t: S.id, dur: 2 }) }, { at: 0, ev: sp('mirana_invis', S, { sub: 'fade', t: A.id, dur: 2 }) }));
+  one('rubick_telekinesis', ({ S, T }, o) => o.push({ at: 0, ev: sp('rubick_telekinesis', S, { sub: 'lift', t: T.id, x: Math.round(T.x), y: Math.round(T.y), dur: 1.7, lift: 1, r: 325 }) },
+    { at: 1.7, ev: sp('rubick_telekinesis', S, { sub: 'land', t: T.id, x: Math.round(T.x), y: Math.round(T.y), r: 325 }) }));
+  one('rubick_fade_bolt', ({ S, T, A }, o) => {
+    o.push({ at: 0, ev: sp('rubick_fade_bolt', S, { r: 500 }) }, { at: 0, ev: sp('rubick_fade_bolt', S, { sub: 'bolt', t: T.id, x: Math.round(S.x), y: Math.round(S.y), x2: Math.round(T.x), y2: Math.round(T.y) }) },
+      { at: 0.25, ev: sp('rubick_fade_bolt', S, { sub: 'bolt', t: A.id, x: Math.round(T.x), y: Math.round(T.y), x2: Math.round(A.x), y2: Math.round(A.y) }) });
+  });
+  one('rubick_spell_steal', ({ S, T }, o) => o.push({ at: 0, ev: sp('rubick_spell_steal', S, { sub: 'steal', t: T.id, x: Math.round(T.x), y: Math.round(T.y), k2: 'lina_dragon_slave' }) }));
   // Items
   F.blink = (c) => [{ at: 0, ev: { e: EV.BLINK, s: c.S.id, x: Math.round(c.S.x), y: Math.round(c.S.y), x2: Math.round(c.S.x + 700), y2: Math.round(c.S.y + 120) } }];
   F.tp = (c) => [{ at: 0, ev: { e: EV.TP, s: c.S.id, x: Math.round(c.C.x + 500), y: Math.round(c.C.y - 100), dur: 3 } }];

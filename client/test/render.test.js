@@ -140,3 +140,9 @@ test('visionRadius: heroes day/night, fallback constants', () => {
   assert.ok(day >= night && night > 0);
   assert.equal(visionRadius({ kind: 'hero', key: 'npc_dota_hero_unknown_x' }, false), VISION_FALLBACK.day);
 });
+
+test('visionRadius: observer ward 1600 day and night, sentry ward small', () => {
+  assert.equal(visionRadius({ kind: 'ward', key: 'observer_ward' }, false), 1600);
+  assert.equal(visionRadius({ kind: 'ward', key: 'observer_ward' }, true), 1600);
+  assert.ok(visionRadius({ kind: 'ward', key: 'sentry_ward' }, false) < 400);
+});

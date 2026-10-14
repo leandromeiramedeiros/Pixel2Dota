@@ -15,6 +15,11 @@ export const HEROES = {
   npc_dota_hero_zuus: { short: 'zuus', name: 'Zeus', abilities: ['zuus_arc_lightning', 'zuus_lightning_bolt', 'zuus_static_field', 'zuus_thundergods_wrath'] },
   npc_dota_hero_drow_ranger: { short: 'drow_ranger', name: 'Drow Ranger', abilities: ['drow_ranger_frost_arrows', 'drow_ranger_wave_of_silence', 'drow_ranger_multishot', 'drow_ranger_marksmanship'] },
   npc_dota_hero_juggernaut: { short: 'juggernaut', name: 'Juggernaut', abilities: ['juggernaut_blade_fury', 'juggernaut_healing_ward', 'juggernaut_blade_dance', 'juggernaut_omni_slash'] },
+  npc_dota_hero_pudge: { short: 'pudge', name: 'Pudge', abilities: ['pudge_meat_hook', 'pudge_rot', 'pudge_flesh_heap', 'pudge_dismember'] },
+  npc_dota_hero_mirana: { short: 'mirana', name: 'Mirana', abilities: ['mirana_starfall', 'mirana_arrow', 'mirana_leap', 'mirana_invis'] },
+  // Rubick: [telekinesis, fade bolt, arcane supremacy, D + F = stolen spell slots (rewritten by Spell Steal, not learnable), spell steal].
+  npc_dota_hero_rubick: { short: 'rubick', name: 'Rubick', abilities: ['rubick_telekinesis', 'rubick_fade_bolt', 'rubick_arcane_supremacy', 'rubick_empty1', 'rubick_empty2', 'rubick_spell_steal'],
+    keys: ['Q', 'W', 'E', 'D', 'F', 'R'], stolen: [3, 4] },
 };
 for (const k in HEROES) if (!HEROES[k].keys) HEROES[k].keys = ['Q', 'W', 'E', 'R'];
 

@@ -98,6 +98,7 @@ export function requiredLevel(ab, data = DATA) {
 export function canLearn(u, slot, data = DATA) {
   const ab = u && u.abilities && u.abilities[slot];
   if (!ab || !(u.skillPoints > 0)) return false;
+  const hs = HEROES[u.key]; if (hs && hs.stolen && hs.stolen.indexOf(slot) >= 0) return false;   // Rubick's stolen-spell slots
   const d = data.abilities[ab.key];
   if (!d || (d.behavior || []).indexOf('NOT_LEARNABLE') >= 0 || ab.level >= d.maxLevel) return false;
   return u.level >= requiredLevel(ab, data);

@@ -11,6 +11,7 @@ const HIGH = 70;          // a tile this much higher than the viewer blocks sigh
 
 /** Vision radius of a unit view (world units). Heroes use visionDay/visionNight from DATA, other units their baked `vision`. */
 export function visionRadius(u, night) {
+  if (u.kind === 'ward') { const wk = u.key || ''; if (/observer/.test(wk)) return 1600; if (/sentry/.test(wk)) return 150; }   // placed wards (server wards.js): observer 1600, sentry sees only its feet
   const h = DATA.heroes && DATA.heroes[u.key];
   if (h) return (night ? h.visionNight : h.visionDay) || (night ? VISION_FALLBACK.night : VISION_FALLBACK.day);
   const k = u.key || '';

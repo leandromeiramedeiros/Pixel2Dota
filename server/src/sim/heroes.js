@@ -76,7 +76,7 @@ export function requiredLevel(w, u, ab) {
 export function canLearn(w, u, slot) {
   const ab = u.abilities[slot]; if (!ab || u.skillPoints <= 0 || u._dead && false) return false;
   const d = w.data.abilities[ab.key];
-  if (!d || d.behavior.includes('NOT_LEARNABLE') || ab.level >= d.maxLevel) return false;
+  if (!d || ab.stolen || d.behavior.includes('NOT_LEARNABLE') || ab.level >= d.maxLevel) return false;   // ab.stolen: Rubick's borrowed spell slots
   return u.level >= requiredLevel(w, u, ab);
 }
 
@@ -107,7 +107,8 @@ export function respawnTime(u) { return RESPAWN[Math.min(u.level, MAX_LEVEL) - 1
 export function respawnHero(w, u) {
   const f = w.fountains[u.team];
   u._dead = false; u._mods.length = 0; u._q.length = 0; u._channel = null; u._mv = null; u._kb = null; u._wind = 0; u._cd = 0; u._auto = null;
-  u.x = f ? f.x + (w.rand() - 0.5) * 200 : u.x; u.y = f ? f.y + (w.rand() - 0.5) * 200 : u.y;
+  if (u._reviveAt) { u.x = u._reviveAt.x; u.y = u._reviveAt.y; u._reviveAt = null; }   // Aegis: reincarnate at the spot of death
+  else { u.x = f ? f.x + (w.rand() - 0.5) * 200 : u.x; u.y = f ? f.y + (w.rand() - 0.5) * 200 : u.y; }
   u.respawn = 0; u._st = 0; u._dirty = true;
   recalc(w, u);
   u.hp = u.maxHp; u.mana = u.maxMana; u.anim = 'idle'; u.animSeq++;

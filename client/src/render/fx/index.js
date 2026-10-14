@@ -19,8 +19,11 @@ import * as sniper from './sniper.js';
 import * as zuus from './zuus.js';
 import * as drow_ranger from './drow_ranger.js';
 import * as juggernaut from './juggernaut.js';
+import * as pudge from './pudge.js';
+import * as mirana from './mirana.js';
+import * as rubick from './rubick.js';
 
-const MODS = { misc, items, invoker, sven, lina, lion, crystal_maiden, axe, sniper, zuus, drow_ranger, juggernaut, status };
+const MODS = { misc, items, invoker, sven, lina, lion, crystal_maiden, axe, sniper, zuus, drow_ranger, juggernaut, pudge, mirana, rubick, status };
 
 export function createFx(args) {
   const Q = createQuads(args);

@@ -49,7 +49,7 @@ test('abilities: every roster ability is baked with per-level arrays', () => {
       // active (castable) abilities: cooldown/mana arrays present (they are asserted above); the learnable ones also cost mana or have a cooldown
       const passive = a.behavior.includes('PASSIVE');
       const orb = ['invoker_quas', 'invoker_wex', 'invoker_exort', 'invoker_invoke'].includes(key);
-      if (!passive && !orb && !['lion_mana_drain'].includes(key)) assert.ok(a.manaCost.some((m) => m > 0) || a.cooldown.some((c) => c > 0), `${key} active but free`);
+      if (!passive && !orb && !['lion_mana_drain', 'pudge_rot'].includes(key)) assert.ok(a.manaCost.some((m) => m > 0) || a.cooldown.some((c) => c > 0), `${key} active but free`);
     }
   }
   for (const k of DATA.heroes.npc_dota_hero_sven.abilities) assert.ok(DATA.abilities[k]);

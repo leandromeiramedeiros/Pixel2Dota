@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Glyph, PalBuilder } from './kit.mjs';
 import { ABILITIES } from './abilities.mjs';
+import { ABILITIES_NH } from './abilities_newheroes.mjs';   // Pudge / Mirana / Rubick
 import { ITEMS } from './items.mjs';
 import { TRAINER } from './extract_trainer.mjs';
 
@@ -19,19 +20,20 @@ const pb = new PalBuilder();
 const frames = {};
 const draw = (def) => { const [theme, fn] = def; const g = new Glyph(theme); fn(g); return g.render(); };
 
-for (const [k, def] of Object.entries({ ...ABILITIES, ...ITEMS })) if (!REUSE[k]) frames[k] = pb.rows(draw(def));
+for (const [k, def] of Object.entries({ ...ABILITIES, ...ABILITIES_NH, ...ITEMS })) if (!REUSE[k]) frames[k] = pb.rows(draw(def));
 for (const [k, tk] of Object.entries(REUSE)) {
   const rows = TRAINER.frames[tk];
   frames[k] = rows.map(r => [...r].map(c => (c === '.' ? '.' : pb.ch(TRAINER.pal[c]))).join(''));
 }
 frames.invoker_empty1 = frames.empty; frames.invoker_empty2 = frames.empty;
+frames.rubick_empty1 = frames.empty; frames.rubick_empty2 = frames.empty;   // Rubick stolen-spell slots while empty
 
 // stable key order: invoker, heroes, items, misc
 const order = [];
 const push = k => { if (frames[k] && !order.includes(k)) order.push(k); };
 ['invoker_quas', 'invoker_wex', 'invoker_exort', 'invoker_empty1', 'invoker_empty2', 'invoker_invoke',
   'invoker_cold_snap', 'invoker_ghost_walk', 'invoker_ice_wall', 'invoker_emp', 'invoker_tornado', 'invoker_alacrity', 'invoker_sun_strike', 'invoker_forge_spirit', 'invoker_chaos_meteor', 'invoker_deafening_blast'].forEach(push);
-Object.keys(ABILITIES).forEach(push); Object.keys(ITEMS).filter(k => k.startsWith('item_')).forEach(push);
+Object.keys(ABILITIES).forEach(push); Object.keys(ABILITIES_NH).forEach(push); ['rubick_empty1', 'rubick_empty2'].forEach(push); Object.keys(ITEMS).filter(k => k.startsWith('item_')).forEach(push);
 ['gold', 'lock', 'empty', 'attr_str', 'attr_agi', 'attr_int', 'attr_all', 'skillpoint'].forEach(push);
 Object.keys(frames).forEach(push);
 
