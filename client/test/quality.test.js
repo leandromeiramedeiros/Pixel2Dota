@@ -13,9 +13,10 @@ test('presets: high equals the renderer DEFAULTS for every shared key', () => {
   for (const k of Object.keys(s)) assert.deepEqual(s[k], DEFAULTS[k], k);
 });
 
-test('presets: low turns off shadows/ambient/clutter and halves particles; every level sets the same keys', () => {
+test('presets: low is a potato (no shadows/ambient/clutter/dof/ssr/rays/wind, fewer particles, fewer bloom mips); every level sets the same keys', () => {
   const lo = presetSettings('low');
-  assert.equal(lo.shadows, false); assert.equal(lo.ambient, false); assert.equal(lo.clutter, false); assert.equal(lo.particles, 0.5);
+  assert.equal(lo.shadows, false); assert.equal(lo.ambient, false); assert.equal(lo.clutter, false); assert.ok(lo.particles <= 0.5);
+  assert.equal(lo.dof, false); assert.equal(lo.ssr, false); assert.equal(lo.rays, false); assert.equal(lo.wind, 0); assert.ok(lo.bloomLevels < DEFAULTS.bloomLevels);
   assert.ok(lo.pixelScale < DEFAULTS.pixelScale);
   const keys = Object.keys(PRESETS.high).sort();
   for (const l of LEVELS) assert.deepEqual(Object.keys(PRESETS[l]).sort(), keys, l);
@@ -23,8 +24,13 @@ test('presets: low turns off shadows/ambient/clutter and halves particles; every
   presetSettings('low').shadows = true; assert.equal(PRESETS.low.shadows, false, 'copies, not references');
 });
 
+test('presets: wind high = 1 (unchanged look), medium = half, low = static; medium keeps the post passes', () => {
+  assert.equal(presetSettings('high').wind, 1); assert.equal(presetSettings('medium').wind, 0.5); assert.equal(presetSettings('low').wind, 0);
+  for (const l of ['medium', 'high']) { const p = presetSettings(l); assert.ok(p.dof && p.ssr && p.rays, l); }
+});
+
 test('presets: cost is monotonic low <= medium <= high', () => {
-  const cost = (s) => s.pixelScale ** 2 + (s.shadows ? 1 : 0) + (s.ambient ? 0.5 : 0) + (s.clutter ? 0.5 : 0) + s.particles;
+  const cost = (s) => s.pixelScale ** 2 + (s.shadows ? 1 : 0) + (s.ambient ? 0.5 : 0) + (s.clutter ? 0.5 : 0) + s.particles + (s.dof ? 0.5 : 0) + (s.ssr ? 0.5 : 0) + (s.rays ? 0.25 : 0) + s.bloomLevels / 10;
   assert.ok(cost(PRESETS.low) < cost(PRESETS.medium) && cost(PRESETS.medium) < cost(PRESETS.high));
 });
 

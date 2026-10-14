@@ -1,5 +1,6 @@
 // Shared GLSL chunks + the shared uniform bag (the same Uniform objects are referenced by terrain / sprite / decal / particle materials).
 import * as THREE from 'three';
+import { MAX_GUSTS } from './wind.js';
 
 export const MAX_LIGHTS = 32;
 export const LIGHT_LEVELS = 9;    // quantisation steps per 1.0 of light (trainer: 9-level Bayer)
@@ -50,6 +51,9 @@ export function createSharedUniforms() {
     uLB: { value: new Float32Array(MAX_LIGHTS * 4) },                       // per light: bounce colour (light * ground albedo), w = ground y (three)
     uBounceK: { value: 0.4 },                                               // bounce strength
     uKnee: { value: new THREE.Vector2(1.1, 0.5) },                          // stacked spell light: untouched up to x, then rolls off to at most x + y (y 0 = off)
+    // spell wind (wind.js): uWind = base sway + gust gain (0 = static), then up to MAX_GUSTS packed gusts
+    uWind: { value: 1 }, uWN: { value: 0 },
+    uWA: { value: new Float32Array(MAX_GUSTS * 4) }, uWB: { value: new Float32Array(MAX_GUSTS * 4) }, uWC: { value: new Float32Array(MAX_GUSTS * 4) },
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }

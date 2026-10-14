@@ -6,6 +6,7 @@
 // 256u cell x variant into one packed buffer that is already in GPU layout, so the per-frame work is "frustum-test a few
 // dozen cells and memcpy their ranges".
 import * as THREE from 'three';
+import { WIND_GLSL } from './wind.js';
 import { COMMON_GLSL } from './shaderlib.js';
 import { DEPTH_FRAG } from './shadow.js';
 import { createKit, instancedGeo, flushInstances, hash01, DEPTH_GLSL } from './mesh3d.js';
@@ -298,13 +299,20 @@ attribute vec4 iXf;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vLY, vPh, vEm;
 ${DEPTH_GLSL}
+${WIND_GLSL}
 void main(){
   vec3 p = position;
   float ph = iXf.z, sw = aSw * aSw;
-  p.x += sw * 6. * sin(uTime * 1.7 + ph + position.x * .02);
-  p.z += sw * 3.5 * sin(uTime * 1.3 + ph * 1.7 + position.z * .02);
+  if (uWind > 0.) {                                             // base breeze (wind off at low quality)
+    p.x += uWind * sw * 6. * sin(uTime * 1.7 + ph + position.x * .02);
+    p.z += uWind * sw * 3.5 * sin(uTime * 1.3 + ph * 1.7 + position.z * .02);
+  }
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 w = iPos + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) * iXf.y;
+  if (uWind > 0. && uWN > 0 && sw > 0.) {                       // spell gusts (wind.js): grass / bushes ripple outward or around the impact
+    vec2 g = gustAt(iPos.xz) * (.8 + .4 * sin(uTime * 6. + ph * 3.)) * (uWind * sw * 20. * iXf.y);
+    w.xz += g; w.y -= length(g) * .18;
+  }
   vW = w; vN = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c); vFoot = iPos;
   vLY = position.y; vPh = ph; vEm = aEmit;
   vCol = mix(aCol, aCol2, iXf.w);

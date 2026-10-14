@@ -200,7 +200,7 @@ const FINAL = /* glsl */ `
 precision highp float;
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
 uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
-uniform float uBloom, uVig, uNight, uTime, uDof, uSsr, uRays;
+uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays;
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
 uniform vec3 uGC[8];
@@ -226,7 +226,8 @@ void main(){
   vec4 sc = texture2D(tScene, vUv);
   vec3 c = sc.rgb;
   // tilt-shift: crisp band in the middle, soft bottom ~15% and top ~25%
-  float dof = max(smoothstep(.17, 0., vUv.y), smoothstep(.74, 1., vUv.y)) * uDof;
+  float dy = vUv.y - uDofY;   // uDofY: focus band follows the view inset (touch HUD) so the sharp band stays on the framed target
+  float dof = max(smoothstep(.17, 0., dy), smoothstep(.74, 1., dy)) * uDof;
   if (dof > .003) {
     vec3 sA = texture2D(tDofA, vUv).rgb;
     vec3 sB = (texture2D(tDofB, vUv + uBt * vec2(-1.2, -.4)).rgb + texture2D(tDofB, vUv + uBt * vec2(1.2, .4)).rgb
@@ -311,7 +312,7 @@ export function createPost(renderer, shared) {
   const mFinal = mk(FINAL, {
     tScene: { value: null }, tBloom: { value: null }, tDofA: { value: null }, tDofB: { value: null }, tSsr: { value: null },
     uBloom: { value: 0.9 }, uVig: { value: 0.35 }, uNight: { value: 0 }, uTime: { value: 0 }, uOut: { value: new THREE.Vector2() },
-    uDof: { value: 1 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
+    uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
   });
@@ -324,7 +325,8 @@ export function createPost(renderer, shared) {
   let adaptI = 0, lastT = -1;
   let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, downs = [], ups = [], w = 0, h = 0;
   const LEVELS = 5;
-  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1 };
+  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS };   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
+  let ssrDirty = false;
 
   function disposeRTs() {
     if (scene_rt) { scene_rt.dispose(); scene_rt.depthTexture && scene_rt.depthTexture.dispose(); }
@@ -342,7 +344,7 @@ export function createPost(renderer, shared) {
     ssr_rt = new THREE.WebGLRenderTarget(w, h, flat);
     dofA = new THREE.WebGLRenderTarget(Math.max(2, (w + 1) >> 1), Math.max(2, (h + 1) >> 1), lin);
     dofB = new THREE.WebGLRenderTarget(Math.max(2, (w + 3) >> 2), Math.max(2, (h + 3) >> 2), lin);
-    downs = []; ups = [];
+    downs = []; ups = []; ssrDirty = false;
     let bw = w, bh = h;
     for (let i = 0; i < LEVELS; i++) {
       bw = Math.max(2, (bw + 1) >> 1); bh = Math.max(2, (bh + 1) >> 1);
@@ -393,15 +395,16 @@ export function createPost(renderer, shared) {
     let bloomTex = null;
     if (state.bloom) {
       mPre.uniforms.tSrc.value = scene_rt.texture; mPre.uniforms.uTexel.value.set(1 / w, 1 / h); mPre.uniforms.uThreshold.value = state.threshold;
+      const nL = Math.min(LEVELS, Math.max(2, state.bloomLevels | 0 || LEVELS));
       pass(mPre, downs[0]);
-      for (let i = 1; i < LEVELS; i++) {
+      for (let i = 1; i < nL; i++) {
         mDown.uniforms.tSrc.value = downs[i - 1].texture; mDown.uniforms.uTexel.value.set(1 / downs[i - 1].width, 1 / downs[i - 1].height);
         pass(mDown, downs[i]);
       }
       // coarsest up level = its down level; then up[k] = blur(up[k+1]) + down[k]
       mUp.uniforms.uMix.value = 1;
-      let prev = downs[LEVELS - 1];
-      for (let i = LEVELS - 2; i >= 0; i--) {
+      let prev = downs[nL - 1];
+      for (let i = nL - 2; i >= 0; i--) {
         mUp.uniforms.tSrc.value = prev.texture; mUp.uniforms.tPrev.value = downs[i].texture;
         mUp.uniforms.uTexel.value.set(1 / prev.width, 1 / prev.height);
         pass(mUp, ups[i]); prev = ups[i];
@@ -410,13 +413,17 @@ export function createPost(renderer, shared) {
       if (state.expo) {   // darken fast (~0.1 s), recover slowly (~1 s)
         const dt = lastT < 0 ? 1 / 60 : Math.min(0.25, Math.max(0, time - lastT));
         const a = mAdapt.uniforms;
-        a.tSrc.value = downs[LEVELS - 1].texture; a.tPrev.value = adapt[adaptI].texture;
+        a.tSrc.value = downs[nL - 1].texture; a.tPrev.value = adapt[adaptI].texture;
         a.uUp.value = 1 - Math.exp(-dt * state.adaptUp); a.uDown.value = 1 - Math.exp(-dt * state.adaptDown);
         adaptI ^= 1; pass(mAdapt, adapt[adaptI]);
       }
     }
     lastT = time;
+    if (!doSsr && ssrDirty) {   // SSR switched off at runtime: wipe the water mask or FINAL keeps darkening a frozen water patch
+      renderer.setRenderTarget(ssr_rt); renderer.setClearColor(0x000000, 0); renderer.clear(true, false, false); ssrDirty = false;
+    }
     if (doSsr) {
+      ssrDirty = true;
       const u = mSsr.uniforms, pm = camera.projectionMatrix;
       u.tScene.value = scene_rt.texture; u.tDepth.value = scene_rt.depthTexture; u.tDofA.value = dofA.texture; u.tDofB.value = dofB.texture;
       u.tBloom.value = bloomTex || dofB.texture;
@@ -431,7 +438,7 @@ export function createPost(renderer, shared) {
     f.uBloom.value = bloomTex ? state.bloomStrength : 0; f.uVig.value = state.vignette; f.uNight.value = night; f.uTime.value = time;
     f.uOut.value.set(outW, outH);
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
-    f.uDof.value = doDof ? state.dofStrength : 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
+    f.uDof.value = doDof ? state.dofStrength : 0; f.uDofY.value = state.dofY || 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
     f.uRays.value = state.rays ? state.raysStrength : 0;
     f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;

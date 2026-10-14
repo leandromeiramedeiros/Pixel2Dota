@@ -1,11 +1,13 @@
 // Graphics quality presets + auto-downgrade governor. Pure (no DOM/three) so node tests can import it.
-//   high = renderer DEFAULTS.  `lights` isn't a preset key (the renderer doesn't read it).
+//   high = renderer DEFAULTS (keep render/index.js DEFAULTS in step: client/test/quality.test.js checks it).  `lights` isn't a preset key (the renderer doesn't read it).
 //   pixelScale = render-target rows per art-pixel row: lower = fewer pixels to shade.
 export const LEVELS = ['low', 'medium', 'high'];
+// wind: 1 = base sway + full gusts, 0.5 = half amplitude, 0 = static (the shader skips the sway maths).
+// low = "potato": fewer shaded pixels (pixelScale), no tilt-shift DoF / water SSR / light scatter, 3-mip bloom, no clutter / ambient / shadows / rim / wind.
 export const PRESETS = {
-  low: { pixelScale: 1.5, bloom: true, bloomStrength: 0.9, shadows: false, particles: 0.5, ambient: false, clutter: false, outlines: true, rim: false },
-  medium: { pixelScale: 2, bloom: true, bloomStrength: 0.9, shadows: false, particles: 0.75, ambient: true, clutter: true, outlines: true, rim: true },
-  high: { pixelScale: 2, bloom: true, bloomStrength: 0.9, shadows: true, particles: 1, ambient: true, clutter: true, outlines: true, rim: true },
+  low: { pixelScale: 1.25, bloom: true, bloomStrength: 0.9, bloomLevels: 3, shadows: false, particles: 0.35, ambient: false, clutter: false, outlines: true, rim: false, wind: 0, dof: false, ssr: false, rays: false },
+  medium: { pixelScale: 2, bloom: true, bloomStrength: 0.9, bloomLevels: 5, shadows: false, particles: 0.75, ambient: true, clutter: true, outlines: true, rim: true, wind: 0.5, dof: true, ssr: true, rays: true },
+  high: { pixelScale: 2, bloom: true, bloomStrength: 0.9, bloomLevels: 5, shadows: true, particles: 1, ambient: true, clutter: true, outlines: true, rim: true, wind: 1, dof: true, ssr: true, rays: true },
 };
 export const LABEL = { low: 'Low', medium: 'Medium', high: 'High' };
 export const STORE_KEY = 'p2d.gfx';

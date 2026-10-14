@@ -2,9 +2,10 @@
 import * as THREE from 'three';
 import { getMap, heightAt } from '../../../shared/map.js';
 import { ART_UNITS_PER_PX, CAMERA } from '../../../shared/constants.js';
-import { ST } from '../../../shared/protocol.js';
+import { ST, EV } from '../../../shared/protocol.js';
 import { buildAtlas } from '../art/atlas.js';
-import { CameraRig, camParams, visibleHeight } from './camera.js';
+import { CameraRig, camParams, visibleHeight, dofForDistance } from './camera.js';
+import { createWind } from './wind.js';
 import { createSharedUniforms } from './shaderlib.js';
 import { createLights } from './lights.js';
 import { createTerrain } from './terrain.js';
@@ -29,6 +30,7 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
   shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: true, clutter: true,
+  wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5,   // wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
 };
 
 const DMG_COL = { phys: '#ff6a55', mag: '#6aa8ff', pure: '#ffb347' };
@@ -53,6 +55,7 @@ export function createRenderer({ canvas, sheets }) {
   const post = createPost(gl, uniforms);
   const overlay = createOverlay(canvas);
   const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
+  const wind = createWind();   // spell gusts (wind.js) -> uWA/uWB/uWC/uWN each frame
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
   for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
@@ -224,6 +227,7 @@ export function createRenderer({ canvas, sheets }) {
     if (view.myTeam != null) myTeam = view.myTeam;
     uniforms.uTime.value = time;
     rig.update(dt);
+    post.state.dofStrength = dofForDistance(rig.distance);   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
     fitRT(false);
     setNight(view.night, dt);
     const cam = rig.camera;
@@ -234,6 +238,8 @@ export function createRenderer({ canvas, sheets }) {
     uniforms.uPxK.value = 0.5 * post.height * cam.projectionMatrix.elements[5];
     uniforms.uRefW.value = rig.distance;
     uniforms.uPersp.value = settings.spritePersp;
+    uniforms.uWind.value = settings.wind;
+    wind.update(dt); uniforms.uWN.value = settings.wind > 0 ? wind.pack(uniforms.uWA.value, uniforms.uWB.value, uniforms.uWC.value) : 0;
 
     unitMap.clear();
     for (const u of view.units || []) unitMap.set(u.id, u);
@@ -272,6 +278,8 @@ export function createRenderer({ canvas, sheets }) {
     resize(w, h) { cssW = Math.max(2, w | 0); cssH = Math.max(2, h | 0); applySize(); fitRT(true); },
     setTarget(x, y) { rig.setTarget(x, y, false); },
     snapTarget(x, y) { rig.setTarget(x, y, true); },
+    /** Fractions of the screen height covered by HUD at the top / bottom (touch): the camera frames the target in the middle of the free playfield. 0,0 = desktop. */
+    setViewInset({ top = 0, bottom = 0 } = {}) { rig.setViewInset(top, bottom); post.state.dofY = (bottom - top) / 2; },
     zoom(delta) { rig.zoom(delta); },
     zoomBy(f) { rig.zoomBy(f); },
     setCameraFar(d, start) { rig.setFar(d, start); fitRT(true); },
@@ -282,6 +290,7 @@ export function createRenderer({ canvas, sheets }) {
       if (!events) return;
       for (const ev of events) {
         builtinFx(ev);
+        if (ev.e === EV.SPELL && settings.wind > 0) wind.report(ev, (id) => unitMap.get(id), undefined, (x, y) => fog.isVisible(x, y));   // spell casts kick up gusts; basic attacks do not
         if (fxMod) safeFx(ev); else if (fxLoader) { if (fxQueue.length < 256) fxQueue.push(ev); }
       }
     },
@@ -308,12 +317,17 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'vignette') post.state.vignette = value;
       if (name === 'particles') particles.scale.v = +value;
       if (name === 'fog') fog.setEnabled(!!value);
+      if (name === 'wind') { wind.setGain(+value || 0); settings.wind = wind.gain; }
+      if (name === 'dof') post.state.dof = !!value;
+      if (name === 'ssr') post.state.ssr = !!value;
+      if (name === 'rays') post.state.rays = !!value;
+      if (name === 'bloomLevels') post.state.bloomLevels = value | 0;
     },
     minimapCanvas: () => terrain.minimapCanvas(),
     /** explored/visible tile grids for the minimap (row-major, 368x368, row 0 = north) */
     fogGrid: () => ({ w: map.w, h: map.h, visible: fog.vis, explored: fog.explored }),
     // internals for the sandbox / tests
-    gl, scene, rig, uniforms, shadow, clutter, lights, terrain, post, atlas, stats, settings, sprites, actors, fog, particles, overlay,
+    gl, scene, rig, uniforms, wind, shadow, clutter, lights, terrain, post, atlas, stats, settings, sprites, actors, fog, particles, overlay,
     get camera() { return rig.camera; },
     get fxModule() { return fxMod; },
     get night() { return nightK; },

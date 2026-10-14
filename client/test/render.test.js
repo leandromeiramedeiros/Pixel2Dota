@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shelfPack, nextPow2, resolveKey, indexSheet } from '../src/art/atlas.js';
-import { camParams, visibleHeight } from '../src/render/camera.js';
+import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig } from '../src/render/camera.js';
 import { selectLights } from '../src/render/lights.js';
 import { castVision, visionRadius, VISION_FALLBACK } from '../src/render/fog.js';
 import { buildChunk, hash2, CHUNK } from '../src/render/terrainGeo.js';
@@ -153,4 +153,40 @@ test('visionRadius: observer ward 1600 day and night, sentry ward small', () => 
   assert.equal(visionRadius({ kind: 'ward', key: 'observer_ward' }, false), 1600);
   assert.equal(visionRadius({ kind: 'ward', key: 'observer_ward' }, true), 1600);
   assert.ok(visionRadius({ kind: 'ward', key: 'sentry_ward' }, false) < 400);
+});
+
+test('dofForDistance: ~12% at gameplay distance, monotonic ramp from closeDistance to full strength at the showcase', () => {
+  assert.equal(dofForDistance(CAMERA.distance), DOF_MIN);
+  assert.equal(dofForDistance(CAMERA.closeDistance), DOF_MIN);
+  assert.equal(dofForDistance(CAMERA.distanceTouch), DOF_MIN);
+  assert.equal(dofForDistance(CAMERA.showcaseDistance), 1);
+  assert.equal(dofForDistance(CAMERA.showcaseDistance - 100), 1);
+  let prev = DOF_MIN;
+  for (let d = CAMERA.closeDistance; d >= CAMERA.showcaseDistance; d -= 10) { const v = dofForDistance(d); assert.ok(v >= prev - 1e-9 && v <= 1); prev = v; }
+  assert.ok(DOF_MIN >= 0.1 && DOF_MIN <= 0.15);
+});
+
+test('CameraRig.setViewInset: target lands mid free playfield; 0,0 is the plain camera; picking stays consistent', () => {
+  const rig = new CameraRig(); rig.setAspect(16 / 9); rig.setTarget(500, 300, true); rig.update(0.016);
+  const plain = rig.camera.projectionMatrix.clone();
+  const ndcY = () => { const v = rig._v.set(rig.target.x, rig.tz, -rig.target.y).project(rig.camera); return v.y; };
+  const frac = () => (1 - ndcY()) / 2;   // from the top
+  assert.ok(Math.abs(frac() - 0.5) < 1e-3);
+  rig.setViewInset(0.1, 0.3); rig.camera.updateMatrixWorld();
+  assert.ok(Math.abs(frac() - (0.1 + (1 - 0.4) / 2)) < 1e-3, 'target at ' + frac());
+  rig.setViewInset(0.25, 0.05);
+  assert.ok(Math.abs(frac() - (0.25 + 0.7 / 2)) < 1e-3);
+  // unproject a screen point at the target's projection back onto the ground: must hit the target
+  const v = rig._v.set(rig.target.x, rig.tz, -rig.target.y).project(rig.camera); v.unproject(rig.camera);
+  const o = rig.camera.position, dir = v.sub(o).normalize(), t = (rig.tz - o.y) / dir.y;
+  assert.ok(Math.abs(o.x + dir.x * t - rig.target.x) < 0.5 && Math.abs(-(o.z + dir.z * t) - rig.target.y) < 0.5);
+  rig.setViewInset(0, 0);
+  assert.deepEqual(rig.camera.projectionMatrix.elements, plain.elements, 'identical to the plain camera');
+});
+
+test('CameraRig.setViewInset: keeps the aspect (x scale) and survives a resize', () => {
+  const rig = new CameraRig(); rig.setAspect(2);
+  const sx = rig.camera.projectionMatrix.elements[0];
+  rig.setViewInset(0.2, 0.2); assert.ok(Math.abs(rig.camera.projectionMatrix.elements[0] - sx) < 1e-9);
+  rig.setAspect(1.5); assert.equal(rig.camera.aspect, 1.5); assert.ok(Math.abs(rig.camera.projectionMatrix.elements[0] - sx * 2 / 1.5) < 1e-9);
 });
