@@ -122,4 +122,4 @@
   @media (max-width:720px), (max-height:500px) { .lb-root { --lb-bar:78px; } }
   @media (display-mode: standalone), (display-mode: fullscreen) { .lb-root { --lb-bar:0px; } }
 }
-html.p2d-fsbtn .lb-root { padding-top:52px; }
+@media (max-width:720px), (max-height:500px) { html.p2d-fsbtn .lb-root { padding-top:52px; } }

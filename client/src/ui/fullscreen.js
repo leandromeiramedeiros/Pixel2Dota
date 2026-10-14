@@ -4,7 +4,7 @@
 //   Sticky: the choice is remembered; after a reload the first tap/click anywhere goes back to full screen
 //   (browsers only allow full screen from a user gesture). Leaving with the button turns it off.
 //   iPhone: Safari has no page full screen, so the button explains Add to Home Screen (the manifest opens it full screen).
-// During a match (any window mode) browser shortcuts are swallowed: Ctrl/Alt/Meta combos, F1-F11, Esc, Tab (not while typing
+// During a match (any window mode) browser shortcuts are swallowed: Ctrl/Alt/Shift/Meta combos, F1-F11, Esc, Tab (not while typing
 // in chat, and not F12). Ctrl+W/T/N can't be stopped outside full screen, so closing the tab asks "Leave site?" first.
 const CSS = `
 .p2d-fs { position:fixed; z-index:9000; top:calc(6px + env(safe-area-inset-top, 0px)); left:calc(6px + env(safe-area-inset-left, 0px));
@@ -89,7 +89,7 @@ function onKey(e) {
   const k = e.key;
   if (k === 'F12') return;
   if (typing(e.target) && k !== 'Escape' && k !== 'Tab' && !fKey(k)) return;   // chat keeps copy/paste/select
-  if (e.ctrlKey || e.altKey || e.metaKey || k === 'Alt' || k === 'Escape' || k === 'Tab' || fKey(k)) e.preventDefault();
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || k === 'Alt' || k === 'Escape' || k === 'Tab' || fKey(k)) e.preventDefault();
 }
 
 function showTip() {
