@@ -26,7 +26,7 @@ jobs:
       - run: npm run build
         env:
           P2D_BASE: /Pixel2Dota/
-          VITE_P2D_ENDPOINT: ${{ vars.P2D_SERVER }}   # repo variable: the public game server (render.yaml), e.g. pixel2dota.onrender.com
+          VITE_P2D_ENDPOINT: ${{ vars.P2D_SERVER }}   # repo variable: the public game server (render.yaml), e.g. pixel2dota-east.onrender.com
       - uses: actions/upload-pages-artifact@v3
         with:
           path: client/dist

@@ -2,7 +2,8 @@
 # Serves the game server and the client on one https address and redeploys on every push to main.
 services:
   - type: web
-    name: pixel2dota
+    name: pixel2dota-east
+    region: virginia        # closest Render region to South America; region is fixed at creation
     runtime: node
     plan: free
     buildCommand: npm ci && npm run build
