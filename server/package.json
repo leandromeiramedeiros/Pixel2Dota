@@ -1,0 +1,6 @@
+{
+  "name": "@p2d/server", "version": "0.1.0", "private": true, "type": "module",
+  "main": "src/index.js",
+  "scripts": { "dev": "node --watch src/index.js", "start": "node src/index.js" },
+  "dependencies": { "@p2d/shared": "0.1.0", "colyseus": "0.18.9", "@colyseus/schema": "5.0.39", "express": "^4.21.2" }
+}

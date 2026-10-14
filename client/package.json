@@ -1,0 +1,6 @@
+{
+  "name": "@p2d/client", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
+  "dependencies": { "@p2d/shared": "0.1.0", "@colyseus/sdk": "0.18.5", "three": "0.186.1" },
+  "devDependencies": { "vite": "^6.3.5" }
+}
