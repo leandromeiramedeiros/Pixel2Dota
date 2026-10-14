@@ -2,7 +2,40 @@
 //   createLobby(root, net, { onGameStart }) -> { destroy() }
 import { MSG, LOBBY, PHASE, TEAM_SIZE, EV } from '@p2d/shared/protocol.js';
 import { HEROES, HERO_KEYS } from '@p2d/shared/heroes.js';
+import { DATA } from '@p2d/shared/data.js';
 import './lobby.css';
+
+// Hero portraits: sheets/<short>.js 'portrait' frame (ASCII rows) -> 1x PNG data URL, shown pixelated at 1x/3x via CSS.
+const sheetLoaders = import.meta.glob('../art/sheets/*.js');
+const portraitUrl = {};                       // short -> dataURL (filled as sheets load)
+const portraitLoading = new Map();
+function loadPortrait(short) {
+  if (portraitLoading.has(short)) return portraitLoading.get(short);
+  const load = sheetLoaders['../art/sheets/' + short + '.js'];
+  const p = (load ? load() : Promise.resolve(null)).then((m) => {
+    const sh = m && m.default, rows = sh && sh.frames && sh.frames.portrait;
+    if (!rows) return;
+    const w = Math.max(...rows.map((r) => r.length)), h = rows.length;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d'), id = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const ch = rows[y][x], col = ch && ch !== '.' ? sh.pal[ch] : null; if (!col) continue;
+      const o = (y * w + x) * 4;
+      id.data[o] = parseInt(col.slice(1, 3), 16); id.data[o + 1] = parseInt(col.slice(3, 5), 16); id.data[o + 2] = parseInt(col.slice(5, 7), 16);
+      id.data[o + 3] = col.length > 7 ? parseInt(col.slice(7, 9), 16) : 255;
+    }
+    g.putImageData(id, 0, 0);
+    portraitUrl[short] = c.toDataURL();
+  }).catch(() => {});
+  portraitLoading.set(short, p);
+  return p;
+}
+const ATTR = { str: ['STR', '#e8523f'], agi: ['AGI', '#4ec04e'], int: ['INT', '#4a9ae8'], all: ['ALL', '#d4a73c'] };
+const attrOf = (key) => ATTR[DATA.heroes[key]?.attr] || ATTR.all;
+const portraitImg = (key, cls) => {
+  const u = portraitUrl[HEROES[key]?.short];
+  return u ? `<img class="lb-pt ${cls}" src="${u}" alt="">` : `<span class="lb-pt ${cls} lb-pt-ph"></span>`;
+};
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -102,6 +135,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
       </div>`;
     renderLog();
     renderRoom();
+    Promise.all(HERO_KEYS.map((k) => loadPortrait(HEROES[k].short))).then(() => { if (!destroyed && mode === 'room') renderRoom(); });
   }
 
   const me = () => net.state?.players?.get(net.mySid);
@@ -124,6 +158,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
           const hero = p.hero ? HEROES[p.hero]?.name || p.hero : 'No hero';
           const self = p.sid === net.mySid;
           html += `<div class="lb-slot lb-full${self ? ' lb-self' : ''}${p.connected ? '' : ' lb-off'}">
+            ${p.hero ? portraitImg(p.hero, 'lb-pt1') : '<span class="lb-pt lb-pt1 lb-pt-ph"></span>'}
             <span class="lb-sn">${esc(p.name)}</span>
             ${p.isHost ? '<i class="lb-tag lb-host">HOST</i>' : ''}${p.isBot ? '<i class="lb-tag">BOT</i>' : ''}${self ? '<i class="lb-tag lb-you">YOU</i>' : ''}
             <span class="lb-sh${p.hero ? '' : ' lb-none'}">${esc(hero)}</span>
@@ -148,9 +183,11 @@ export function createLobby(root, net, { onGameStart } = {}) {
     el.querySelector('#lb-grid').innerHTML = HERO_KEYS.map((k) => {
       const o = taken.get(k), own = o && o.sid === net.mySid;
       const cls = own ? ' lb-picked' : o ? ' lb-taken' : '';
-      return `<button class="lb-hero${cls}" data-hero="${k}" ${o && !own ? 'disabled' : ''}>
-        <span class="lb-hav" style="--h:${(hash(k) % 360)}">${esc(HEROES[k].name[0])}</span>
+      const [al, ac] = attrOf(k);
+      return `<button class="lb-hero${cls}" data-hero="${k}" style="--a:${ac}" ${o && !own ? 'disabled' : ''}>
+        ${portraitImg(k, 'lb-pt3')}
         <span class="lb-hn">${esc(HEROES[k].name)}</span>
+        <i class="lb-attr">${al}</i>
         ${o ? `<small>${own ? 'yours' : esc(o.name)}</small>` : ''}
       </button>`;
     }).join('');
