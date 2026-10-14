@@ -1,5 +1,38 @@
 # Pixel2Dota
 
+**▶ Play: https://leandromeiramedeiros.github.io/Pixel2Dota/** (rebuilt from `main` on every push)
+
+The page is only the game client. Matches run on a game server that one player (the host) runs on their own machine. Everyone opens the page and points it at that server.
+
+## Create a lobby (host)
+
+1. Install [Node 24+](https://nodejs.org), then:
+   ```
+   git clone https://github.com/leandromeiramedeiros/Pixel2Dota.git
+   cd Pixel2Dota
+   npm install
+   node server/src/index.js
+   ```
+   The server listens on port 2567.
+2. Open the Play link. The lobby's **Server** field defaults to `ws://localhost:2567`, which is your own server. If Chrome asks to allow access to devices on your local network, allow it.
+3. Type your name and click **Create lobby**. You get a 4-letter code.
+4. Pick a hero, or click **Take slot** to switch team. Add bots with **+ Bot** or **Fill with bots**, then click **Start match**.
+
+**Let friends reach your server.** The Play page is served over https, so friends can only reach your server over a secure (`wss://`) address. The simplest way is a free tunnel:
+```
+cloudflared tunnel --url http://localhost:2567
+```
+It prints an address like `https://something.trycloudflare.com`. Paste it into the **Server** field, click **Connect**, then create the lobby. **Copy link** in the lobby copies an invite link that already contains the server and the code.
+
+On the same LAN you can skip Pages and the tunnel: run `npm run build` once, start the server, and friends open `http://<your-LAN-IP>:2567`.
+
+## Join a lobby
+
+- **With an invite link:** open it. The server and code are filled in. Type your name and click **Join**.
+- **With a code:** open the Play link, paste the host's address into **Server**, click **Connect**, type the 4-letter code and click **Join**. You can also pick the lobby from **Open lobbies**.
+
+## About
+
 Pixel2Dota is a 5v5 Dota 2-style game that runs in the browser. It plays on the real Dota 2 map with an authoritative Colyseus server (30 Hz simulation) and a Three.js client that draws pixel-art sprites over a 3D tile terrain. Players create or join a custom lobby, bots fill empty slots, and a match runs until one side's ancient is destroyed.
 
 ## Scope

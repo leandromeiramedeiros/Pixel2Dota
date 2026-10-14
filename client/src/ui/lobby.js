@@ -71,9 +71,15 @@ export function createLobby(root, net, { onGameStart } = {}) {
           <button class="lb-btn" id="lb-joincode">Join</button>
         </div>
         <div class="lb-err" id="lb-err">${esc(error)}</div>
+        <div class="lb-row lb-srv">
+          <label class="lb-field">Server<input id="lb-server" value="${esc(net.endpoint || '')}" placeholder="localhost:2567" autocomplete="off" spellcheck="false"></label>
+          <button class="lb-btn lb-small" id="lb-srvgo">Connect</button>
+        </div>
         <div class="lb-listhead"><span>Open lobbies</span><button class="lb-btn lb-small" id="lb-refresh">Refresh</button></div>
         <div class="lb-list" id="lb-list"></div>
       </div>`;
+    const jq = new URLSearchParams(location.search).get('join');
+    if (jq) el.querySelector('#lb-code').value = jq.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
     renderList();
     refreshList();
     clearInterval(pollTimer);
@@ -99,6 +105,14 @@ export function createLobby(root, net, { onGameStart } = {}) {
     renderList();
   }
 
+  // shareable invite: this page + the game server + the lobby code (lobby.js prefills the code from ?join=)
+  function inviteLink() {
+    const u = new URL(location.href);
+    u.search = ''; u.hash = '';
+    if (net.endpoint) u.searchParams.set('server', net.endpoint);
+    u.searchParams.set('join', net.room?.roomId || '');
+    return u.href;
+  }
   function setErr(msg) { error = msg; const n = el.querySelector('#lb-err'); if (n) n.textContent = msg; }
   function curName() {
     const n = (el.querySelector('#lb-name')?.value || '').trim().slice(0, 20) || name;
@@ -122,7 +136,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
     el.innerHTML = `
       <div class="lb-room">
         <div class="lb-top">
-          <div class="lb-codebox"><span>Lobby code</span><b id="lb-rcode">${esc(net.room?.roomId || '')}</b><button class="lb-btn lb-small" id="lb-copy">Copy</button></div>
+          <div class="lb-codebox"><span>Lobby code</span><b id="lb-rcode">${esc(net.room?.roomId || '')}</b><button class="lb-btn lb-small" id="lb-copy">Copy link</button></div>
           <label class="lb-field lb-me">Name<input id="lb-name" maxlength="20" value="${esc(name)}" autocomplete="off" spellcheck="false"></label>
           <button class="lb-btn" id="lb-leave">Leave</button>
         </div>
@@ -233,7 +247,8 @@ export function createLobby(root, net, { onGameStart } = {}) {
     if (d.join) return enter(() => net.join(d.join, curName()));
     if (t.id === 'lb-refresh') return refreshList();
     if (t.id === 'lb-leave') { net.leave(); return; }
-    if (t.id === 'lb-copy') { try { navigator.clipboard?.writeText(net.room?.roomId || ''); t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy'; }, 1200); } catch { /* ignore */ } return; }
+    if (t.id === 'lb-copy') { try { navigator.clipboard?.writeText(inviteLink()); t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy link'; }, 1200); } catch { /* ignore */ } return; }
+    if (t.id === 'lb-srvgo') { const u = new URL(location.href); u.searchParams.set('server', (el.querySelector('#lb-server').value || '').trim()); u.searchParams.delete('join'); location.href = u.href; return; }
     if (t.id === 'lb-fill') return lobbyMsg({ t: LOBBY.FILL });
     if (t.id === 'lb-start') return lobbyMsg({ t: LOBBY.START });
     if (d.take) { const [tm, sl] = d.take.split(':').map(Number); return lobbyMsg({ t: LOBBY.SLOT, team: tm, slot: sl }); }

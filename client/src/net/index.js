@@ -18,8 +18,30 @@ const store = (() => {
 const tokenGet = () => { try { return store && store.getItem(TOKEN_KEY); } catch { return null; } };
 const tokenSet = (v) => { try { if (store) v ? store.setItem(TOKEN_KEY, v) : store.removeItem(TOKEN_KEY); } catch { /* ignore */ } };
 
+// Game server chosen by the player: ?server=host:port (shareable link) or the lobby's Server field, remembered in localStorage.
+// "host:port" / "http(s)://..." / "ws(s)://..." all work; bare hosts get wss:// from an https page unless they are localhost.
+const SERVER_KEY = 'p2d.server';
+export function normalizeServer(s) {
+  s = String(s || '').trim().replace(/\/+$/, '');
+  if (!s) return '';
+  if (/^wss?:\/\//i.test(s)) return s;
+  if (/^https?:\/\//i.test(s)) return s.replace(/^http/i, 'ws');
+  const local = /^(localhost|127\.|\[::1\])/i.test(s);
+  const secure = typeof location !== 'undefined' && location.protocol === 'https:';
+  return (secure && !local ? 'wss://' : 'ws://') + s;
+}
+/** the player's server override (query param wins and is remembered), or '' for the default */
+export function serverOverride() {
+  try {
+    const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('server') : null;
+    if (q != null) { const v = normalizeServer(q); if (v) localStorage.setItem(SERVER_KEY, v); else localStorage.removeItem(SERVER_KEY); return v; }
+    return normalizeServer(localStorage.getItem(SERVER_KEY));
+  } catch { return ''; }
+}
+
 function defaultEndpoint() {
   if (typeof location === 'undefined') return 'ws://localhost:2567';
+  if (/\.github\.io$/i.test(location.hostname)) return 'ws://localhost:2567';   // static Pages build: no server here, assume a local one
   const secure = location.protocol === 'https:';
   const dev = !!(import.meta.env && import.meta.env.DEV) || location.port === '4173';
   return (secure ? 'wss://' : 'ws://') + (dev ? location.hostname + ':2567' : location.host);
@@ -45,7 +67,7 @@ export function createNet(endpoint) {
   let stamp = 0;
 
   const net = {
-    room: null, state: null, mySid: '', connected: false,
+    room: null, state: null, mySid: '', connected: false, endpoint: wsUrl,
 
     async listLobbies() {
       const r = await fetch(httpUrl + '/lobbies');

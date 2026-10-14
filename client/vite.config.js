@@ -16,6 +16,7 @@ for (const [name, file] of [['main', 'index.html'], ['sandbox', 'sandbox.html']]
 
 export default defineConfig({
   root: here,
+  base: process.env.P2D_BASE || '/',   // GitHub Pages build sets /Pixel2Dota/ (.github/workflows/pages.yml)
   resolve: { alias: { '@shared': shared } },
   server: { host: true, port: 5173, fs: { allow: [root] }, hmr: { overlay: false } },
   build: { target: 'es2022', rollupOptions: { input } },
