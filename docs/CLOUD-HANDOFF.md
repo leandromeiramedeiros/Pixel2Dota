@@ -1,5 +1,17 @@
 # Cloud session brief: Pixel2Dota
 
+> **Note to the contractor (2026-10-14): Leandro ordered the last cloud session's work scrapped.** Everything it made was deleted on his
+> order. That covers:
+> - redrawn icons
+> - Pudge / Mirana / Rubick bodies and portraits
+> - the Lina 2D redo
+> - the in-game voxel Lina (3D voxel mesh, floating, glowing eyes)
+> - the new grass terrain and the brighter-characters change
+>
+> Its PR (leandromeiramedeiros/Pixel2Dota#1) was closed unmerged, and its branch was deleted. Only the voxel chibi reference stays,
+> **offline only and not used by the game**: [VOXEL-CHIBI.md](VOXEL-CHIBI.md), with the voxel Lina model, the renders, the terrain
+> reference and the chibi reference images. The backlog below is unchanged and still open (P3-P7).
+
 You lead a Claude Code cloud session on this repo. Read this file, then [ARCHITECTURE.md](ARCHITECTURE.md), [EXTENDING.md](EXTENDING.md) (the checklists),
 [ART-DIRECTION.md](ART-DIRECTION.md), [DECISIONS.md](DECISIONS.md) and [PROGRESS.md](PROGRESS.md). Then work the backlog below without waiting.
 
