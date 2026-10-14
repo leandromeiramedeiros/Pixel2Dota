@@ -4,7 +4,7 @@ import { loadSheets } from './art/atlas.js';
 import { createRenderer } from './render/index.js';
 import { createHud } from './ui/hud.js';
 import { createInput } from './input.js';
-import { MSG } from '@p2d/shared/protocol.js';
+import { MSG, TEAM } from '@p2d/shared/protocol.js';
 
 export async function startGame({ root, net }) {
   const sheets = await loadSheets();
@@ -29,16 +29,19 @@ export async function startGame({ root, net }) {
   const offFx = net.onFx((events) => { renderer.fx(events); hud.fx?.(events); });
 
   const me = () => net.state?.players?.get(net.mySid);
-  let myTeam = -1, centred = false, raf = 0, last = performance.now();
+  let myTeam = -1, spec = false, centred = false, raf = 0, last = performance.now();
 
   const frame = (now) => {
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     const st = net.state; if (!st) return;
     const p = me();
-    if (p && p.team !== myTeam) { myTeam = p.team; renderer.setMyTeam(myTeam); }
+    // spectators see both teams' vision; Radiant reads as the friendly (green) side, like Dota's spectator view
+    const isSpec = !!p && p.team === TEAM.SPEC, vt = isSpec ? TEAM.RADIANT : p ? p.team : myTeam;
+    if (vt !== myTeam || isSpec !== spec) { myTeam = vt; spec = isSpec; renderer.setMyTeam(myTeam); }
     const view = net.view(now);
-    view.myTeam = myTeam;
+    view.myTeam = myTeam; view.spectator = spec;
+    if (spec && !centred) { renderer.setTarget(0, 0); centred = true; }
     view.myHeroId = p?.heroId || '';
     const hero = view.myHeroId ? st.units.get(view.myHeroId) : null;
     if (hero && !centred) { renderer.setTarget(hero.x, hero.y); centred = true; }

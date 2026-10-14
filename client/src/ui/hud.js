@@ -64,6 +64,9 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
 
   // ================================================================ top bar
   const top = h('div', 'h-top'); hudRoot.append(top);
+  const specEl = h('div', 'h-spec h-panel', 'SPECTATING · both teams’ vision · move the camera with the minimap, screen edges or arrow keys');
+  specEl.style.display = 'none'; hudRoot.append(specEl);
+  let specOn = false;
   const teamBoxes = { [TEAM.RADIANT]: h('div', 'h-team'), [TEAM.DIRE]: h('div', 'h-team') };
   const mid = h('div', 'h-mid h-panel');
   const scoreR = h('div', 'h-score rad', '0'), scoreD = h('div', 'h-score dire', '0');
@@ -340,14 +343,16 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   function update(state, hero, mySid, view) {
     if (!state || !state.players) return;
     const me = state.players.get(mySid);
-    const myTeam = me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
+    const spec = !!me && me.team === TEAM.SPEC;
+    const myTeam = spec ? TEAM.RADIANT : me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
+    if (spec !== specOn) { specOn = spec; specEl.style.display = spec ? '' : 'none'; }
     ctxState = { state, hero, mySid, myTeam, time: state.time };
     if (pendingFx.length) fx(pendingFx.splice(0));
 
     updateTop(state, mySid);
     minimap.update({ state, myTeam, hero, mySid });
     sb.update(state, mySid);
-    if (state.phase === 'ended') end.show(state.winner, myTeam);
+    if (state.phase === 'ended') end.show(state.winner, spec ? TEAM.SPEC : myTeam);
 
     const has = !!hero;
     sty(bottom, 'visibility', has ? 'visible' : 'hidden');
@@ -424,7 +429,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
         case EV.CHAT: chat.add(ev); break;
         case EV.MSG: if (ev.text) { msgs.show(ev.text, false); } break;
         case EV.GOLD: if (ctxState.hero && ev.t === ctxState.hero.id && ev.g > 0) goldPop(ev.g); break;
-        case EV.END: end.show(ev.winner, ctxState.myTeam); break;
+        case EV.END: end.show(ev.winner, specOn ? TEAM.SPEC : ctxState.myTeam); break;
         default: break;
       }
     }

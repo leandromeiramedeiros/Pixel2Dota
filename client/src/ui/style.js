@@ -13,6 +13,7 @@ const CSS = `
 .h-dim { color:var(--dim); } .h-gold { color:var(--gold); } .h-warn { color:var(--warn); }
 
 /* ---------- top bar ---------- */
+.h-spec { position:absolute; bottom:3u; left:50%; transform:translateX(-50%); padding:1u 3u; font-size:6u; color:#e8c36a; white-space:nowrap; }
 .h-top { position:absolute; top:3u; left:50%; transform:translateX(-50%); display:flex; align-items:flex-start; gap:2u; }
 .h-team { display:flex; gap:1u; }
 .h-hero { position:relative; width:24u; height:34u; background:#0c1018; box-shadow:0 0 0 1u var(--ink); pointer-events:auto; overflow:hidden; }

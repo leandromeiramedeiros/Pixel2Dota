@@ -105,3 +105,6 @@
 .lb-srv-local { color:#9be08a; }
 .lb-srv-custom { color:#e8c36a; }
 .lb-codebox .lb-srvtag { align-self:center; }
+.lb-spec { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; }
+.lb-chk { display:flex; align-items:center; gap:6px; color:var(--text, #d8deea); cursor:pointer; }
+.lb-live { background:#c0392b; color:#fff; font-style:normal; }

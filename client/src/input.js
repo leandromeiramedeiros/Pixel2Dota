@@ -18,7 +18,7 @@ const MOVE_REPEAT_MS = 120;
 const ARROWS = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 
 export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
-  const order = (o) => send(MSG.ORDER, o);
+  const order = (o) => { const p = me(); if (p && p.team !== 0 && p.team !== 1) return; send(MSG.ORDER, o); };   // spectators: no orders
   const H = hud || {};
   const call = (name, ...a) => (H[name] ? H[name](...a) : undefined);
 

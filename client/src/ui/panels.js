@@ -144,8 +144,8 @@ export function createEnd(parent) {
     el, isShown: () => shown,
     show(winner, myTeam) {
       if (shown) return; shown = true;
-      const win = winner === myTeam;
-      title.textContent = winner === TEAM.NONE || winner < 0 ? 'MATCH ENDED' : win ? 'VICTORY' : 'DEFEAT';
+      const win = winner === myTeam, watcher = myTeam !== TEAM.RADIANT && myTeam !== TEAM.DIRE;
+      title.textContent = winner === TEAM.NONE || winner < 0 ? 'MATCH ENDED' : watcher ? (winner === TEAM.RADIANT ? 'RADIANT' : 'DIRE') + ' VICTORY' : win ? 'VICTORY' : 'DEFEAT';
       title.className = win ? 'win' : 'lose';
       sub.textContent = winner === TEAM.RADIANT ? 'The Radiant destroyed the Dire Ancient' : winner === TEAM.DIRE ? 'The Dire destroyed the Radiant Ancient' : '';
       el.classList.add('open');

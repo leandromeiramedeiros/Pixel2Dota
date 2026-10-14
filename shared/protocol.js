@@ -10,8 +10,9 @@ export const MSG = { LOBBY: 'lobby', ORDER: 'order', CHAT: 'chat', FX: 'fx' };
 
 export const PHASE = { LOBBY: 'lobby', GAME: 'game', ENDED: 'ended' };
 
-export const TEAM = { NONE: -1, RADIANT: 0, DIRE: 1, NEUTRAL: 2 };
+export const TEAM = { NONE: -1, RADIANT: 0, DIRE: 1, NEUTRAL: 2, SPEC: 3 };   // SPEC: a spectator seat (Player.team only)
 export const TEAM_SIZE = 5;
+export const SPEC_MAX = 6;    // spectator seats per room (when the host allows spectators)
 
 export const KIND = { HERO: 'hero', CREEP: 'creep', TOWER: 'tower', RAX: 'rax', ANCIENT: 'ancient', FOUNTAIN: 'fountain', BUILDING: 'building', SUMMON: 'summon', WARD: 'ward' };
 
@@ -19,7 +20,7 @@ export const ANIM = { IDLE: 'idle', WALK: 'walk', ATTACK: 'attack', CAST: 'cast'
 
 export const ORDER = { MOVE: 'move', ATTACK: 'attack', AMOVE: 'amove', STOP: 'stop', HOLD: 'hold', CAST: 'cast', ITEM: 'item', LEARN: 'learn', BUY: 'buy', SELL: 'sell', SWAP: 'swap' };
 
-export const LOBBY = { NAME: 'name', SLOT: 'slot', HERO: 'hero', BOT: 'bot', KICK: 'kick', FILL: 'fill', START: 'start' };
+export const LOBBY = { NAME: 'name', SLOT: 'slot', HERO: 'hero', BOT: 'bot', KICK: 'kick', FILL: 'fill', START: 'start', SPECS: 'specs' };
 
 export const EV = {
   ATK: 'atk', HIT: 'hit', SPELL: 'spell', PROJ: 'proj', PROJ_END: 'projEnd', DEATH: 'death', KILL: 'kill', GOLD: 'gold', LVL: 'lvl',

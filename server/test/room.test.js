@@ -128,3 +128,60 @@ test('host migrates when host leaves in lobby; code unique; spectator when full'
   await until(() => b.state.players.size === 1 && b.state.players.get(b.sessionId).isHost, 3000, 'host migrated');
   await b.leave();
 });
+
+test('spectators: host toggle, spectator seat, join a live match, no orders', { timeout: 30000 }, async () => {
+  const host = await new Client(base).create(ROOM, { name: 'Host' });
+  const code = host.roomId;
+  const me = (r, sid = r.sessionId) => r.state.players.get(sid);
+
+  // spectators off: a live match refuses newcomers
+  const v0 = await new Client(base).joinById(code, { name: 'Early' });
+  await until(() => host.state.players.size === 2, 3000, 'early joined');
+  v0.send(MSG.LOBBY, { t: LOBBY.SLOT, team: 3 });                 // not allowed yet
+  await sleep(150);
+  assert.notEqual(me(host, v0.sessionId).team, 3);
+
+  host.send(MSG.LOBBY, { t: LOBBY.SPECS, on: true });
+  await until(() => host.state.spectators === true, 3000, 'spectators on');
+  v0.send(MSG.LOBBY, { t: LOBBY.SLOT, team: 3 });
+  await until(() => me(host, v0.sessionId)?.team === 3, 3000, 'spectator seat');
+  v0.send(MSG.LOBBY, { t: LOBBY.HERO, key: 'npc_dota_hero_axe' });  // spectators cannot pick
+  await sleep(150);
+  assert.equal(me(host, v0.sessionId).hero, '');
+
+  host.send(MSG.LOBBY, { t: LOBBY.HERO, key: 'npc_dota_hero_sven' });
+  host.send(MSG.LOBBY, { t: LOBBY.FILL });
+  await until(() => host.state.players.size === 11, 3000, 'fill');
+  host.send(MSG.LOBBY, { t: LOBBY.START });
+  await until(() => host.state.phase === 'game' && host.state.units.size >= 10, 10000, 'game');
+  assert.equal([...host.state.units.values()].filter((u) => u.kind === 'hero').length, 10, 'spectator has no hero');
+
+  // listed as live, and a newcomer joins mid-match as a spectator
+  const list = await (await fetch(`http://127.0.0.1:${srv.port}/lobbies`)).json();
+  assert.ok(list.some((l) => l.code === code && l.live && l.spectators), 'live match listed');
+  const v1 = await new Client(base).joinById(code, { name: 'Late' });
+  await until(() => v1.state.phase === 'game' && me(v1)?.team === 3, 5000, 'late spectator');
+  assert.equal(me(v1).heroId, '');
+  await until(() => v1.state.units.size >= 10, 5000, 'spectator sees units');
+
+  // spectator orders are ignored (no crash, phase stays)
+  v1.send(MSG.ORDER, { t: 'move', x: 0, y: 0 });
+  await sleep(150);
+  assert.equal(host.state.phase, 'game');
+
+  // leaving frees the seat
+  await v1.leave();
+  await until(() => !host.state.players.has(v1.sessionId), 3000, 'spectator removed');
+  await v0.leave(); await host.leave();
+});
+
+test('spectators off: live match refuses joins', { timeout: 20000 }, async () => {
+  const host = await new Client(base).create(ROOM, { name: 'H' });
+  host.send(MSG.LOBBY, { t: LOBBY.HERO, key: 'npc_dota_hero_sven' });
+  host.send(MSG.LOBBY, { t: LOBBY.FILL });
+  await until(() => host.state.players?.size === 10, 3000, 'fill');
+  host.send(MSG.LOBBY, { t: LOBBY.START });
+  await until(() => host.state.phase === 'game', 10000, 'game');
+  await assert.rejects(new Client(base).joinById(host.roomId, { name: 'X' }));
+  await host.leave();
+});

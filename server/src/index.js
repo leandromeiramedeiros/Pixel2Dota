@@ -28,8 +28,12 @@ export async function startServer({ port = Number(process.env.PORT) || PORT, hos
         try {
           const rooms = await matchMaker.query({ name: ROOM });
           res.json(rooms
-            .filter((r) => !r.locked && !r.private && (!r.metadata || r.metadata.phase === PHASE.LOBBY))
-            .map((r) => ({ code: r.roomId, players: r.clients, max: r.maxClients, host: r.metadata?.host || '', bots: r.metadata?.bots || 0 })));
+            // open lobbies, plus live matches that allow spectators
+            .filter((r) => !r.locked && !r.private && (!r.metadata || r.metadata.phase === PHASE.LOBBY || (r.metadata.phase === PHASE.GAME && r.metadata.spectators)))
+            .map((r) => ({
+              code: r.roomId, players: r.metadata?.players ?? r.clients, max: r.metadata?.max ?? r.maxClients, host: r.metadata?.host || '', bots: r.metadata?.bots || 0,
+              live: r.metadata?.phase === PHASE.GAME, spectators: !!r.metadata?.spectators, specs: r.metadata?.specs || 0,
+            })));
         } catch (e) { res.status(500).json({ error: String(e && e.message || e) }); }
       });
       if (fs.existsSync(DIST)) {

@@ -49,6 +49,7 @@ export function createSharedUniforms() {
     uHFZ: { value: new THREE.Vector4(0, 1, 2, 0) },                         // camera y, near, far, strength (0 = off)
     uLB: { value: new Float32Array(MAX_LIGHTS * 4) },                       // per light: bounce colour (light * ground albedo), w = ground y (three)
     uBounceK: { value: 0.4 },                                               // bounce strength
+    uKnee: { value: new THREE.Vector2(1.1, 0.5) },                          // stacked spell light: untouched up to x, then rolls off to at most x + y (y 0 = off)
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
@@ -147,7 +148,7 @@ float gPSh = 1.;
 uniform sampler2D uHF;
 uniform vec4 uHFM, uHFZ;
 uniform vec4 uLB[${MAX_LIGHTS}];
-uniform float uBounceK;
+uniform float uBounceK; uniform vec2 uKnee;
 float hfShadow(vec3 p, vec3 lp){
   vec3 d = lp - p; float L = length(d.xz);
   float t0 = gPSh > .5 ? 48. : 110.;   // sprites start past their own pillar disc
@@ -164,7 +165,7 @@ float hfShadow(vec3 p, vec3 lp){
   return vis;
 }   // receivers that also cast as billboards (sprites) set 0: their own light-facing card would self-shadow them
 vec3 pointLights(vec3 p, vec3 n, float soft){
-  vec3 acc = vec3(0.);
+  vec3 acc = vec3(0.), sp = vec3(0.);   // sp: spell light, compressed as a whole so a stacked teamfight doesn't blow out to white
   for (int i = 0; i < ${MAX_LIGHTS}; i++){
     if (i >= uLN) break;
     vec3 d = uLP[i].xyz - p;
@@ -177,11 +178,14 @@ vec3 pointLights(vec3 p, vec3 n, float soft){
     else if (spell && uHFZ.w > 0.) a *= mix(1., mix(.1, 1., hfShadow(p, uLP[i].xyz)), uHFZ.w);
     if (spell) {   // one-bounce fake GI: the spell colour reflected off the ground under it, lighting what faces it (unit fronts, tower bases)
       vec3 db = vec3(uLP[i].x, uLB[i].w, uLP[i].z) - p; float bd = length(db), bx = bd / (uLP[i].w * ${SPELL_REACH.toFixed(2)}), bf = 1. - bx * bx;
-      if (bf > 0.) acc += uLB[i].rgb * (uBounceK * bf *mix(max(dot(n, db / max(bd, 1.)), 0.), 1., .15));
+      if (bf > 0.) sp += uLB[i].rgb * (uBounceK * bf *mix(max(dot(n, db / max(bd, 1.)), 0.), 1., .15));
     }
     float ndl = max(dot(n, d / max(dist, 1.)), 0.);
-    acc += uLC[i].rgb * (a * mix(ndl, 1., uLC[i].w > 1.5 ? max(soft, .7) : soft));   // spell lights stay strong at grazing angles
+    vec3 c = uLC[i].rgb * (a * mix(ndl, 1., spell ? max(soft, .7) : soft));   // spell lights stay strong at grazing angles
+    if (spell) sp += c; else acc += c;
   }
-  return acc;
+  float m = max(sp.r, max(sp.g, sp.b)), o = m - uKnee.x;
+  if (uKnee.y > 0. && o > 0.) sp *= (uKnee.x + o / (1. + o / uKnee.y)) / m;   // hue-preserving soft knee on the brightest channel
+  return acc + sp;
 }
 `;

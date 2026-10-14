@@ -2,7 +2,7 @@
 // Contract: docs/ARCHITECTURE.md (Network / Schema / messages). The sim is pure JS (server/src/sim); this file only owns
 // lobby rules, the tick loop, sim -> schema sync and message validation.
 import { Room, matchMaker } from 'colyseus';
-import { MSG, PHASE, TEAM, TEAM_SIZE, LOBBY, ORDER, EV, TICK_HZ, ROOM } from '../../../shared/protocol.js';
+import { MSG, PHASE, TEAM, TEAM_SIZE, SPEC_MAX, LOBBY, ORDER, EV, TICK_HZ, ROOM } from '../../../shared/protocol.js';
 import { HEROES, HERO_KEYS, heroByShort } from '../../../shared/heroes.js';
 import { World } from '../sim/world.js';
 import { addXp } from '../sim/heroes.js';
@@ -90,7 +90,7 @@ function randomCode() {
 }
 
 export class MatchRoom extends Room {
-  maxClients = MAX_HUMANS;
+  maxClients = MAX_HUMANS + SPEC_MAX;   // player seats + spectator seats; onAuth enforces each
   autoDispose = true;
 
   async onCreate(options) {
@@ -127,6 +127,8 @@ export class MatchRoom extends Room {
   // ------------------------------------------------------------------------------------------------------------ lobby helpers
   players() { return [...this.state.players.values()]; }
   humans() { return this.players().filter((p) => !p.isBot); }
+  specs() { return this.players().filter((p) => p.team === TEAM.SPEC); }
+  freeSpecSlot() { for (let s = 0; s < SPEC_MAX; s++) if (!this.specs().some((p) => p.slot === s)) return s; return -1; }
   occupant(team, slot) { for (const p of this.state.players.values()) if (p.team === team && p.slot === slot) return p; return null; }
   validSlot(team, slot) { return Number.isInteger(team) && Number.isInteger(slot) && (team === 0 || team === 1) && slot >= 0 && slot < TEAM_SIZE; }
   heroTaken(key, except) { for (const p of this.state.players.values()) if (p !== except && p.hero === key) return true; return false; }
@@ -150,7 +152,8 @@ export class MatchRoom extends Room {
     const hum = this.players().filter((p) => !p.isBot);
     const host = hum.find((p) => p.isHost);
     const meta = {
-      host: host ? host.name : this.hostName, players: hum.length, bots: this.state.players.size - hum.length,
+      host: host ? host.name : this.hostName, players: hum.length - this.specs().length, bots: this.state.players.size - hum.length,
+      spectators: !!this.state.spectators, specs: this.specs().length,
       max: MAX_HUMANS, phase: this.state.phase, code: this.roomId,
     };
     this.setMetadata(meta).catch(() => {});
@@ -166,6 +169,20 @@ export class MatchRoom extends Room {
   }
 
   // ------------------------------------------------------------------------------------------------------------ join / leave
+  // Lobby: up to MAX_HUMANS players, plus SPEC_MAX spectators when the host allows them.
+  // Live match: only spectators (when allowed); reconnecting players skip onAuth.
+  onAuth(client, options) {
+    const ph = this.state.phase, spec = this.state.spectators, nSpec = this.specs().length;
+    if (ph === PHASE.ENDED) throw new Error('This match has ended');
+    if (ph === PHASE.GAME) {
+      if (!spec) throw new Error('Match in progress, the host did not allow spectators');
+      if (nSpec >= SPEC_MAX) throw new Error('Spectator seats are full');
+      return true;
+    }
+    if (this.humans().length - nSpec >= MAX_HUMANS && (!spec || nSpec >= SPEC_MAX)) throw new Error('Lobby is full');
+    return true;
+  }
+
   onJoin(client, options) {
     const p = new Player();
     p.sid = client.sessionId;
@@ -176,7 +193,8 @@ export class MatchRoom extends Room {
     p.heroId = '';
     p.team = -1; p.slot = -1;
     p.isHost = !this.humans().some((h) => h.isHost && h.connected);
-    this.assignSlot(p);
+    if (this.state.phase === PHASE.GAME) { p.isHost = false; p.team = TEAM.SPEC; p.slot = this.freeSpecSlot(); }
+    else if (!this.assignSlot(p) && this.state.spectators) { p.team = TEAM.SPEC; p.slot = this.freeSpecSlot(); }
     this.state.players.set(p.sid, p);
     this.refreshMeta();
   }
@@ -205,6 +223,10 @@ export class MatchRoom extends Room {
     if (!p) return;
     if (this.state.phase === PHASE.LOBBY) {
       this.state.players.delete(p.sid);
+      this.migrateHost();
+      this.refreshMeta();
+    } else if (p.team === TEAM.SPEC) {
+      this.state.players.delete(p.sid);   // spectators hold no hero: free the seat
       this.migrateHost();
       this.refreshMeta();
     } else {
@@ -246,7 +268,7 @@ export class MatchRoom extends Room {
     const o = cleanOrder(m);
     if (!o) return;
     const p = this.state.players.get(client.sessionId);
-    if (!p || p.team < 0) return;
+    if (!p || (p.team !== TEAM.RADIANT && p.team !== TEAM.DIRE)) return;   // spectators and the unslotted cannot order
     this.world.order(p.sid, o);
   }
 
@@ -264,6 +286,14 @@ export class MatchRoom extends Room {
       }
       case LOBBY.SLOT: {
         if (m.team === -1) { me.team = -1; me.slot = -1; break; }
+        if (m.team === TEAM.SPEC) {
+          if (!this.state.spectators) { this.sendMsg(client, 'The host has not allowed spectators'); break; }
+          if (me.team === TEAM.SPEC) break;
+          const s = this.freeSpecSlot();
+          if (s < 0) { this.sendMsg(client, 'Spectator seats are full'); break; }
+          me.team = TEAM.SPEC; me.slot = s; me.hero = '';
+          break;
+        }
         if (!this.validSlot(m.team, m.slot)) break;
         const occ = this.occupant(m.team, m.slot);
         if (occ && occ !== me) { this.sendMsg(client, 'Slot is taken'); break; }
@@ -272,6 +302,7 @@ export class MatchRoom extends Room {
       }
       case LOBBY.HERO: {
         if (m.key === '' || m.key === null) { me.hero = ''; break; }
+        if (me.team === TEAM.SPEC) break;
         const key = this.resolveHero(m.key);
         if (!key) break;
         if (this.heroTaken(key, me)) { this.sendMsg(client, HEROES[key].name + ' is already picked'); break; }
@@ -298,6 +329,12 @@ export class MatchRoom extends Room {
       case LOBBY.FILL: {
         if (!host) break;
         for (const team of [0, 1]) for (let s = 0; s < TEAM_SIZE; s++) if (!this.occupant(team, s)) this.addBot(team, s);
+        break;
+      }
+      case LOBBY.SPECS: {
+        if (!host) break;
+        this.state.spectators = !!m.on;
+        if (!this.state.spectators) for (const p of this.specs()) { p.team = -1; p.slot = -1; }
         break;
       }
       case LOBBY.START: {
@@ -339,7 +376,7 @@ export class MatchRoom extends Room {
       w.addHero({ pid: p.sid, team: p.team, heroKey: p.hero, bot: p.isBot, name: p.name, slot: p.slot, isHost: p.isHost, connected: p.connected });
     }
     this.state.phase = PHASE.GAME;
-    this.lock();
+    if (!this.state.spectators) this.lock();   // open rooms stay joinable: newcomers become spectators (onAuth / onJoin)
     this.refreshMeta();
     this.setPatchRate(null);                       // patches are flushed manually, once per sim tick
     this.syncState();

@@ -1,6 +1,6 @@
 // Lobby screen: browse/create/join -> room (slots, hero pick, bots, chat, start).
 //   createLobby(root, net, { onGameStart }) -> { destroy() }
-import { MSG, LOBBY, PHASE, TEAM_SIZE, EV } from '@p2d/shared/protocol.js';
+import { MSG, LOBBY, PHASE, TEAM, TEAM_SIZE, SPEC_MAX, EV } from '@p2d/shared/protocol.js';
 import { HEROES, HERO_KEYS } from '@p2d/shared/heroes.js';
 import { DATA } from '@p2d/shared/data.js';
 import { serverKind } from '../net/index.js';
@@ -99,8 +99,8 @@ export function createLobby(root, net, { onGameStart } = {}) {
       <div class="lb-lobby">
         <b class="lb-lcode">${esc(l.code)}</b>
         <span class="lb-lhost">${esc(l.host)}</span>
-        <span class="lb-lcount">${l.players}/${l.max} players${l.bots ? ' + ' + l.bots + ' bots' : ''}</span>
-        <button class="lb-btn lb-small" data-join="${esc(l.code)}">Join</button>
+        <span class="lb-lcount">${l.live ? '<i class="lb-tag lb-live">LIVE</i> ' + (l.specs || 0) + '/' + SPEC_MAX + ' watching' : l.players + '/' + l.max + ' players' + (l.bots ? ' + ' + l.bots + ' bots' : '')}</span>
+        <button class="lb-btn lb-small" data-join="${esc(l.code)}">${l.live ? 'Watch' : 'Join'}</button>
       </div>`).join('');
   }
 
@@ -140,7 +140,11 @@ export function createLobby(root, net, { onGameStart } = {}) {
   async function enter(promise) {
     if (busy) return;
     busy = true; setErr('');
-    try { await promise(); showRoom(); }
+    try {
+      await promise();
+      if (net.state?.phase === PHASE.GAME) { started = true; onGameStart?.(); }   // joined a live match: spectator
+      else showRoom();
+    }
     catch (e) { setErr(String(e?.message || e || 'Failed').replace(/^Error:\s*/, '')); }
     busy = false;
   }
@@ -205,8 +209,15 @@ export function createLobby(root, net, { onGameStart } = {}) {
       }
       html += '</div>';
     }
-    const spec = ps.filter((p) => p.team !== 0 && p.team !== 1);
-    if (spec.length) html += `<div class="lb-spec">Unslotted: ${spec.map((p) => esc(p.name) + (p.sid === net.mySid ? ' (you)' : '')).join(', ')}</div>`;
+    const who = (p) => esc(p.name) + (p.sid === net.mySid ? ' (you)' : '');
+    const specOn = !!net.state.spectators, specs = ps.filter((p) => p.team === TEAM.SPEC);
+    const unslot = ps.filter((p) => p.team !== 0 && p.team !== 1 && p.team !== TEAM.SPEC);
+    html += `<div class="lb-spec">
+      ${isHost ? `<label class="lb-chk"><input type="checkbox" id="lb-specs" ${specOn ? 'checked' : ''}> Allow spectators</label>` : ''}
+      ${specOn ? `<span>Spectators ${specs.length}/${SPEC_MAX}: ${specs.map(who).join(', ') || 'none yet'}. They can also join after the match starts.</span>
+        ${mine?.team === TEAM.SPEC ? '' : '<button class="lb-btn lb-small" data-spec="1">Spectate</button>'}` : (isHost ? '' : '<span>Spectators off</span>')}
+      ${unslot.length ? `<span>Unslotted: ${unslot.map(who).join(', ')}</span>` : ''}
+    </div>`;
     teams.innerHTML = html;
 
     // hero grid
@@ -271,6 +282,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
     if (t.id === 'lb-start') return lobbyMsg({ t: LOBBY.START });
     if (d.take) { const [tm, sl] = d.take.split(':').map(Number); return lobbyMsg({ t: LOBBY.SLOT, team: tm, slot: sl }); }
     if (d.unslot) return lobbyMsg({ t: LOBBY.SLOT, team: -1, slot: -1 });
+    if (d.spec) return lobbyMsg({ t: LOBBY.SLOT, team: TEAM.SPEC });
     if (d.bot) { const [tm, sl] = d.bot.split(':').map(Number); return lobbyMsg({ t: LOBBY.BOT, team: tm, slot: sl }); }
     if (d.kick) { const [tm, sl] = d.kick.split(':').map(Number); return lobbyMsg({ t: LOBBY.KICK, team: tm, slot: sl }); }
     if (d.hero) { const mine = me(); return lobbyMsg({ t: LOBBY.HERO, key: mine && mine.hero === d.hero ? '' : d.hero }); }
@@ -294,6 +306,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
   el.addEventListener('input', (e) => { if (e.target.id === 'lb-code') e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, ''); });
   el.addEventListener('change', (e) => {
     if (e.target.id === 'lb-name' && mode === 'room') { const n = curName(); lobbyMsg({ t: LOBBY.NAME, name: n }); }
+    if (e.target.id === 'lb-specs') lobbyMsg({ t: LOBBY.SPECS, on: e.target.checked });
   });
 
   offChange = net.onChange((st) => {

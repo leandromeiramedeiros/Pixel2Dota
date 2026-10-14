@@ -98,7 +98,7 @@ export function createFog(uniforms) {
     let n = 0;
     const night = !!view.night;
     for (const u of view.units || []) {
-      if (u.team !== myTeam || (u.status & ST.DEAD) || u.hp <= 0 || u.anim === 'dead') continue;
+      if ((myTeam === -2 ? u.team !== 0 && u.team !== 1 : u.team !== myTeam) || (u.status & ST.DEAD) || u.hp <= 0 || u.anim === 'dead') continue;   // -2 = spectator
       const r = visionRadius(u, night);
       if (!r) continue;
       castVision(map, vis, u.x, u.y, r, blockTree); n++;

@@ -28,7 +28,7 @@ export const Player = schema({
 }, 'Player');
 
 export const MatchState = schema({
-  phase: t.string(), code: t.string(), time: t.float32(), night: t.boolean(), winner: t.int8(),
+  phase: t.string(), code: t.string(), time: t.float32(), night: t.boolean(), winner: t.int8(), spectators: t.boolean(),
   players: t.map(Player), units: t.map(Unit), treesDown: t.array('uint16'),
 }, 'MatchState');
 
