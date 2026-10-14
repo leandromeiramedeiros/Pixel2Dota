@@ -19,16 +19,15 @@ const tokenGet = () => { try { return store && store.getItem(TOKEN_KEY); } catch
 const tokenSet = (v) => { try { if (store) v ? store.setItem(TOKEN_KEY, v) : store.removeItem(TOKEN_KEY); } catch { /* ignore */ } };
 
 // Game server chosen by the player: ?server=host:port (shareable link) or the lobby's Server field, remembered in localStorage.
-// "host:port" / "http(s)://..." / "ws(s)://..." all work; bare hosts get wss:// from an https page unless they are localhost.
+// "host:port" / "http(s)://..." / "ws(s)://..." all work; bare hosts get wss:// unless they are this machine or the LAN.
 const SERVER_KEY = 'p2d.server';
+const LOCAL_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])|^[^/:]+\.local(:|$)/i;
 export function normalizeServer(s) {
   s = String(s || '').trim().replace(/\/+$/, '');
   if (!s) return '';
   if (/^wss?:\/\//i.test(s)) return s;
   if (/^https?:\/\//i.test(s)) return s.replace(/^http/i, 'ws');
-  const local = /^(localhost|127\.|\[::1\])/i.test(s);
-  const secure = typeof location !== 'undefined' && location.protocol === 'https:';
-  return (secure && !local ? 'wss://' : 'ws://') + s;
+  return (LOCAL_HOST.test(s) ? 'ws://' : 'wss://') + s;   // public servers sit behind TLS; this machine and the LAN do not
 }
 /** the player's server override (query param wins and is remembered), or '' for the default */
 export function serverOverride() {
@@ -183,4 +182,16 @@ export function createNet(endpoint) {
   }
 
   return net;
+}
+
+/** Which game server an endpoint is, for the lobby badge: 'local' (this machine or LAN), 'cloud' (the public default) or 'custom'. */
+export function serverKind(ep) {
+  let u = null;
+  try { u = new URL(String(ep || '').replace(/^ws/i, 'http')); } catch { /* not a URL */ }
+  if (!u) return { kind: 'custom', host: String(ep || '') };
+  const h = u.hostname;
+  if (LOCAL_HOST.test(h)) return { kind: 'local', host: u.host };
+  const def = normalizeServer(import.meta.env?.VITE_P2D_ENDPOINT);
+  const same = typeof location !== 'undefined' && u.host === location.host;
+  return { kind: (def && def === normalizeServer(ep)) || same ? 'cloud' : 'custom', host: u.host };
 }

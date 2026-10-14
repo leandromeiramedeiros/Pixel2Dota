@@ -100,3 +100,8 @@
 }
 .lb-srv { align-items:flex-end; margin-top:4px; }
 .lb-srv .lb-field { flex:1 1 200px; }
+.lb-srvtag { align-self:flex-start; font-size:11px; padding:3px 8px; border-radius:3px; white-space:nowrap; border:1px solid currentColor; }
+.lb-srv-cloud { color:#7fc8ff; }
+.lb-srv-local { color:#9be08a; }
+.lb-srv-custom { color:#e8c36a; }
+.lb-codebox .lb-srvtag { align-self:center; }

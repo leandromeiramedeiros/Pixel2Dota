@@ -3,7 +3,7 @@
 import { MSG, LOBBY, PHASE, TEAM_SIZE, EV } from '@p2d/shared/protocol.js';
 import { HEROES, HERO_KEYS } from '@p2d/shared/heroes.js';
 import { DATA } from '@p2d/shared/data.js';
-import { serverOverride } from '../net/index.js';
+import { serverOverride, serverKind } from '../net/index.js';
 import './lobby.css';
 
 const UNREACHABLE = 'Cannot reach the server';
@@ -69,6 +69,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
     el.innerHTML = `
       <div class="lb-brand"><h1>PIXEL<span>2</span>DOTA</h1><p>5v5 pixel-art Dota in your browser</p></div>
       <div class="lb-card lb-browse">
+        ${serverTag()}
         <label class="lb-field">Your name<input id="lb-name" maxlength="20" value="${esc(name)}" autocomplete="off" spellcheck="false"></label>
         <div class="lb-row">
           <button class="lb-btn lb-primary" id="lb-create">Create lobby</button>
@@ -124,6 +125,12 @@ export function createLobby(root, net, { onGameStart } = {}) {
     u.searchParams.set('join', net.room?.roomId || '');
     return u.href;
   }
+  // which server this page talks to, so players can tell the cloud from someone's own machine
+  function serverTag() {
+    const s = serverKind(net.endpoint);
+    const txt = s.kind === 'cloud' ? '☁ Cloud server' : (s.kind === 'local' ? '🖥 Local server' : '🌐 Custom server') + ' · ' + s.host;
+    return `<span class="lb-srvtag lb-srv-${s.kind}" title="${esc(net.endpoint || '')}">${esc(txt)}</span>`;
+  }
   function setErr(msg) { error = msg; const n = el.querySelector('#lb-err'); if (n) n.textContent = msg; }
   function curName() {
     const n = (el.querySelector('#lb-name')?.value || '').trim().slice(0, 20) || name;
@@ -147,7 +154,7 @@ export function createLobby(root, net, { onGameStart } = {}) {
     el.innerHTML = `
       <div class="lb-room">
         <div class="lb-top">
-          <div class="lb-codebox"><span>Lobby code</span><b id="lb-rcode">${esc(net.room?.roomId || '')}</b><button class="lb-btn lb-small" id="lb-copy">Copy link</button></div>
+          <div class="lb-codebox"><span>Lobby code</span><b id="lb-rcode">${esc(net.room?.roomId || '')}</b><button class="lb-btn lb-small" id="lb-copy">Copy link</button>${serverTag()}</div>
           <label class="lb-field lb-me">Name<input id="lb-name" maxlength="20" value="${esc(name)}" autocomplete="off" spellcheck="false"></label>
           <button class="lb-btn" id="lb-leave">Leave</button>
         </div>
