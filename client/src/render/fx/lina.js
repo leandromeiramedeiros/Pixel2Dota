@@ -63,29 +63,66 @@ export function register(c, R) {
   });
 
   // ------------------------------------------------------------------------------------------------ laguna blade: x2,y2 = target pos, dur = delay
+  // 3D: ribbon lightning (red sheath + hot core, forks, re-rolled every ~3 frames) from Lina's hand to the target, impact column + shockwave + ember afterglow.
   R.spell('lina_laguna_blade', (ev, su, tu) => {
     if (!su) return;
+    const G = c.G, crim = PAL.blood;
     const x1 = ev.x2 != null ? ev.x2 : tu ? tu.x : su.x, y1 = ev.y2 != null ? ev.y2 : tu ? tu.y : su.y, dur = ev.dur || 0.6;
-    const sid = su.id, tz = tu ? c.chest(tu) : c.zAt(x1, y1) + 90, arcP = PAL.arc;
-    // charge: crackling gather on the hands
+    const sid = su.id, tz = tu ? c.chest(tu) : c.zAt(x1, y1) + 90;
+    const RED = [1.25, 0.12, 0.08], CORE = [3.4, 1.7, 1.4], WHITE = [2.4, 2.0, 1.9], EMB = [1.0, 0.32, 0.06], FLARE = [1.25, 0.2, 0.1];
+    // charge: red crackling gather on the hand, small ribbon arcs lashing out
+    const arcs = [G.newBolt(), G.newBolt()], ao = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }], aopt = { depth: 2, jag: 9, branches: 0 };
     c.run(dur, (r, dt) => {
       const u = c.unit(sid); if (!u) return false;
       const n = c.n((120 + 360 * r.k) * dt), z = c.chest(u) + 10;
-      for (let i = 0; i < n; i++) { const a = rnd(0, TAU), d = rnd(50, 110) * (1 - r.k * 0.5); P.spawn(c.pix(arcP, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: z + rnd(-30, 30), life: [0.15, 0.3], speed: 0, vel: [-Math.cos(a) * d * 4, -Math.sin(a) * d * 4, 0] })); }
-      if (Math.random() < dt * 16) { const a = rnd(0, TAU); c.bolt(u.x, u.y, z, u.x + Math.cos(a) * 70, u.y + Math.sin(a) * 70, z + rnd(-30, 40), arcP, { jag: 10, noLights: true, thick: 0.6 }); }
-      c.lightNow(u.x, u.y, z, arcP.lt, 220 + 160 * r.k, 0.3 + 0.8 * r.k, 0);
-    });
+      for (let i = 0; i < n; i++) { const a = rnd(0, TAU), d = rnd(50, 110) * (1 - r.k * 0.5); P.spawn(c.pix(crim, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: z + rnd(-30, 30), life: [0.15, 0.3], speed: 0, vel: [-Math.cos(a) * d * 4, -Math.sin(a) * d * 4, 0] })); }
+      for (let i = 0; i < 2; i++) {
+        const b = arcs[i]; if (!b) continue;
+        if (c.T - b.last >= 0.07) { const a = rnd(0, TAU), d = rnd(45, 85) * (1 - r.k * 0.4); ao[i].x = Math.cos(a) * d; ao[i].y = Math.sin(a) * d; ao[i].z = rnd(-25, 35); }
+        b.roll(c.T, 0.07, u.x, u.y, z, u.x + ao[i].x, u.y + ao[i].y, z + ao[i].z, aopt);
+        G.bolt(b, RED, 3, CORE, 1, Math.min(1, 0.4 + r.k));
+      }
+      c.lightNow(u.x, u.y, z, crim.lt, 220 + 160 * r.k, 0.3 + 0.8 * r.k, 0);
+    }, null);
+    c.later(dur, () => { G.free(arcs[0]); G.free(arcs[1]); });
     c.later(dur, () => {
-      const u = c.unit(sid), sx = u ? u.x : su.x, sy = u ? u.y : su.y, sz = u ? c.chest(u) : c.chest(su);
-      const t2 = tu && c.unit(tu.id), ex = t2 ? t2.x : x1, ey = t2 ? t2.y : y1, ez = t2 ? c.chest(t2) : tz;
-      for (let i = 0; i < 3; i++) c.bolt(sx, sy, sz, ex, ey, ez, i ? arcP : PAL.steel, { jag: 36, thick: i ? 1.4 : 0.9, lightR: 460, light: 1.1 });
-      c.line(sx, sy, sz, ex, ey, ez, arcP, { life: [0.2, 0.45], size0: [26, 40], count: Math.round(Math.hypot(ex - sx, ey - sy) * 0.6) });
-      c.flash(ex, ey, ez, arcP, 130, 0.35);
-      c.ring(ex, ey, c.zAt(ex, ey), arcP, { R: 220, life: [0.4, 0.65] });
-      c.stars(ex, ey, ez, PAL.steel, { count: 14 });
-      c.sparks(ex, ey, ez, arcP, { count: 26, speed: [160, 480] });
-      c.glow(ex, ey, ez, arcP.lt, 560, 2.2, 0.55, { elem: 'W' });
-      c.flash(sx, sy, sz, arcP, 70, 0.2);
+      const u = c.unit(sid), sx0 = u ? u.x : su.x, sy0 = u ? u.y : su.y, sz = u ? c.chest(u) : c.chest(su);
+      const mainB = G.newBolt(), echoB = G.newBolt(), tArc = [G.newBolt(), G.newBolt(), G.newBolt()];
+      const mopt = { depth: 4, jag: 38, branches: 5, branchLen: 0.16 }, eopt = { depth: 3, jag: 26, branches: 2, branchLen: 0.12 }, topt = { depth: 2, jag: 14, branches: 1, branchLen: 0.25 };
+      const tgtO = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }];
+      const disc = { n: 26, seed: 3.1, p0: 0, p1: 0.2, p2: 0.35 }, glowD = { p0: 0, p1: 1.7, p2: 0.55, p3: 0.35 }, tube = { pow: 1.2, swirl: 0.25, flare: 1, top: 0.6, phase: 0 }, tubeC = { pow: 0.7, top: 0.5 };
+      let sx = sx0, sy = sy0, ex = x1, ey = y1, ez = tz, grounded = c.zAt(x1, y1), spark = 0;
+      const ang0 = c.ang(sx0, sy0, x1, y1);
+      c.flash(sx0 + Math.cos(ang0) * 30, sy0 + Math.sin(ang0) * 30, sz, crim, 70, 0.2);
+      c.flash(x1, y1, tz, crim, 130, 0.3);
+      c.sparks(x1, y1, tz, crim, { count: 18, speed: [160, 480] });
+      c.stars(x1, y1, tz, PAL.steel, { count: 10 });
+      c.embers(x1, y1, grounded + 30, PAL.fire, { count: 14, speed: [120, 420] });
+      c.glow(x1, y1, tz, crim.lt, 560, 1.9, 0.55, { elem: 'W' });
+      c.glow(sx0, sy0, sz, crim.lt, 300, 1.0, 0.3);
+      c.run(0.55, (r, dt) => {
+        const uu = c.unit(sid), t2 = tu && c.unit(tu.id);
+        if (uu) { sx = uu.x; sy = uu.y; } if (t2) { ex = t2.x; ey = t2.y; ez = c.chest(t2); grounded = t2.z || 0; }
+        const hz = uu ? c.chest(uu) : sz, hx = sx + Math.cos(ang0) * 28, hy = sy + Math.sin(ang0) * 28, a = r.t < 0.3 ? 1 : Math.max(0, 1 - (r.t - 0.3) / 0.25);
+        if (mainB.roll(c.T, 0.05, hx, hy, hz, ex, ey, ez, mopt) && spark++ < 40) c.boltSparks(mainB, crim, 0.35);
+        echoB.roll(c.T, 0.05, hx, hy, hz - 8, ex, ey, ez + 6, eopt);
+        G.bolt(mainB, RED, 5, CORE, 2, a);
+        G.bolt(echoB, RED, 3, WHITE, 1, a * 0.8);
+        // arcs crackling around the target
+        for (let i = 0; i < 3; i++) {
+          const b = tArc[i]; if (!b) continue;
+          if (c.T - b.last >= 0.06) { const an = rnd(0, TAU), d = rnd(60, 150); tgtO[i].x = Math.cos(an) * d; tgtO[i].y = Math.sin(an) * d; tgtO[i].z = rnd(-60, 40); }
+          b.roll(c.T, 0.06, ex, ey, ez, ex + tgtO[i].x, ey + tgtO[i].y, ez + tgtO[i].z, topt);
+          G.bolt(b, RED, 4, CORE, 1, a);
+        }
+        // impact: flare column, shockwave and ember afterglow on the ground
+        const f = 1 - Math.pow(1 - Math.min(1, r.t / 0.4), 3);
+        if (r.t < 0.4) { disc.p0 = 0.1 + 0.9 * f; G.disc(ex, ey, grounded, 250, 2, FLARE, 1 - f * 0.7, disc); }
+        if (r.t < 0.3) { const k = 1 - r.t / 0.3; G.tube(ex, ey, grounded, 420, 46 * k + 6, 14, FLARE, k, tube); G.tube(ex, ey, grounded, 420, 18 * k + 3, 6, CORE, k, tubeC); }
+        G.disc(ex, ey, grounded, 170, 3, EMB, Math.max(0, 1 - r.t / 0.55) * 1.2, glowD);
+        c.lightNow(ex, ey, ez, crim.lt, 420, 1.3 * a, 0);
+      });
+      c.later(0.55, () => { G.free(mainB); G.free(echoB); for (const b of tArc) G.free(b); });
     });
   });
 }

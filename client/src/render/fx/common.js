@@ -215,6 +215,14 @@ export function createCtx(args) {
       for (let i = 0; i <= n; i++) { const k = i / n; c.glow(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, z0 + (z1 - z0) * k + 20, pal.lt, o.lightR || 420, (o.light || 1.6) * (i === 0 || i === n ? 1.3 : 0.8), 0.3, { mode: 'fade' }); }
     }
   };
+  /** Pixel sparks along a geo3d bolt's segments (call right after bolt.roll() returned true). density ~ sparks per world unit. */
+  c.boltSparks = (b, pal, density) => {
+    for (let i = 0; i < b.n; i++) {
+      const o = i * 8, s = b.seg, ax = s[o], ay = -s[o + 2], az = s[o + 1], bx = s[o + 3], by = -s[o + 5], bz = s[o + 4];
+      const len = Math.hypot(bx - ax, by - ay, bz - az), n = Math.round(len * (density || 0.35) * P.scale.v);
+      if (n > 0) P.burst(c.pix(pal, { x: ax, y: ay, z: az, x2: bx, y2: by, z2: bz, count: n, shape: 'line', life: [0.12, 0.4], speed: [0, 40], px: [0.8, 1.6], settle: false }));
+    }
+  };
   /** Emitter anchored to a unit (follows it); returns the emitter. */
   c.follow = (id, dz) => { const o = { x: 0, y: 0, z: 0 }; return () => { const u = unitById(id); if (!u) return null; o.x = u.x; o.y = u.y; o.z = (u.z || 0) + dz; return o; }; };
   c.emitOn = (id, dz, dur, opts) => {

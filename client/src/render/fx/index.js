@@ -3,6 +3,7 @@
 // Every hero module exports register(c, R): R.spell(keys, fn(ev, su, tu, c)), R.proj(key, def), R.on(eventName, fn(ev, su, tu, c)), R.each(fn(c, dt, view)).
 import { EV } from '../../../../shared/protocol.js';
 import { createQuads } from './quads.js';
+import { createGeo3d } from './geo3d.js';
 import { createCtx, PAL, ORB } from './common.js';
 import { createProjectiles } from './projectiles.js';
 import * as status from './status.js';
@@ -23,7 +24,9 @@ const MODS = { misc, items, invoker, sven, lina, lion, crystal_maiden, axe, snip
 
 export function createFx(args) {
   const Q = createQuads(args);
+  const G = createGeo3d(args);        // pooled 3D spell geometry (tubes, discs, ribbon bolts); drawn in the scene target
   const c = createCtx({ ...args, quads: Q });
+  c.G = G;
   const R = {
     spells: new Map(), projs: new Map(), events: new Map(), updaters: [], coverage: new Set(),
     spell(keys, fn) { for (const k of [].concat(keys)) { this.spells.set(k, fn); this.coverage.add(k); } },
@@ -73,12 +76,12 @@ export function createFx(args) {
 
   function update(dt, view) {
     if (dt > 0.1) dt = 0.1;
-    Q.begin();
+    Q.begin(); G.begin();
     c.begin(dt, view);
     try { PJ.update(dt); } catch (e) { warn('proj-update', e); }
     for (let i = 0; i < R.updaters.length; i++) { try { R.updaters[i](c, dt, view); } catch (e) { warn('upd', e); } }
-    Q.end();
+    Q.end(); G.end();
   }
 
-  return { handle, update, ctx: c, registry: R, quads: Q, coverage: () => [...R.coverage] };
+  return { handle, update, ctx: c, registry: R, quads: Q, geo: G, coverage: () => [...R.coverage] };
 }

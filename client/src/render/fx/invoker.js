@@ -204,27 +204,43 @@ export function register(c, R) {
   // ---------------------------------------------------------------------------------------------------------------- sun strike (x,y,r,dur = delay)
   R.spell('invoker_sun_strike', (ev) => {
     const x = ev.x, y = ev.y; if (x == null) return;
-    const rad = ev.r || 175, dur = ev.dur || 1.7, z = c.zAt(x, y), pal = PAL.sun;
-    c.ringDecal(x, y, rad, dur + 0.15, [3.2, 2.2, 0.7], { emit: 1.5, pulse: 0.3, pulseHz: 12, fadeOut: 0.05 });
-    c.decal(x, y, 'decal_ring_target', rad * 0.55 / 78, dur, { tint: [3.6, 2.8, 1.0], emit: 1.2, spin: 1.5, fadeOut: 0.05, pulse: 0.2 });
+    const rad = ev.r || 175, dur = ev.dur || 1.7, z = c.zAt(x, y), pal = PAL.sun, G = c.G;
+    // 3D geometry colours: shells stay below the 1.4 bloom threshold, the core is HDR
+    const GOLD = [1.3, 0.95, 0.25], AMB = [0.9, 0.46, 0.08], CORE = [2.6, 2.2, 1.2], HOT = [2.4, 1.9, 0.8];
+    const tgt = { n: 10, seed: Math.random() * 50, p0: 0, p1: 0.25, p2: 1.2 }, wave = { n: 24, seed: Math.random() * 40, p0: 0, p1: 0.2, p2: 0.4 }, wave2 = { n: 16, seed: 7.3, p0: 0, p1: 0.16, p2: 0.2 };
+    const glowD = { p0: 0, p1: 1.4, p2: 0.55, p3: 0.5, n: 0 }, shell = { swirl: 0.75, pow: 1.6, flare: 0, top: 0.8, phase: 0, front: 0 }, halo = { swirl: 0.2, pow: 2.6, top: 0.7 }, core = { swirl: 0.3, pow: 0.7, flare: 1, top: 0.6, front: 0, phase: 0 };
     const lt = c.glow(x, y, z + 40, pal.lt, rad * 3, 0.3, dur, { mode: 'flat', elem: 'E' });
-    c.run(dur, (r, dt) => {
-      lt.int = 0.3 + 1.4 * r.k;
-      const n = c.n((100 + 300 * r.k) * dt);
-      for (let i = 0; i < n; i++) { const a = Math.random() * TAU, rr = rad * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: z + 4, life: [0.5, 1.0], speed: 0, up: [120, 300 + 500 * r.k], gravity: -520 })); }
+    // telegraph: golden targeting circle (rotating dashed rings, sun rays) tightening in with a pixel-noisy fill
+    c.run(dur + 0.12, (r, dt) => {
+      const k = Math.min(1, r.t / dur), a = Math.min(1, r.t / 0.12) * (r.t > dur ? Math.max(0, 1 - (r.t - dur) / 0.12) : 1);
+      tgt.p0 = c.T * 1.1; tgt.p1 = 0.35 + 0.6 * k; tgt.p2 = 0.6 + k;
+      G.disc(x, y, z, rad, 1, GOLD, a * (0.75 + 0.25 * Math.sin(c.T * 12)), tgt);
+      lt.int = 0.3 + 1.4 * k;
+      const n = c.n((100 + 300 * k) * dt);
+      for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rr = rad * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: z + 4, life: [0.5, 1.0], speed: 0, up: [120, 300 + 500 * k], gravity: -520 })); }
     });
     c.later(dur, () => {
-      // the beam: a line of white-hot glow from the sky to the ground, a flash, ring + scorch
-      // white-gold core made of 2-4 px squares across the beam width, a faint wide halo behind it
-      for (let i = c.n(200); i > 0; i--) { const a = Math.random() * TAU, w = rad * 0.38 * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(a) * w, y: y + Math.sin(a) * w, z: z + Math.random() * 1700, life: [0.35, 0.8], px: [1.5, 3], speed: 0, settle: false, keep: true, rampTint: [0.85, 0.85, 0.85] })); }
-      P.burst({ x, y, z, x2: x, y2: y, z2: z + 1700, shape: 'line', count: 40, life: [0.5, 0.9], size0: [rad * 0.6, rad * 0.8], size1: rad * 0.3, col0: pal.mid, col1: pal.low, a0: 0.1, a1: 0, speed: [0, 20], mode: 'glow' });
-      P.burst(c.pix(pal, { x, y, z: z + 6, count: 260, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2.4] }));
-      c.flash(x, y, z + 80, pal, rad * 0.5, 0.2);
+      // impact: light column drops from the sky (bright head), swirling gold shell around a white-hot core, ground shockwaves, ember glow
+      c.run(1.05, (r, dt) => {
+        const t = r.t, k = r.k, drop = Math.min(1, t / 0.07), fade = Math.min(1, (1 - k) / 0.35), shrink = t > 0.55 ? 1 - Math.pow((t - 0.55) / 0.5, 2) : 1;
+        shell.front = 1 - drop; core.front = 1 - drop; halo.front = 1 - drop; shell.phase = core.phase = c.T * 7;
+        G.tube(x, y, z, 1700, rad * 0.66 * shrink, rad * 0.62 * shrink, GOLD, fade, shell);
+        G.tube(x, y, z, 1700, rad * 0.98 * shrink, rad * 0.9 * shrink, AMB, fade * 0.45, halo);
+        G.tube(x, y, z, 1700, rad * 0.2 * shrink, rad * 0.18 * shrink, CORE, fade, core);
+        const f1 = 1 - Math.pow(1 - Math.min(1, t / 0.5), 3);
+        if (t < 0.5) { wave.p0 = 0.12 + 0.88 * f1; G.disc(x, y, z, rad * 2.0, 2, GOLD, 1 - f1 * 0.7, wave); }
+        if (t < 0.32) { const f2 = 1 - Math.pow(1 - t / 0.32, 3); wave2.p0 = 0.1 + 0.9 * f2; G.disc(x, y, z, rad * 1.25, 2, HOT, 1 - f2 * 0.6, wave2); }
+        G.disc(x, y, z, rad * 1.1, 3, AMB, Math.min(1, (1 - k) * 1.6), glowD);
+        // pixel motes spiralling up the shell
+        const n = c.n(90 * dt) * (t < 0.7 ? 1 : 0);
+        for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rw = rad * (0.2 + 0.45 * Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rw, y: y + Math.sin(an) * rw, z: z + Math.random() * 60, life: [0.4, 0.9], px: [1.2, 2.6], speed: 0, vel: [-Math.sin(an) * rw * 3, Math.cos(an) * rw * 3, 0], up: [900, 1900], drag: 0.4, settle: false })); }
+      });
+      P.burst(c.pix(pal, { x, y, z: z + 6, count: 110, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2.4] }));
+      c.flash(x, y, z + 80, pal, rad * 0.3, 0.14);
       c.ring(x, y, z, pal, { R: rad * 1.8, life: [0.4, 0.7] });
-      c.ring(x, y, z, PAL.fire, { R: rad * 1.1, life: [0.3, 0.5] });
-      c.embers(x, y, z + 40, pal, { count: 60, speed: [200, 650] });
+      c.embers(x, y, z + 40, pal, { count: 20, speed: [200, 650] });
       c.smoke(x, y, z + 20, { count: 8 }, PAL.smoke);
-      c.glow(x, y, z + 120, pal.lt, rad * 5, 1.6, 0.8, { elem: 'E' });
+      c.glow(x, y, z + 120, pal.lt, rad * 4, 0.9, 0.8, { elem: 'E' });
       c.decal(x, y, 'decal_scorch', rad / 80, 6, { tint: [1.2, 0.8, 0.35], emit: 0.8, fadeOut: 0.6 });
     });
   });

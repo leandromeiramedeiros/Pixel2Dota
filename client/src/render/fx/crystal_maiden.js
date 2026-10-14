@@ -52,37 +52,57 @@ export function register(c, R) {
   });
 
   // ------------------------------------------------------------------------------------------------ freezing field: channel, r, dur ; sub 'blast' at x,y r=explosion radius
+  // 3D: pale frost aura disc (crystal spokes + rim) following the caster; each blast = ice-shard tube dropping from the sky -> small icy shockwave disc + shards/snow/mist.
   R.spell('crystal_maiden_freezing_field', (ev, su) => {
+    const G = c.G, ICE = [0.38, 0.8, 1.25], PALE = [0.7, 1.15, 1.35], HOTC = [2.2, 2.6, 3.0];
     if (ev.sub === 'blast') {
       const x = ev.x, y = ev.y; if (x == null) return;
-      const rad = ev.r || 300, z = c.zAt(x, y);
-      c.flash(x, y, z + 60, pal, rad * 0.4, 0.28);
-      c.ring(x, y, z, pal, { R: rad, life: [0.35, 0.6] });
-      c.shards(x, y, z + 10, pal, { count: 18, speed: [160, 420] });
-      c.pillar(x, y, z, pal, { count: 50, radius: 18, up: [500, 1300] });
-      c.ringDecal(x, y, rad, 0.5, [1.0, 2.2, 3.6], { emit: 1.2, fadeOut: 0.7 });
-      c.glow(x, y, z + 80, pal.lt, rad * 2.2, 1.8, 0.5);
+      const rad = ev.r || 300, z = c.zAt(x, y), fall = 0.17;
+      // landing spot jitter so overlapping blasts do not stack perfectly
+      const sh = { swirl: 0.15, pow: 1.1, top: 0.5, front: 1, phase: 0 }, shc = { pow: 0.6, top: 0.4, front: 1 };
+      const shock = { n: 20, seed: Math.random() * 50, p0: 0, p1: 0.16, p2: 0.4 }, gl = { p0: 0, p1: 2.2, p2: 0.5, p3: 0.5, rin: 0.25, n: 8 };
+      c.run(fall + 0.45, (r) => {
+        if (r.t < fall) {
+          const k = r.t / fall; sh.front = shc.front = 1 - k;
+          G.tube(x, y, z, 1000, 12, 12, ICE, 0.9, sh);
+          G.tube(x, y, z, 1000, 4, 4, HOTC, 1, shc);
+        } else {
+          const t = r.t - fall, k = t / 0.45, f = 1 - Math.pow(1 - k, 3);
+          shock.p0 = 0.08 + 0.92 * f; G.disc(x, y, z, rad * 0.55, 2, PALE, 1 - k * 0.8, shock);
+          G.disc(x, y, z, rad * 0.45, 3, ICE, Math.max(0, 1 - k * 1.2) * 0.9, gl);
+        }
+      });
+      c.later(fall, () => {
+        c.flash(x, y, z + 40, pal, rad * 0.3, 0.2);
+        c.shards(x, y, z + 10, pal, { count: 14, speed: [160, 420] });
+        c.pillar(x, y, z, pal, { count: 30, radius: 16, up: [400, 1000] });
+        c.stars(x, y, z + 20, pal, { count: 5 });
+        c.smoke(x, y, z + 20, { count: 2, size0: [30, 50], size1: [80, 120], life: [0.7, 1.2] }, PAL.smoke);
+        c.glow(x, y, z + 80, pal.lt, rad * 1.8, 1.3, 0.4);
+      });
       return;
     }
     if (!su) return;
     const id = su.id, rad = ev.r || 835, dur = ev.dur || 10, z = su.z || 0;
     c.flash(su.x, su.y, c.chest(su), pal, 130, 0.4);
-    c.ring(su.x, su.y, z, pal, { R: rad, life: [0.7, 1.0] });
-    c.pillar(su.x, su.y, z, pal, { count: 90, radius: 28, up: [400, 1000] });
-    const dec = c.ringDecal(su.x, su.y, rad, dur, [0.7, 1.6, 3.0], { emit: 1.0, fadeIn: 0.3, fadeOut: 0.1, follow: id, pulse: 0.1, pulseHz: 3 });
-    c.decal(su.x, su.y, 'decal_frost', rad / 90, dur, { tint: [0.6, 1.3, 2.3], emit: 0.7, follow: id, fadeIn: 0.4, fadeOut: 0.1, spin: 0.15 });
+    c.pillar(su.x, su.y, z, pal, { count: 60, radius: 28, up: [400, 1000] });
     const lt = c.glow(su.x, su.y, z + 120, pal.lt, rad * 1.1, 0.5, dur, { mode: 'flat', follow: id, dz: 120, elem: 'Q' });
-    // blizzard: snow whirling inside the field + wind streaks circling its edge
+    const aura = { p0: 0, p1: 1.5, p2: 0.4, p3: 0.9, rin: 0.35, n: 10 }, rim = { rin: 0.96, p1: 1, p2: 1 }, burst = { p0: 0, p1: 0.12, p2: 0.3, n: 24, seed: 1.7 };
+    // blizzard: aura disc + snow whirling inside the field + wind streaks circling its edge
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u || u.hp <= 0) return false;
       if (u.visible === false) return;
       const ramp = Math.min(1, r.t / 0.8) * Math.min(1, (dur - r.t) / 0.5), zz = u.z || 0;
-      const n = c.n(200 * ramp * dt);
+      aura.p0 = c.T * 0.08;
+      G.disc(u.x, u.y, zz, rad, 3, ICE, 0.42 * ramp, aura);
+      G.disc(u.x, u.y, zz, rad, 0, PALE, 0.5 * ramp, rim);
+      if (r.t < 0.7) { burst.p0 = 1 - Math.pow(1 - r.t / 0.7, 3); G.disc(u.x, u.y, zz, rad, 2, PALE, 1 - r.t / 0.7, burst); }
+      const n = c.n(110 * ramp * dt);
       for (let i = 0; i < n; i++) {
         const a = rnd(0, TAU), d = rad * Math.sqrt(Math.random()), sw = 0.9;
         P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(160, 420), life: [0.7, 1.3], speed: 0, vel: [-Math.sin(a) * d * sw + 90, Math.cos(a) * d * sw, -300], drag: 0.2, px: [0.8, 1.6], settle: false }));
       }
-      const m = c.n(160 * ramp * dt), a1 = c.T * 1.8;
+      const m = c.n(90 * ramp * dt), a1 = c.T * 1.8;
       for (let i = 0; i < m; i++) {
         const a = a1 + rnd(-0.5, 0.5), d = rad * rnd(0.85, 1.0);
         P.spawn(c.pix(pal, { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d, z: zz + rnd(10, 90), life: [0.4, 0.8], speed: 0, vel: [-Math.sin(a) * 380, Math.cos(a) * 380, 0], drag: 0.6, settle: false }));
