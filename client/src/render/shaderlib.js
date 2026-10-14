@@ -30,6 +30,9 @@ export function createSharedUniforms() {
     uArtPx: { value: 2 },                                                   // RT px per art px at the reference distance
     uRefW: { value: 1134 },                                                 // reference clip.w (camera distance to target)
     uPersp: { value: 0 },                                                   // 0 = constant sprite scale, 1 = perspective scale
+    uShadowMap: { value: null },                                            // key-light depth map (shadow.js)
+    uShadowM: { value: new THREE.Matrix4() },                               // world (three coords) -> shadow map uv + depth
+    uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
 
@@ -71,6 +74,29 @@ float fogBright(vec3 p, vec2 dp){
   t = floor(t * 5. + bayer4(dp)) / 5.;
   return lo + clamp(t, 0., 1.) * (1. - lo);
 }
+
+// key-light visibility at world point p (1 lit .. 1-strength shadowed). Normal offset + 4 Bayer-jittered taps give a dithered,
+// pixel-crisp penumbra; fades out toward the map border. Multiply the key term (and key rim) with it, and the ambient with shadowAmb().
+uniform sampler2D uShadowMap;
+uniform mat4 uShadowM;
+uniform vec4 uShadowP;
+float shadowAt(vec3 p, vec3 n, vec2 dp){
+  if (uShadowP.w < .5) return 1.;
+  vec4 s = uShadowM * vec4(p + n * 5. + vec3(0., 2., 0.), 1.);
+  vec2 e = min(s.xy, 1. - s.xy);
+  if (min(e.x, e.y) <= 0.) return 1.;
+  float j = bayer4(dp) - .5, r = uShadowP.x * 1.5, z = s.z - uShadowP.z, v = 0.;
+  v += step(z, texture2D(uShadowMap, s.xy + vec2(-r, -r * .3) + j * r).r);
+  v += step(z, texture2D(uShadowMap, s.xy + vec2( r,  r * .3) - j * r).r);
+  v += step(z, texture2D(uShadowMap, s.xy + vec2( r * .3, -r) + j * r).r);
+  v += step(z, texture2D(uShadowMap, s.xy + vec2(-r * .3,  r) - j * r).r);
+  v = floor(v * .25 * 2. + bayer4(dp + 7.)) * .5;                       // 3 levels, ordered dither
+  v = mix(1., v, smoothstep(0., .06, min(e.x, e.y)));
+  return mix(1. - uShadowP.y, 1., v);
+}
+
+// ambient occlusion by the key shadow: open-sky light is also partly blocked by the caster
+vec3 shadowAmb(float sh){ return uAmb * mix(.8, 1., sh); }
 
 // sum of point lights at world point p with surface normal n; soft = how much of each light ignores the normal
 vec3 pointLights(vec3 p, vec3 n, float soft){

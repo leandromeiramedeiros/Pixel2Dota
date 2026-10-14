@@ -4,6 +4,7 @@
 //   instance = position, yaw, scale, team (0 Radiant / 1 Dire), hp fraction (cracks), destroyed 0..1 (collapse to rubble), flash, highlight.
 import * as THREE from 'three';
 import { COMMON_GLSL } from './shaderlib.js';
+import { DEPTH_FRAG } from './shadow.js';
 import { createKit, hash01, instancedGeo, flushInstances, silhouetteFrame, DEPTH_GLSL } from './mesh3d.js';
 
 // ---- palette: [Radiant, Dire] --------------------------------------------------------------------------------------------------------
@@ -188,7 +189,11 @@ void main(){
   col = mix(col, vec3(dot(col, vec3(.33))) * .42, d * .85 * (1. - aEmit));
   vCol = col; vSt = iSt; vHi = iHi;
   vec4 cr = projectionMatrix * viewMatrix * vec4(w, 1.);
+#ifdef SHADOW
+  gl_Position = cr;                                             // shadow caster: real depth from the light
+#else
   gl_Position = propDepth(cr, iPos, uPull * iXf.y);
+#endif
 #ifdef HULL
   gl_Position.z += 1e-4 * gl_Position.w;
 #endif
@@ -217,13 +222,14 @@ void main(){
   float h2 = fract(sin(dot(floor(dp / 2.), vec2(39.3, 11.7))) * 24634.63);
   alb *= 1. - .5 * step(h2, dmg * .85) * step(.02, dmg) * (1. - em);   // cracks / scorch
   vec3 pl = pointLights(vW + n * 6., n, .35);
-  vec3 L = quantL(uAmb + uKeyCol * max(dot(n, uKeyDir), 0.) + pl, dp);
+  float sh = shadowAt(vW, n, dp);
+  vec3 L = quantL(shadowAmb(sh) + uKeyCol * (max(dot(n, uKeyDir), 0.) * sh) + pl, dp);
   vec3 col = alb * L;
   float pulse = 1. + .12 * sin(uTime * 2.3 + vPh) + .25 * step(.5, dmg) * sin(uTime * 17. + vPh);
   col = mix(col, alb * pulse * (1. + .35 * uNight), em);
   vec3 v = normalize(uCamPos - vW);
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
-  float kf = smoothstep(-.1, .6, dot(n, uKeyDir));
+  float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
   col += uRimOn * (uRimKey * fr * (.3 + kf) + pl * fr * .6) * (1. - em);
   col += vHi.rgb * vHi.a * (.03 + fr * .8);
   col = mix(col, vec3(1.5, 1.45, 1.35), vSt.z * .7);
@@ -246,6 +252,7 @@ export function createBuildings3d({ scene, uniforms }) {
     const un = { ...uniforms, uPull: { value: inf.pull }, uOutW: outU, uRimOn: rimU };
     const body = new THREE.Mesh(inst.geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide }));
     const hull = new THREE.Mesh(inst.geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.BackSide, defines: { HULL: 1 } }));
+    body.userData.depthMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: DEPTH_FRAG, uniforms: un, side: THREE.DoubleSide, defines: { SHADOW: 1 } });
     for (const m of [body, hull]) { m.frustumCulled = false; m.matrixAutoUpdate = false; group.add(m); }
     body.renderOrder = 1; hull.renderOrder = 2; body.name = 'b3d_' + name; hull.name = 'b3d_hull_' + name;
     const frame = silhouetteFrame(merged, { minAy: inf.H / 5.52 + 1, skipPart: 2 });
@@ -273,6 +280,8 @@ export function createBuildings3d({ scene, uniforms }) {
     },
     /** sprite-like pick / bar frame for a building type (see mesh3d.silhouetteFrame) */
     frame(name) { return types[name] && types[name].frame; },
+    /** shadow casters: [{ mesh, mat }] (shadow.js) */
+    casters() { return Object.values(types).map((t) => ({ mesh: t.body, mat: t.body.userData.depthMat })); },
     setRim(on) { rimU.value = on ? 1 : 0; },
     dispose() { for (const k in types) { types[k].inst.geo.dispose(); types[k].body.material.dispose(); types[k].hull.material.dispose(); } scene.remove(group); },
   };

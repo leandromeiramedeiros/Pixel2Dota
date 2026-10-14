@@ -3,6 +3,7 @@
 // The caller (actors.js) fills the instance buffers each frame for the trees in visible 512u cells only.
 import * as THREE from 'three';
 import { COMMON_GLSL } from './shaderlib.js';
+import { DEPTH_FRAG } from './shadow.js';
 import { createKit, instancedGeo, flushInstances, silhouetteFrame, DEPTH_GLSL } from './mesh3d.js';
 
 const VSCALE = 0.85;      // squat (see buildings3d.js)
@@ -63,7 +64,11 @@ void main(){
   vLY = position.y; vPh = ph; vSw = aSw;
   vCol = mix(aCol, aCol2, iXf.w);
   vec4 cr = projectionMatrix * viewMatrix * vec4(w, 1.);
+#ifdef SHADOW
+  gl_Position = cr;                                             // shadow caster: real depth from the light
+#else
   gl_Position = propDepth(cr, iPos, uPull * iXf.y);
+#endif
 }`;
 
 const FRAG = /* glsl */ `
@@ -83,11 +88,12 @@ void main(){
   alb *= .94 + .12 * hs;                                              // dither-scale speckle (leaf texture)
   alb *= mix(.7, 1., smoothstep(0., 130., vLY));                     // dark under the canopy
   vec3 pl = pointLights(vW + n * 8., n, .5);
-  vec3 L = quantL(uAmb + uKeyCol * max(dot(n, uKeyDir), 0.) + pl, dp);
+  float sh = shadowAt(vW, n, dp);
+  vec3 L = quantL(shadowAmb(sh) + uKeyCol * (max(dot(n, uKeyDir), 0.) * sh) + pl, dp);
   vec3 col = alb * L;
   vec3 v = normalize(uCamPos - vW);
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
-  float kf = smoothstep(-.1, .6, dot(n, uKeyDir));
+  float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
   col += uRimOn * step(.05, vSw) * (uRimKey * fr * (.3 + kf) + pl * fr * .5);
   gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);
 }`;
@@ -104,7 +110,8 @@ export function createTrees3d({ scene, uniforms, max = 2400 }) {
     const merged = kit.build();
     const inst = instancedGeo(merged, max, IFLOATS);
     const mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: { ...uniforms, uPull: { value: v === STUMP ? 8 : 30 }, uRimOn: rimU }, side: THREE.FrontSide });
-    const mesh = new THREE.Mesh(inst.geo, mat); mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; mesh.name = 'tree3d_' + v; mesh.renderOrder = 1;
+    const depthMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: DEPTH_FRAG, uniforms: mat.uniforms, side: THREE.DoubleSide, defines: { SHADOW: 1 } });
+    const mesh = new THREE.Mesh(inst.geo, mat); mesh.userData.depthMat = depthMat; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; mesh.name = 'tree3d_' + v; mesh.renderOrder = 1;
     group.add(mesh);
     vars.push({ inst, mesh, n: 0, frame: silhouetteFrame(merged, { grow: 1 }), tris: inst.tris });
   }
@@ -124,6 +131,8 @@ export function createTrees3d({ scene, uniforms, max = 2400 }) {
       stats.tris = tris; stats.draws = draws; stats.instances = inst;
     },
     frame(v) { return vars[v] && vars[v].frame; },
+    /** shadow casters: [{ mesh, mat }] (shadow.js) */
+    casters() { return vars.map((t) => ({ mesh: t.mesh, mat: t.mesh.userData.depthMat })); },
     setRim(on) { rimU.value = on ? 1 : 0; },
     dispose() { for (const t of vars) { t.inst.geo.dispose(); t.mesh.material.dispose(); } scene.remove(group); },
   };

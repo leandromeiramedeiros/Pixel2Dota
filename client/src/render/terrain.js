@@ -6,6 +6,7 @@ import { getMap, TT } from '../../../shared/map.js';
 import { CHUNK, buildChunk, tileName, buildTileData } from './terrainGeo.js';
 import { buildTerrainAtlas } from './tilesheet.js';
 import { COMMON_GLSL } from './shaderlib.js';
+import { DEPTH_FRAG } from './shadow.js';
 
 const VERT = /* glsl */ `
 attribute vec4 cell;
@@ -201,7 +202,8 @@ void main(){
     alb *= mix(1., .85, step(.88, hash12(vec2(dp.x, 3.))) * smoothstep(.1, .6, sv));
     alb *= mix(vec3(.9, .97, 1.), vec3(1.05, 1.02, .95), vnoise(vec2(dp.x * .05, dp.y * .12) + 5.));
   }
-  vec3 L = uAmb + uKeyCol * max(dot(n, uKeyDir), 0.) + pointLights(vWorld + n * 6., n, .25);
+  float sh = shadowAt(vWorld, n, dp);
+  vec3 L = shadowAmb(sh) + uKeyCol * (max(dot(n, uKeyDir), 0.) * sh) + pointLights(vWorld + n * 6., n, .25);
   L = quantL(L, dp);
   float fg = fogBright(vWorld, dp);
   vec3 col = (alb * L + alb * em) * fg;
@@ -224,6 +226,7 @@ export function createTerrain({ scene, uniforms, tiles }) {
       uMap: { value: mapTex }, uMapSize: { value: new THREE.Vector2(map.w, map.h) }, uMapRect: { value: new THREE.Vector4(map.x0, map.y1, map.tile, 0) }, uBase: { value: base },
     },
   });
+  const depthMaterial = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: DEPTH_FRAG, side: THREE.DoubleSide });   // shadow caster variant
   const group = new THREE.Group(); group.name = 'terrain'; scene.add(group);
   const NC = Math.ceil(map.w / CHUNK), NR = Math.ceil(map.h / CHUNK);
   const chunks = new Array(NC * NR).fill(null);   // null = unbuilt, false = empty, Mesh
@@ -289,5 +292,5 @@ export function createTerrain({ scene, uniforms, tiles }) {
     return mini;
   }
 
-  return { group, material, atlas, update, buildAll, minimapCanvas, stats, voidColor: atlas.voidColor, dispose() { material.dispose(); mapTex.dispose(); } };
+  return { group, material, depthMaterial, atlas, update, buildAll, minimapCanvas, stats, voidColor: atlas.voidColor, dispose() { material.dispose(); mapTex.dispose(); } };
 }
