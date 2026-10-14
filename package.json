@@ -9,6 +9,7 @@
     "build": "npm run build -w client",
     "start": "npm run start -w server",
     "bake": "node tools/bake.mjs",
+    "extract:world": "node tools/world/extract.mjs",
     "test": "node --test \"shared/test/*.test.js\" \"server/test/*.test.js\" \"client/test/*.test.js\""
   }
 }

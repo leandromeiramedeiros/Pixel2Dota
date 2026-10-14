@@ -8,6 +8,7 @@
 //     walkable tiles' heights (ramp: smoothed, flat: tier);
 //   - heightAt(x, y) = bilinear blend of the containing tile's corners.
 import { DOTAWORLD } from './data/dotaworld.js';
+import { decodeGrid16, decodeBytes, GRID_NONE } from './worldcodec.js';
 
 export const TT = { GRASS: 0, TREE: 1, WALL: 2, ROAD: 4, WATER: 5, OUT: 6 };
 export const ELEV_Z = 128;
@@ -65,6 +66,12 @@ export function getMap() {
     }
   }
   M = { w: N, h: H, tile, x0: D.x0, y1: D.y1, type, elev, ramp, hC, corners, trees: D.trees, ents: D.ents };
+  // Optional real data from the extractor (lazy, additive; heightAt/walkability above do not use it).
+  const lazy = (k, f) => { let v; Object.defineProperty(M, k, { enumerable: false, get: () => v || (v = f()) }); };
+  const f32 = (str) => { const g = decodeGrid16(str, N, H), o = new Float32Array(n); for (let j = 0; j < n; j++) o[j] = g[j] === GRID_NONE ? NaN : g[j]; return o; };
+  lazy('zReal', () => f32(D.z));        // real ground z per tile (NaN = no floor in the physics mesh)
+  lazy('waterZ', () => f32(D.water));   // water surface z on wet tiles (NaN elsewhere)
+  lazy('nav', () => ({ ...D.nav, flags: decodeBytes(D.nav.data, D.nav.gw * D.nav.gh) })); // native gridnav, 64u cells, row 0 = south
   return M;
 }
 
@@ -84,6 +91,16 @@ export function heightAt(x, y) {
   const j = (ty * m.w + tx) * 4, u = fx - tx, v = fy - ty, c = m.corners;
   const top = c[j] + (c[j + 1] - c[j]) * u, bot = c[j + 2] + (c[j + 3] - c[j + 2]) * u;
   return top + (bot - top) * v;
+}
+
+/** Real physics-mesh ground z at the tile containing (x, y); NaN when unknown. Does not affect heightAt. */
+export function zRealAt(x, y) { const j = tileAt(x, y); return j < 0 ? NaN : getMap().zReal[j]; }
+/** Water surface z at (x, y) or NaN if dry. */
+export function waterZAt(x, y) { const j = tileAt(x, y); return j < 0 ? NaN : getMap().waterZ[j]; }
+/** Native gridnav flag byte at world (x, y) (bit0 walkable, 16 cliff wall, 20 outside); 0 outside the nav box. */
+export function navAt(x, y) {
+  const { nav } = getMap(), gx = Math.floor(x / nav.cell) - nav.gx0, gy = Math.floor(y / nav.cell) - nav.gy0;
+  return gx < 0 || gy < 0 || gx >= nav.gw || gy >= nav.gh ? 0 : nav.flags[gy * nav.gw + gx];
 }
 
 /** Tile indices covered by tree i (same 128x128 footprint rule as the extractor). */
