@@ -108,3 +108,18 @@ export function sellValue(key, ageSeconds, data = DATA) {
   if (!d) return 0;
   return Math.round(d.cost * (ageSeconds >= 0 && ageSeconds <= SELL_FULL_WINDOW ? 1 : SELL_RATIO));
 }
+
+// ------------------------------------------------------------------------------------------------ draggable panel helpers (pure)
+/** Clamp a panel's top-left so the whole panel stays inside the view. A panel larger than the view pins to the margin. */
+export function clampPanelPos(x, y, w, hh, vw, vh, margin = 2) {
+  const cl = (v, size, view) => { const max = view - size - margin; return Math.round(Math.max(margin, Math.min(Number.isFinite(v) ? v : margin, Math.max(margin, max)))); };
+  return { x: cl(x, w, vw), y: cl(y, hh, vh) };
+}
+
+/** Parse a stored panel position ({x,y} JSON); null if missing or malformed. */
+export function parsePanelPos(raw) {
+  try {
+    const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return o && Number.isFinite(o.x) && Number.isFinite(o.y) ? { x: o.x, y: o.y } : null;
+  } catch { return null; }
+}

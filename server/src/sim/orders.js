@@ -1,5 +1,5 @@
 // Player/bot orders: validation, queue, and the per-tick order executor (move / attack / amove / hold / cast / item).
-import { KIND, ST, ABF, ORDER } from '../../../shared/protocol.js';
+import { KIND, ST, ABF, ORDER, ACTIVE_SLOTS } from '../../../shared/protocol.js';
 import { canCast, canUseItem, endChannel, interrupt, beginChannel } from './status.js';
 import { getHandler } from './abilities/index.js';
 import { attackable, inAttackRange, acquire } from './combat.js';
@@ -49,7 +49,7 @@ export function push(w, u, o) {
         const ab = u.abilities[o.slot];
         if (!ab || ab.level < 1) return false;
         if (toggleImmediate(w, u, ab)) return true;
-      } else if (o.slot >= u.items.length || !u.items[o.slot].key) return false;
+      } else if (o.slot >= ACTIVE_SLOTS || o.slot >= u.items.length || !u.items[o.slot].key) return false;   // backpack items cannot be used
       ord = { t: o.t, slot: o.slot, id: typeof o.id === 'string' ? o.id : '', x: fin(o.x) ? o.x : NaN, y: fin(o.y) ? o.y : NaN, _stage: 0 }; break;
     default: return false;
   }

@@ -6,6 +6,7 @@
 // 256u cell x variant into one packed buffer that is already in GPU layout, so the per-frame work is "frustum-test a few
 // dozen cells and memcpy their ranges".
 import * as THREE from 'three';
+import { WIND_GLSL } from './wind.js';
 import { COMMON_GLSL } from './shaderlib.js';
 import { DEPTH_FRAG } from './shadow.js';
 import { createKit, instancedGeo, flushInstances, hash01, DEPTH_GLSL } from './mesh3d.js';
@@ -298,13 +299,20 @@ attribute vec4 iXf;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vLY, vPh, vEm;
 ${DEPTH_GLSL}
+${WIND_GLSL}
 void main(){
   vec3 p = position;
   float ph = iXf.z, sw = aSw * aSw;
-  p.x += sw * 6. * sin(uTime * 1.7 + ph + position.x * .02);
-  p.z += sw * 3.5 * sin(uTime * 1.3 + ph * 1.7 + position.z * .02);
+  if (uWind > 0.) {                                             // base breeze (wind off at low quality)
+    p.x += uWind * sw * 6. * sin(uTime * 1.7 + ph + position.x * .02);
+    p.z += uWind * sw * 3.5 * sin(uTime * 1.3 + ph * 1.7 + position.z * .02);
+  }
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 w = iPos + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) * iXf.y;
+  if (uWind > 0. && uWN > 0 && sw > 0.) {                       // spell gusts (wind.js): grass / bushes ripple outward or around the impact
+    vec2 g = gustAt(iPos.xz) * (.8 + .4 * sin(uTime * 6. + ph * 3.)) * (uWind * sw * 20. * iXf.y);
+    w.xz += g; w.y -= length(g) * .18;
+  }
   vW = w; vN = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c); vFoot = iPos;
   vLY = position.y; vPh = ph; vEm = aEmit;
   vCol = mix(aCol, aCol2, iXf.w);
@@ -339,7 +347,7 @@ void main(){
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
   col += uRimOn * .55 * (uRimKey * fr * (.3 + kf) + pl * fr * .5);
   col += vEm * vCol * (.5 * uNight * (.82 + .18 * sin(uTime * 1.3 + vPh * 3.)));   // mushroom caps: faint glow at night only
-  gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);
+  gl_FragColor = vec4(fogGrade(col, vFoot, dp), 1.);
 }`;
 
 const IFLOATS = [['iPos', 3], ['iXf', 4]];
@@ -365,17 +373,18 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
   const { GW, GH, keyStart, cellMaxH } = data, src = data.data;
   const MARGIN = 150;
   const api = {
-    group, stats, data, enabled: true,
-    /** cull to the camera view and fill the instance buffers. (tx, ty) = camera target, visW / visH = visible size at the target */
-    update(camera, tx, ty, visW, visH) {
+    group, stats, data, enabled: true, density: 1,   // density < 1 thins every cell evenly (quality)
+    /** cull to the camera view and fill the instance buffers. (tx, ty) = camera target, visW / visH = visible size at the target; round = orbiting camera (yaw != 0): symmetric search radius instead of the north-up box */
+    update(camera, tx, ty, visW, visH, round = false) {
       const t0 = performance.now();
       for (const t of vars) t.n = 0;
       let cells = 0;
       if (api.enabled) {
         pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
         const x0 = map.x0, y1 = map.y1;
-        const cx0 = Math.max(0, Math.floor((tx - visW * 0.95 - x0) / CELL)), cx1 = Math.min(GW - 1, Math.floor((tx + visW * 0.95 - x0) / CELL));
-        const cy0 = Math.max(0, Math.floor((y1 - (ty + visH * 1.7)) / CELL)), cy1 = Math.min(GH - 1, Math.floor((y1 - (ty - visH * 0.9)) / CELL));
+        const rx = round ? Math.max(visW * 0.95, visH * 1.7) : visW * 0.95, rN = round ? rx : visH * 1.7, rS = round ? rx : visH * 0.9;
+        const cx0 = Math.max(0, Math.floor((tx - rx - x0) / CELL)), cx1 = Math.min(GW - 1, Math.floor((tx + rx - x0) / CELL));
+        const cy0 = Math.max(0, Math.floor((y1 - (ty + rN)) / CELL)), cy1 = Math.min(GH - 1, Math.floor((y1 - (ty - rS)) / CELL));
         for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
           const ci = cy * GW + cx, a = keyStart[ci * NV], b = keyStart[ci * NV + NV]; if (a === b) continue;
           const wx = x0 + cx * CELL, zn = -(y1 - cy * CELL);
@@ -384,8 +393,17 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
           cells++;
           for (let v = 0; v < NV; v++) {
             const s = keyStart[ci * NV + v], e = keyStart[ci * NV + v + 1]; if (s === e) continue;
-            const t = vars[v], k = Math.min(e - s, t.inst.max - t.n); if (k <= 0) continue;
-            t.inst.data.set(src.subarray(s * STRIDE, (s + k) * STRIDE), t.n * STRIDE); t.n += k;
+            const t = vars[v], room = t.inst.max - t.n;
+            if (api.density >= 1) {
+              const k = Math.min(e - s, room); if (k <= 0) continue;
+              t.inst.data.set(src.subarray(s * STRIDE, (s + k) * STRIDE), t.n * STRIDE); t.n += k;
+            } else {   // keep instance i when floor((i + 1) * density) steps up: an even, deterministic thinning
+              const d = api.density;
+              for (let i = s, a = 0; i < e && t.n < t.inst.max; i++) {
+                const q = Math.floor((i - s + 1) * d); if (q === a) continue; a = q;
+                t.inst.data.set(src.subarray(i * STRIDE, (i + 1) * STRIDE), t.n * STRIDE); t.n++;
+              }
+            }
           }
         }
       }

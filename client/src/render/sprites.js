@@ -119,7 +119,7 @@ void main(){
     if (vOut.a > 0.) {
       float nb = fetchA(ip + vec2(vDens, 0.)).a + fetchA(ip - vec2(vDens, 0.)).a + fetchA(ip + vec2(0., vDens)).a + fetchA(ip - vec2(0., vDens)).a;
       if (vDens > 1.5) nb += fetchA(ip + vec2(1., 0.)).a + fetchA(ip - vec2(1., 0.)).a + fetchA(ip + vec2(0., 1.)).a + fetchA(ip - vec2(0., 1.)).a;   // outline stays 1 (1x) px thick on dense sheets
-      if (nb > .5) { gl_FragColor = vec4(vOut.rgb * fogBright(vFoot, ip), 1.); return; }
+      if (nb > .5) { gl_FragColor = vec4(fogGrade(vOut.rgb, vFoot, ip), 1.); return; }
     }
     discard;
   }
@@ -159,7 +159,7 @@ void main(){
     col += rimc * vMisc.z * (.4 + .6 * c.a);
   }
   col = mix(col, vec3(1.5, 1.45, 1.35), vTint.w);
-  col *= fogBright(vFoot, ip);
+  col = fogGrade(col, vFoot, ip);
   gl_FragColor = vec4(col, 1.);
 }`;
 

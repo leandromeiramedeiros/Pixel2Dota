@@ -37,15 +37,16 @@ Pixel2Dota is a 5v5 Dota 2-style game that runs in the browser. It plays on the 
 In scope:
 - Custom lobby only. Create a lobby (it gets a 4-letter code), or join one by code or from the open-lobby list. Radiant and Dire have 5 slots each. The host adds or kicks bots, fills empty slots with bots, and starts the match.
 - Normal Dota map: three lanes, creep waves every 30 s from 0:00, towers, barracks, two ancients, fountains, shop at the fountain. Day/night cycle affects vision and lighting only.
-- 10 heroes: Invoker, Sven, Lina, Lion, Crystal Maiden, Axe, Sniper, Zeus, Drow Ranger, Juggernaut. Invoker has the full orb/invoke kit (10 spells).
+- 13 heroes: Invoker, Sven, Lina, Lion, Crystal Maiden, Axe, Sniper, Zeus, Drow Ranger, Juggernaut, Pudge, Mirana, Rubick. Invoker has the full orb/invoke kit (10 spells); Rubick can steal any of them.
+- Neutral camps, Roshan with the Aegis, observer and sentry wards.
 - Simple item set: consumables, basics, built items, recipes that auto-combine, 6 slots, no stash or courier. Teleport Scroll, Blink, Black King Bar, Power Treads and others.
 - XP, levels, skill points, gold, deaths and respawn.
 - Bots for lane play, fighting, retreat and buying.
-- 30 Hz server simulation. The server sends one state patch per tick. The client interpolates units about 100 ms behind.
-- 2.5D rendering: 3D tile terrain with height, cliffs and ramps, plus 2D billboard sprites for units, creeps, buildings and trees. Dota camera at 1134 units distance, 60 degree pitch, 70 degree FOV. Bloom, rim light, point lights, GPU particle effects and client-side fog of war.
+- 30 Hz server simulation. The server sends one state patch per tick. The client interpolates units behind an adaptive delay (70 to 350 ms, following network jitter).
+- 2.5D rendering: 3D tile terrain with height, cliffs and ramps, low-poly 3D buildings, trees and clutter, and 2D pixel sprites for units and creeps. Dota camera at 1134 units distance, 60 degree pitch, 70 degree FOV. Bloom, rim light, point lights with shadows, GPU particle and 3D spell effects, client-side fog of war, Low/Medium/High graphics presets.
 - HUD: portrait, HP/mana, abilities, items, minimap, shop, scoreboard, kill feed, chat.
 
-Out of scope: ranked, replays, demos, a learn tab, player profiles. The match rules also leave out neutral creeps, runes, Roshan, outposts, wards, couriers, glyph, buyback, talents and Aghanim's Scepter.
+Out of scope: ranked, replays, demos, a learn tab, player profiles. The match rules also leave out runes, outposts, couriers, glyph, buyback, talents and Aghanim's Scepter.
 
 Note: fog of war is drawn on the client only. The server sends all unit positions to every client.
 
@@ -99,7 +100,7 @@ From the header of `client/src/input.js`, plus Esc from the same file:
 | Z X C V B N | Use items (B opens the shop when slot 5 is empty) |
 | Shift | Queue orders |
 | Alt + key, or the same key twice | Self-cast |
-| Esc | Cancel targeting, close shop, or clear selection |
+| Esc | Cancel targeting or close the shop; otherwise opens the in-match menu (Resume, graphics Low/Medium/High, FPS/ping, Quit) |
 | F4 | Toggle shop |
 | Tab (hold) | Scoreboard |
 | Enter | Chat |
@@ -135,7 +136,9 @@ reference/trainer/  Read-only copies of InvokerTrainer code used for porting; no
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the contract between modules. Coordinates, camera, rendering pipeline, network messages, schema, simulation modules and shared data shapes.
-- [docs/DECISIONS.md](docs/DECISIONS.md): data sources, the hero roster and simplifications, the item set and match rules.
-- [docs/PROGRESS.md](docs/PROGRESS.md): milestone checklist and known issues.
-- [docs/ART-COMPARE.md](docs/ART-COMPARE.md): side-by-side art comparison with InvokerTrainer.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): core concepts and contracts. Layout, coordinates, camera, network, sim, data flow, render systems.
+- [docs/EXTENDING.md](docs/EXTENDING.md): checklists to add a hero, an item, a 3D spell fx, a quality setting.
+- [docs/ART-DIRECTION.md](docs/ART-DIRECTION.md): the look and the rules for new art.
+- [docs/DECISIONS.md](docs/DECISIONS.md): decisions in force (sources, roster simplifications, items, match rules, rendering).
+- [docs/PROGRESS.md](docs/PROGRESS.md): current state and open items.
+- [server/src/sim/API.md](server/src/sim/API.md): the simulation API for abilities, items and bots.

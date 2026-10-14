@@ -1,10 +1,11 @@
-// createRenderer({ canvas, sheets }) -> contract in docs/ARCHITECTURE.md ("Client code interfaces").
+// createRenderer({ canvas, sheets }) -> contract: this file (docs/ARCHITECTURE.md "Render systems" for the rules).
 import * as THREE from 'three';
 import { getMap, heightAt } from '../../../shared/map.js';
 import { ART_UNITS_PER_PX, CAMERA } from '../../../shared/constants.js';
-import { ST } from '../../../shared/protocol.js';
+import { ST, EV } from '../../../shared/protocol.js';
 import { buildAtlas } from '../art/atlas.js';
-import { CameraRig, camParams, visibleHeight } from './camera.js';
+import { CameraRig, camParams, visibleHeight, dofForDistance, showcaseK } from './camera.js';
+import { createWind } from './wind.js';
 import { createSharedUniforms } from './shaderlib.js';
 import { createLights } from './lights.js';
 import { createTerrain } from './terrain.js';
@@ -28,7 +29,9 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
-  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: true, clutter: true,
+  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off)
+  wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5, atmos: 2,   // atmos: showcase sky/mist/cloud tier 0|1|2; wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
+  maxLights: 32, shadowPoints: 10,   // light pool size (lights.js) / spell lights with a cube shadow (shadow.js)
 };
 
 const DMG_COL = { phys: '#ff6a55', mag: '#6aa8ff', pure: '#ffb347' };
@@ -53,10 +56,11 @@ export function createRenderer({ canvas, sheets }) {
   const post = createPost(gl, uniforms);
   const overlay = createOverlay(canvas);
   const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
+  const wind = createWind();   // spell gusts (wind.js) -> uWA/uWB/uWC/uWN each frame
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
   for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
-  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d });
+  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d, yaw: () => rig.yaw });
 
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
   let rtSettledH = 0;
@@ -109,7 +113,9 @@ export function createRenderer({ canvas, sheets }) {
     uniforms.uAmb.value.set(mix(0.66, 0.24), mix(0.72, 0.34), mix(0.72, 0.42));   // v2 day: moody but readable (docs/ART-DIRECTION.md)
     uniforms.uKeyCol.value.set(mix(0.56, 0.14), mix(0.46, 0.25), mix(0.30, 0.36));
     uniforms.uRimKey.value.set(mix(0.58, 0.22), mix(0.48, 0.46), mix(0.30, 0.66));
-    uniforms.uKeyRimDir.value.set(mix(-0.6, 0.55), mix(0.8, 0.83));
+    // the key light stays in the world: its screen-plane x follows the orbit (x = east-west part, 0.6 x it = north-south part), y (up) is yaw independent
+    const kx = mix(-0.6, 0.55), cy = Math.cos(rig.yaw), sy = Math.sin(rig.yaw);
+    uniforms.uKeyRimDir.value.set(kx * (cy + 0.6 * sy), mix(0.8, 0.83));
     uniforms.uNight.value = k;
   }
 
@@ -194,7 +200,7 @@ export function createRenderer({ canvas, sheets }) {
   }
 
   // ---- HP bars -------------------------------------------------------------------------------------------------------------------------
-  const BAR_W = { hero: 11, creep: 6, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };
+  const BAR_W = { hero: 17, creep: 6, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };
   function drawBars(view) {
     if (!settings.hpBars) return;
     const cssPerArt = cssH / (rig.visibleHeight / ART_UNITS_PER_PX);
@@ -208,10 +214,11 @@ export function createRenderer({ canvas, sheets }) {
       if (!hero && !hurt && p.id !== actors.state.selected && p.id !== actors.state.hover) continue;
       const aw = BAR_W[u.kind] != null ? BAR_W[u.kind] : 6;
       if (!aw) continue;
-      const w = Math.round(aw * cssPerArt * 0.95);
+      const w = hero ? Math.max(46, Math.round(aw * cssPerArt * 0.95)) : Math.round(aw * cssPerArt * 0.95);
+      const hh = hero ? Math.max(8, Math.min(14, Math.round(cssPerArt * 3))) : 3;   // hero bar: big enough to read on a phone
       const s = worldToScreen(u.x, u.y, p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92);
       const mine = u.team === myTeam;
-      overlay.bar({ sx: s.x, sy: s.y - 6, w, h: hero ? 5 : 3, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', ticks: hero ? Math.max(0, Math.min(14, Math.round(u.maxHp / 250))) : 0, level: hero ? u.level : null });
+      overlay.bar({ sx: s.x, sy: s.y - 6 - (hero ? Math.round(hh * 1.8) : 0), w, h: hh, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', maxHp: hero ? u.maxHp : 0, level: hero ? u.level : null });
     }
   }
 
@@ -224,6 +231,7 @@ export function createRenderer({ canvas, sheets }) {
     if (view.myTeam != null) myTeam = view.myTeam;
     uniforms.uTime.value = time;
     rig.update(dt);
+    post.state.dofStrength = dofForDistance(rig.distance); post.state.sky = showcaseK(rig.distance); post.state.focus = rig.distance;   // sky + rolling distance fog fade in with the same factor   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
     fitRT(false);
     setNight(view.night, dt);
     const cam = rig.camera;
@@ -234,6 +242,8 @@ export function createRenderer({ canvas, sheets }) {
     uniforms.uPxK.value = 0.5 * post.height * cam.projectionMatrix.elements[5];
     uniforms.uRefW.value = rig.distance;
     uniforms.uPersp.value = settings.spritePersp;
+    uniforms.uWind.value = settings.wind;
+    wind.update(dt); uniforms.uWN.value = settings.wind > 0 ? wind.pack(uniforms.uWA.value, uniforms.uWB.value, uniforms.uWC.value) : 0;
 
     unitMap.clear();
     for (const u of view.units || []) unitMap.set(u.id, u);
@@ -243,9 +253,9 @@ export function createRenderer({ canvas, sheets }) {
     actors.state.outlines = settings.outlines;
     actors.draw(view, dt, nightK, time, settings);
     particles.update(dt, time);
-    if (settings.ambient && settings.particles > 0) {
+    if (settings.ambient > 0 && settings.particles > 0) {
       const tg = rig.getTarget();
-      ambient.update(dt, tg.x, tg.y, rig.visibleWidth * 0.55, rig.visibleHeight * 0.8, nightK);
+      ambient.update(dt * settings.ambient, tg.x, tg.y, rig.visibleWidth * 0.55, rig.visibleHeight * 0.8, nightK);
     }
     if (fxMod) { try { fxMod.update(dt, view); } catch (e) { if (!update.warned) { update.warned = true; console.warn('[render] fx update error:', e); } } }
     for (const h of hooks) h(dt, view, time);
@@ -254,7 +264,7 @@ export function createRenderer({ canvas, sheets }) {
     lights.finalize(time);
     sprites.end(); particles.flush();
     sprites.setRim(settings.rim);
-    clutter.enabled = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight);
+    clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight, rig.showcase || rig.yaw !== 0);
 
     terrain.update(cam, rig.snap ? 999 : 6);
     shadow.setEnabled(settings.shadows);
@@ -272,16 +282,25 @@ export function createRenderer({ canvas, sheets }) {
     resize(w, h) { cssW = Math.max(2, w | 0); cssH = Math.max(2, h | 0); applySize(); fitRT(true); },
     setTarget(x, y) { rig.setTarget(x, y, false); },
     snapTarget(x, y) { rig.setTarget(x, y, true); },
+    /** Fractions of the screen height covered by HUD at the top / bottom (touch): the camera frames the target in the middle of the free playfield. 0,0 = desktop. */
+    setViewInset({ top = 0, bottom = 0 } = {}) { rig.setViewInset(top, bottom); post.state.dofY = (bottom - top) / 2; },
     zoom(delta) { rig.zoom(delta); },
     zoomBy(f) { rig.zoomBy(f); },
+    /** spectator player-perspective: follow another camera's distance (clamped to this client's zoom range) */
+    setDistance(d) { rig.distanceGoal = Math.max(rig.minDist, Math.min(rig.maxDist, d)); },
+    getDistance() { return rig.distanceGoal; },
     setCameraFar(d, start) { rig.setFar(d, start); fitRT(true); },
     isShowcase() { return rig.showcase; },
+    /** Orbit the hero in the showcase (dYaw rad, + = eye towards east; dPitch deg, + = more top-down). false outside the showcase. */
+    orbit(dYaw, dPitch = 0) { return rig.orbit(dYaw, dPitch); },
+    getYaw() { return rig.yaw; },
     getTarget() { return rig.getTarget(); },
     update,
     fx(events) {
       if (!events) return;
       for (const ev of events) {
         builtinFx(ev);
+        if (ev.e === EV.SPELL && settings.wind > 0) wind.report(ev, (id) => unitMap.get(id), undefined, (x, y) => { const c = unitMap.get(ev.s); return (c && c.team === myTeam) || fog.isVisible(x, y); });   // spell casts kick up gusts (own team's always, enemy only when seen); basic attacks do not
         if (fxMod) safeFx(ev); else if (fxLoader) { if (fxQueue.length < 256) fxQueue.push(ev); }
       }
     },
@@ -308,12 +327,20 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'vignette') post.state.vignette = value;
       if (name === 'particles') particles.scale.v = +value;
       if (name === 'fog') fog.setEnabled(!!value);
+      if (name === 'wind') { wind.setGain(+value || 0); settings.wind = wind.gain; }
+      if (name === 'dof') post.state.dof = !!value;
+      if (name === 'ssr') post.state.ssr = !!value;
+      if (name === 'rays') post.state.rays = !!value;
+      if (name === 'atmos') post.state.atmos = +value || 0;
+      if (name === 'bloomLevels') post.state.bloomLevels = value | 0;
+      if (name === 'maxLights') lights.setMax(value);
+      if (name === 'shadowPoints') lights.setMaxShadow(value);
     },
     minimapCanvas: () => terrain.minimapCanvas(),
     /** explored/visible tile grids for the minimap (row-major, 368x368, row 0 = north) */
     fogGrid: () => ({ w: map.w, h: map.h, visible: fog.vis, explored: fog.explored }),
     // internals for the sandbox / tests
-    gl, scene, rig, uniforms, shadow, clutter, lights, terrain, post, atlas, stats, settings, sprites, actors, fog, particles, overlay,
+    gl, scene, rig, uniforms, wind, shadow, clutter, lights, terrain, post, atlas, stats, settings, sprites, actors, fog, particles, overlay,
     get camera() { return rig.camera; },
     get fxModule() { return fxMod; },
     get night() { return nightK; },

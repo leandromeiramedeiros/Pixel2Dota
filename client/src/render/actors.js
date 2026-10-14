@@ -8,6 +8,7 @@ import { tintFor } from './placeholders.js';
 import { hash01 } from './mesh3d.js';
 import { INFO as BINFO } from './buildings3d.js';
 import { STUMP } from './trees3d.js';
+import { viewFacing } from './camera.js';
 
 const TEAM_COL = [[0.35, 0.95, 0.4], [0.98, 0.32, 0.26]];
 const BUILDING_KINDS = new Set(['tower', 'rax', 'ancient', 'fountain', 'building']);
@@ -71,7 +72,7 @@ function buildingType(u) {
   return 'filler';
 }
 
-export function createActors({ sprites, atlas, uniforms, lights, fog, particles, camera, buildings, trees: trees3d }) {
+export function createActors({ sprites, atlas, uniforms, lights, fog, particles, camera, buildings, trees: trees3d, yaw = () => 0 }) {
   const map = getMap();
   const per = new Map();            // unit id -> { hp, flash, frame, dust, lastDir }
   const picks = [];                 // pickable sprites drawn this frame
@@ -147,6 +148,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       const emitK = 1 + 0.7 * night;
       let nUnits = 0;
       const frame = {};
+      const camYaw = yaw();
 
       // ---- trees --------------------------------------------------------------------------------------------------------------
       const cam = camera;
@@ -183,7 +185,6 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       for (const e of ents) {
         const isStatic = e.kind === 'shop' || e.kind === 'filler' || e.kind === 'lantern';
         if (!isStatic && state.simBuildings) continue;
-        if (!fog.isExplored(e.x, e.y) && !isStatic) continue;
         const side = entTeam(e.name || (e.x + e.y < 0 ? 'good' : 'bad'));
         const bt = e.kind === 'barracks' ? 'barracks' : e.kind;
         const tm = e.kind === 'shop' ? (e.x + e.y < 0 ? 0 : 1) : side === 'd' ? 1 : 0;
@@ -207,19 +208,22 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         const mine = u.team === myTeam;
         let visible = mine || (fog ? fog.isVisible(u.x, u.y) : true);
         if (!mine && (u.status & ST.INVIS) && !(u.status & ST.REVEALED)) visible = false;
-        if (!mine && u.team !== 2 && building && fog && fog.isExplored(u.x, u.y)) visible = true;   // remembered structures
+        // enemy structures are always drawn (Dota: they stay in the fog) but at the state last seen (pristine until first seen), not the live one
+        const ghost = !mine && u.team !== 2 && building && fog && !visible && !fog.isVisible(u.x, u.y) ? fog.ghost(u) : null;
+        if (ghost) visible = true;
+        const uhp = ghost ? ghost.hp : u.hp, udead = ghost ? ghost.dead : (u.status & ST.DEAD) || u.anim === 'dead' || u.hp <= 0;
         if (u.hp <= 0 && !building && (u.status & ST.DEAD) && st.deadT > 2.2) visible = false;
         if ((u.status & ST.DEAD) || u.hp <= 0) st.deadT += dt; else st.deadT = 0;
         u.visible = visible;
         // hit flash from hp drops
-        if (st.hp >= 0 && u.hp < st.hp - 0.5) st.flash = Math.max(st.flash, 1);
-        st.hp = u.hp;
+        if (st.hp >= 0 && uhp < st.hp - 0.5) st.flash = Math.max(st.flash, 1);
+        st.hp = uhp;
         st.flash = Math.max(0, st.flash - dt / 0.14);
         if (!visible) continue;
 
         const z = u.z != null ? u.z : heightAt(u.x, u.y);
         const ap = appearance(u, atlas);
-        const dead = (u.status & ST.DEAD) || u.anim === 'dead' || u.hp <= 0;
+        const dead = udead;
         let f, flipScale = 1;
         const tint = [1, 1, 1];
         let alpha = 1, rim = 1, emit = emitK;
@@ -230,7 +234,8 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
           if (st.collapse == null) st.collapse = dead ? 1 : 0;           // buildings already destroyed when first seen stay rubble
           st.collapse = dead ? Math.min(1, st.collapse + dt / 1.1) : Math.max(0, st.collapse - dt * 2);
         } else {
-          const dir = (atlas.sheets[ap.sheet] && atlas.sheets[ap.sheet].def.px > 1) ? dir8Of(u.facing || 0) : dirOf(u.facing || 0);
+          const vf = viewFacing(u.facing || 0, camYaw);   // orbiting camera (showcase): sheet direction relative to the view
+          const dir = (atlas.sheets[ap.sheet] && atlas.sheets[ap.sheet].def.px > 1) ? dir8Of(vf) : dirOf(vf);
           const sc = {};
           f = unitFrame(u, ap, dir, time, sc);
           if (!f) continue;
@@ -261,7 +266,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         else if (isHover && !mine) outline = [HOVER_COL[0], HOVER_COL[1], HOVER_COL[2], 1];
         else if (state.outlines && u.kind === 'hero' && !dead) { const c = TEAM_COL[u.team === 1 ? 1 : 0]; outline = [c[0] * 0.75, c[1] * 0.75, c[2] * 0.75, 1]; }
         const bR = bType ? BINFO[bType].R : 0;
-        if (bType) { if (inView(u.x, u.y, z, bR)) buildings.add(bType, u.x, u.y, z, { team: u.team === 1 ? 1 : 0, hp: u.maxHp > 0 ? Math.max(0, Math.min(1, u.hp / u.maxHp)) : 1, destroyed: st.collapse, flash: st.flash * 0.85, hi: outline, phase: (u.x * 0.013 + u.y * 0.007) % 6.28 }); }
+        if (bType) { if (inView(u.x, u.y, z, bR)) buildings.add(bType, u.x, u.y, z, { team: u.team === 1 ? 1 : 0, hp: u.maxHp > 0 ? Math.max(0, Math.min(1, uhp / u.maxHp)) : 1, destroyed: st.collapse, flash: st.flash * 0.85, hi: outline, phase: (u.x * 0.013 + u.y * 0.007) % 6.28 }); }
         else sprites.sprite(u.x, u.y, z, f, { tint, flash: st.flash * 0.85, outline, alpha, rim, emit, scale: uscale });
         if (alpha > 0.1) {
           // shadow + selection ring

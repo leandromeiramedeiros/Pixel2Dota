@@ -18,7 +18,7 @@ export function register(c, R) {
     const alive = !(u.status & ST.DEAD) && u.hp > 0; if (!alive) return;
     // orbit AROUND the body (Dota): a wide ring at chest height, tilted so the back of the ring rides higher than the front;
     // the near half passes in front of the sprite, the far half behind it (depth-tested against the billboard)
-    const zc = c.chest(u) + 4 + Math.sin(c.T * 2) * 3;
+    const zc = c.head(u) - 22 + Math.sin(c.T * 2) * 3;   // chest/head height (the director: never at the feet)
     const ph = c.T * 1.8;
     for (let i = 0; i < n; i++) {
       const ch = s[i] === 'q' || s[i] === 'w' || s[i] === 'e' ? s[i].toUpperCase() : s[i];

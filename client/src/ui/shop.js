@@ -1,13 +1,14 @@
 // Shop panel (DOM). Pure rules live in shopdata.js.
 //   createShop(parent, { sheets, send, tooltip, onMessage }) -> { el, open(), close(), toggle(), isOpen(), update({ gold, items, inRange, dead }) }
 import { MSG, ORDER } from '../../../shared/protocol.js';
-import { SHOP_CATEGORIES, buyCheck, effectiveCost } from './shopdata.js';
+import { SHOP_CATEGORIES, buyCheck, effectiveCost, clampPanelPos, parsePanelPos } from './shopdata.js';
 import { prettyName, fmtGold } from './format.js';
 import { pixelEl } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
 
 const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
+const POS_KEY = 'p2d.shopPos';
 const REASON = { range: 'Out of shop range', gold: 'Not enough gold', full: 'Inventory full', dead: 'You are dead', unknown: 'Unknown item' };
 
 export function createShop(parent, { sheets, send, tooltip, onMessage }) {
@@ -31,6 +32,43 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
     b.addEventListener('click', () => { cat = c.id; build(); });
   }
   x.addEventListener('click', () => api.close());
+
+  // ---- drag by the header (mouse + touch via pointer events); position is remembered and re-clamped on resize / rotation
+  let pos = null;
+  try { pos = parsePanelPos(localStorage.getItem(POS_KEY)); } catch { /* storage unavailable */ }
+  function place(x, y) {
+    const pr = parent.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const vw = pr.width || innerWidth, vh = pr.height || innerHeight;
+    const p = clampPanelPos(x, y, r.width, r.height, vw, vh);
+    Object.assign(el.style, { left: p.x + 'px', top: p.y + 'px', right: 'auto', bottom: 'auto', transform: 'none' });
+    return p;
+  }
+  function reclamp() { requestAnimationFrame(() => { if (pos && opened) pos = place(pos.x, pos.y); }); }   // next frame: the HUD scale (--u) is updated by its own resize listener first
+  let drag = null;
+  head.classList.add('drag');
+  head.addEventListener('pointerdown', (e) => {
+    if (e.button > 0 || (e.target.closest && e.target.closest('.x'))) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = el.getBoundingClientRect();
+    drag = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
+    try { head.setPointerCapture(e.pointerId); } catch { /* */ }
+    tooltip.hide();
+  });
+  head.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    e.preventDefault(); e.stopPropagation();
+    const pr = parent.getBoundingClientRect();
+    pos = place(e.clientX - pr.left - drag.dx, e.clientY - pr.top - drag.dy);
+  });
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    e.stopPropagation(); drag = null;
+    try { head.releasePointerCapture(e.pointerId); } catch { /* */ }
+    if (pos) { try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch { /* */ } }
+  };
+  head.addEventListener('pointerup', endDrag); head.addEventListener('pointercancel', endDrag);
+  for (const t of ['mousedown', 'touchstart', 'click']) head.addEventListener(t, (e) => e.stopPropagation());
+  addEventListener('resize', reclamp); addEventListener('orientationchange', reclamp);
 
   function buy(key) {
     const r = buyCheck(key, ctx);
@@ -78,9 +116,10 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
   const api = {
     el,
     isOpen: () => opened,
-    open() { opened = true; el.classList.add('open'); refresh(); },
+    open() { opened = true; el.classList.add('open'); refresh(); if (pos) pos = place(pos.x, pos.y); },
     close() { opened = false; el.classList.remove('open'); tooltip.hide(); },
     toggle() { opened ? api.close() : api.open(); },
+    destroy() { removeEventListener('resize', reclamp); removeEventListener('orientationchange', reclamp); el.remove(); },
     update(c) {
       ctx = c;
       if (opened) refresh();

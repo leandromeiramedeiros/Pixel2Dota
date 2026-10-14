@@ -6,7 +6,7 @@ export const TICK_HZ = 30;
 export const PATCH_MS = 1000 / 30; // one patch per sim tick, like Dota (30 Hz snapshots)
 export const INTERP_MS = 100;
 
-export const MSG = { LOBBY: 'lobby', ORDER: 'order', CHAT: 'chat', FX: 'fx' };
+export const MSG = { LOBBY: 'lobby', ORDER: 'order', CHAT: 'chat', FX: 'fx', POV: 'pov' };   // POV: player camera/selection/orders relayed to spectators only (shared/pov.js)
 
 export const PHASE = { LOBBY: 'lobby', GAME: 'game', ENDED: 'ended' };
 
@@ -36,4 +36,7 @@ export const ST = {
 // Ability.flags bitmask
 export const ABF = { PASSIVE: 1, TOGGLE_ON: 2, AUTOCAST_ON: 4, CHANNELING: 8, HIDDEN: 16, NO_TARGET: 32, UNIT_TARGET: 64, POINT_TARGET: 128 };
 
-export const INV_SLOTS = 6;
+// Hero inventory: slots 0..ACTIVE_SLOTS-1 are the main (active) inventory; ACTIVE_SLOTS..INV_SLOTS-1 are the backpack (no stats / passives / use).
+export const INV_SLOTS = 9;
+export const ACTIVE_SLOTS = 6;
+export const BACKPACK_SWAP_CD = 6;   // s: an item moved from the backpack into the main inventory cannot be used (cd / cdMax carry it)

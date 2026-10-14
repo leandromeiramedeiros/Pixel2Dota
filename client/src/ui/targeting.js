@@ -164,3 +164,87 @@ export function resolveSelfCast(tg, hero, queue) {
   if (teamOk(info.team, hero, hero.team)) return { order: orderCast(tg.kind, tg.slot, { unitId: hero.id }, queue) };
   return { error: 'Invalid target' };
 }
+
+// ---- camera near-plane clipping for world overlays (rangefinder).  THREE-free: inject a depth function.
+// Projecting a point BEHIND the perspective camera (clip w <= 0) flips it across the screen, so a hero that the camera has panned away
+// from (a global spell aimed over the river) made the rangefinder line start at the far side of the map.  Clip the geometry first.
+/** (x, y) -> view depth (distance along the camera's forward axis) of the ground point at height h; > 0 = in front of the camera. */
+export function makeDepthFn(camera, h = 0) {
+  const e = camera.matrixWorldInverse.elements;       // three coords: X = x, Y = height, Z = -y
+  return (x, y) => -(e[2] * x + e[6] * h + e[10] * -y + e[14]);
+}
+
+/** Clip the segment a-b ([x,y] points) to depth >= d.  Returns [a', b'] or null when entirely behind. */
+export function clipSegmentNear(a, b, depth, d) {
+  const da = depth(a[0], a[1]) - d, db = depth(b[0], b[1]) - d;
+  if (da >= 0 && db >= 0) return [a, b];
+  if (da < 0 && db < 0) return null;
+  const t = da / (da - db), p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  return da < 0 ? [p, b] : [a, p];
+}
+
+/** Sutherland-Hodgman clip of a closed polygon ([x,y] points) to depth >= d. */
+export function clipPolyNear(pts, depth, d) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const da = depth(a[0], a[1]) - d, db = depth(b[0], b[1]) - d;
+    if (da >= 0) out.push(a);
+    if ((da >= 0) !== (db >= 0)) { const t = da / (da - db); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+  }
+  return out;
+}
+
+// ---- touch ability wheel order (which wheel position shows which ability slot).  order[pos] = slot.
+/** A valid permutation of 0..n-1, else the identity. */
+export function normalizeOrder(arr, n) {
+  const id = Array.from({ length: Math.max(0, n | 0) }, (_, i) => i);
+  if (!Array.isArray(arr) || arr.length !== id.length) return id;
+  const seen = new Set();
+  for (const v of arr) { if (!Number.isInteger(v) || v < 0 || v >= id.length || seen.has(v)) return id; seen.add(v); }
+  return arr.slice();
+}
+/** Swap the slots shown at wheel positions i and j. */
+export function swapOrder(order, i, j) {
+  const o = order.slice();
+  if (i === j || i < 0 || j < 0 || i >= o.length || j >= o.length) return o;
+  [o[i], o[j]] = [o[j], o[i]];
+  return o;
+}
+export const wheelKey = (heroKey) => 'p2d.wheel.' + String(heroKey);
+/** storage = anything with getItem / setItem (localStorage, or a stub); never throws. */
+export function loadWheelOrder(storage, heroKey, n) {
+  try { return normalizeOrder(JSON.parse(storage.getItem(wheelKey(heroKey))), n); } catch { return normalizeOrder(null, n); }
+}
+export function saveWheelOrder(storage, heroKey, order) {
+  try {
+    const id = order.every((v, i) => v === i);
+    if (id) { if (storage.removeItem) storage.removeItem(wheelKey(heroKey)); else storage.setItem(wheelKey(heroKey), JSON.stringify(order)); }
+    else storage.setItem(wheelKey(heroKey), JSON.stringify(order));
+    return true;
+  } catch { return false; }
+}
+/** Index of the point closest to (x, y) within maxD, else -1.  pts = [{x, y}] */
+export function nearestIndex(pts, x, y, maxD) {
+  let best = -1, bd = maxD;
+  pts.forEach((p, i) => { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+
+/** HUD cover as fractions of the screen height, for renderer.setViewInset: top bar bottom edge, bottom panel top edge (px; null = none). */
+export function hudInset(topBottomPx, bottomTopPx, screenH) {
+  if (!(screenH > 0)) return { top: 0, bottom: 0 };
+  const c = (v) => Math.max(0, Math.min(0.6, v));
+  return {
+    top: c((topBottomPx > 0 ? topBottomPx : 0) / screenH),
+    bottom: bottomTopPx != null && bottomTopPx < screenH ? c((screenH - bottomTopPx) / screenH) : 0,
+  };
+}
+
+/** Portrait gestures: press-and-hold HOLD_MS shows the stats panel while held; a short still tap (so also a double tap / click) centres on the hero. */
+export const PORTRAIT = { HOLD_MS: 500, MOVE: 12 };
+/** 'tap' (short, still) | 'stats' (held long enough, still) | 'cancel' (the pointer wandered off). */
+export function portraitPhase(heldMs, movedPx, o = PORTRAIT) {
+  if (movedPx > o.MOVE) return 'cancel';
+  return heldMs >= o.HOLD_MS ? 'stats' : 'tap';
+}

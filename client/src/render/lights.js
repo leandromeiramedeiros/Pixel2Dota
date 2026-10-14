@@ -33,6 +33,7 @@ export function createLights(uniforms, scene) {
   const beams = scene ? createBeams(scene, uniforms) : null;     // volumetric shafts, drawn into the scene target (beams.js)
   let spells = 0, n = 0, cx = 0, cy = 0, viewR = 2600;
   const shadowLights = [], cand = [];
+  let cap = CAP, maxPS = MAX_PS;   // quality: light pool size / cube-shadowed spell lights (setMax / setMaxShadow)
   return {
     /** call at the start of each frame */
     clear() { list.length = 0; n = 0; },
@@ -43,11 +44,14 @@ export function createLights(uniforms, scene) {
         radius: l.radius, intensity: l.intensity == null ? 1 : l.intensity, flicker: l.flicker || 0, beam: l.beam, cast: !!l.cast,
       });
     },
+    /** light pool size (1..32) and how many spell lights get a cube shadow (0..10) */
+    setMax(n) { cap = Math.max(1, Math.min(CAP, n | 0)); },
+    setMaxShadow(n) { maxPS = Math.max(0, Math.min(MAX_PS, n | 0)); },
     setView(x, y, r) { cx = x; cy = y; if (r) viewR = r; },
     /** sort + cap + upload. t = seconds (flicker). Lights farther than viewR + radius from the view centre are dropped first. */
     finalize(t) {
       const vis = list.filter((l) => Math.hypot(l.x - cx, l.y - cy) < viewR + l.radius);
-      const sel = selectLights(vis, cx, cy, CAP);
+      const sel = selectLights(vis, cx, cy, cap);
       const P = uniforms.uLP.value, C = uniforms.uLC.value, B = uniforms.uLB ? uniforms.uLB.value : null;
       spells = 0;
       for (let i = 0; i < sel.length; i++) {
@@ -70,15 +74,16 @@ export function createLights(uniforms, scene) {
       const S = uniforms.uPSS.value, L = uniforms.uPSL.value;
       S.fill(0); shadowLights.length = 0; cand.length = 0;
       for (let i = 0; i < n; i++) { const l = sel[i]; if (l.cast && l.intensity >= 0.12) cand.push(i); }
-      if (cand.length > MAX_PS) cand.sort((a, b) => sel[b].intensity * sel[b].radius ** 2 - sel[a].intensity * sel[a].radius ** 2);
+      if (cand.length > maxPS) cand.sort((a, b) => sel[b].intensity * sel[b].radius ** 2 - sel[a].intensity * sel[a].radius ** 2);
       for (const i of cand) {
-        if (shadowLights.length >= MAX_PS) break;
+        if (shadowLights.length >= maxPS) break;
         const l = sel[i], k = Math.min(1, (l.intensity - 0.12) / 0.6), w = k * k * (3 - 2 * k);
         if (w < 0.1) continue;   // too faint to see: skip its 5-face depth pass
         const slot = shadowLights.length;
         S[i] = slot + 1; L[slot * 4] = Math.max(60, l.radius * SPELL_REACH); L[slot * 4 + 1] = w;
         shadowLights.push(l);
-      }      if (beams) beams.update(sel, C, uniforms.uNight.value);
+      }
+      if (beams) beams.update(sel, C, uniforms.uNight.value);
       return sel;
     },
     beams,

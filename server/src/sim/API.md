@@ -1,4 +1,4 @@
-# Sim internal API (for abilities / items / bots agents)
+# Sim internal API (abilities, items, bots)
 
 Pure JS, no colyseus. `import { World } from './world.js'`. Time unit = seconds, `dt = 1/30`. Coordinates: world units, x east, y north.
 Source of truth for the wire format is `shared/protocol.js`; for numbers `shared/constants.js` + `w.data` (shared/data.js).
@@ -89,9 +89,17 @@ Attack hooks get `info = { dmg, final, type, crit, pierce, noCleave }` (mutable 
 
 ## Items (`items.js`) and Bots (`bots.js`)
 
-Stubs with the final export names; replace bodies, keep signatures (documented at file top). Item state: `u.items[i] = {key, charges, cd, cdMax}`; set `u._dirty = true` after changes.
+Exports and signatures are documented at the top of each file. Item state: `u.items[i] = {key, charges, cd, cdMax}`; set `u._dirty = true` after changes.
+Inventory = `INV_SLOTS` 9 (`shared/protocol.js`): slots `0..ACTIVE_SLOTS-1` (6) are the main inventory, `6..8` the backpack. Backpack items give no stats / passives / hooks, cannot be used (`useInfo` null, item orders refused) and gain no charges; they still tick cooldowns and count for recipes, stacking and selling. Buying fills main then backpack; refused when all 9 are taken unless it completes a recipe. `{t:'swap',a,b}` works over all 9; an item moved backpack -> main gets `cd = max(cd, BACKPACK_SWAP_CD=6)` (and `cdMax`), which blocks use for every item, so the client shows it through the normal `cd/cdMax` item fields (no extra field). The Aegis only lives in main. New item code: loop `i < ACTIVE_SLOTS` for anything that acts (stats, passives, hooks, use).
 `useInfo(w,u,slot) -> null | {targeting, range, castPoint, ready, ...}` makes `{t:'item'}` orders work through the same cast flow as abilities.
-Bots: `update(w, dt)` runs once per tick before units think; use `w.order(pid, ...)`; stagger by `(w.tick + slot) % N`.
+`use()` may return `{key, channel, tick?, end?}` (TP scroll). `onEnemySpell(w, u, caster, key)` (magic stick/wand) fires for enemy heroes within 1200 of any non-passive cast (orders.js).
+Bots: `update(w, dt)` runs once per tick before units think; use `w.order(pid, ...)`; stagger by `(w.tick + slot) % N`. Per-hero item builds: `BUILD` / `MELEE_CORE` tables.
+
+## Invoker / Rubick slot rules
+
+- Invoked spells have maxLevel 1 and 9-entry value arrays indexed by orb level (`levelKeys[name]` names the orb): `w.val(key, name, orbLevel)`; names without a levelKey use level 1.
+- `u.abilities` = [quas, wex, exort, D, F, invoke]; Invoke rewrites slot 3/4 `key` (newest in D). Per-spell cooldowns survive swaps in `u._inv.cd`; `u.orbs` = last 3 orbs ("QQE").
+- Rubick's D/F (`rubick_empty1/2`) are rewritten the same way by Spell Steal (`ab.stolen`, not learnable); the stolen spell runs through its own handler.
 
 ## Useful unit fields
 
@@ -105,4 +113,4 @@ Hero: `xp skillPoints respawn str agi int` (+ `w.players.get(u.owner)`: `gold ki
 Tier protection / ancient win (DECISIONS), fountain heal+invuln, wave every WAVE_EVERY with siege every SIEGE_EVERY, creep aggro/leash, tower targeting, XP split, last-hit gold, kill streak, respawn timers, day/night, tree cutting.
 Neutrals (`neutrals.js`): 28 camp boxes tiered small/medium/large/ancient, spawn 1:00 and every minute if the box is empty, leash 600; Roshan at the first non-trigger `ents.roshan` pit (slam, Aegis on death, respawn 8-11 min). Wards (`wards.js`): `item_ward_observer`/`item_ward_sentry` ground-target items, shop stock per team (`items.stockLeft`), `KIND.WARD` summons that are invisible and die in 2 hits; sentry reveals enemy INVIS units within true sight. World opts `neutrals`, `camps`, `roshan`.
 
-Not implemented: neutral abilities, mega creeps, backdoor protection, denies on heroes, tower/building bounty (DATA gold = 0), creep stat scaling, item recipes/actives, bots.
+Not implemented: neutral abilities, mega creeps, backdoor protection, denies on heroes, tower/building bounty (DATA gold = 0), creep stat scaling.

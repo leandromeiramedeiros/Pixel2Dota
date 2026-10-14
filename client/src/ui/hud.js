@@ -5,11 +5,11 @@ import { MSG, ORDER, EV, KIND, TEAM, INV_SLOTS } from '../../../shared/protocol.
 import { HEROES } from '../../../shared/heroes.js';
 import { injectStyle, hudScale } from './style.js';
 import {
-  fmtClock, fmtCd, fmtRespawn, fmtGold, fmtNum, fmtRegen, fmtBar, clamp01, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText,
+  fmtClock, fmtCd, fmtRespawn, fmtGold, fmtNum, fmtRegen, fmtBar, clamp01, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText, heroStats,
 } from './format.js';
 import { pixelEl, paintInto, ICON_PX } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
-import { heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo } from './targeting.js';
+import { PORTRAIT, portraitPhase, heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo, makeDepthFn, clipPolyNear, clipSegmentNear } from './targeting.js';
 import { inShopRange, sellValue } from './shopdata.js';
 import { createTooltip } from './tooltip.js';
 import { createMinimap } from './minimap.js';
@@ -54,6 +54,14 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   const tooltip = createTooltip(hudRoot, sheetsSafe);
   let handlers = { activate() {}, };
   let ctxState = { state: null, hero: null, mySid: '', myTeam: -1, time: 0 };
+  let lastView = null;
+  // Centre the camera on a unit (portrait clicks). Pure setTarget: no zoom change; the renderer applies its own free-playfield inset.
+  function focusUnit(id) {
+    if (!id || !renderer.setTarget) return;
+    const v = lastView && lastView.units && lastView.units.find ? lastView.units.find((x) => x.id === id) : null;   // interpolated (what is on screen)
+    const u = v || (ctxState.state ? ctxState.state.units.get(id) : null);
+    if (u) renderer.setTarget(u.x, u.y);
+  }
 
   const message = (t, warn) => msgs.show(t, warn);
   const msgs = createMessages(hudRoot);
@@ -66,7 +74,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   const top = h('div', 'h-top'); hudRoot.append(top);
   const specEl = h('div', 'h-spec h-panel', 'SPECTATING · both teams’ vision · move the camera with the minimap, screen edges or arrow keys');
   specEl.style.display = 'none'; hudRoot.append(specEl);
-  let specOn = false;
+  let specOn = false, povPick = null, povMode = false, povLocked = false;
+  const povMarks = [];   // spectator player-perspective: recent order clicks {x, y, id, t, at} (drawn on the ring canvas)
   const teamBoxes = { [TEAM.RADIANT]: h('div', 'h-team'), [TEAM.DIRE]: h('div', 'h-team') };
   const mid = h('div', 'h-mid h-panel');
   const scoreR = h('div', 'h-score rad', '0'), scoreD = h('div', 'h-score dire', '0');
@@ -88,10 +97,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       const mpm = h('div', 'h-mpm'); const mpi = h('i'); mpm.append(mpi);
       const lv = h('div', 'h-lv', '1'); const dead = h('div', 'h-dead');
       el.append(pt, hpm, mpm, lv, dead);
-      el.addEventListener('click', () => {
-        const u = p.heroId && ctxState.state ? ctxState.state.units.get(p.heroId) : null;
-        if (u && renderer.setTarget) renderer.setTarget(u.x, u.y);
-      });
+      el.addEventListener('click', () => (povPick ? povPick(p) : focusUnit(p.heroId)));
       tooltip.bind(el, () => ({ type: 'text', title: p.name || heroName(p.hero), lines: [heroName(p.hero)] }));
       teamBoxes[p.team].append(el);
       tiles.push({ p, el, hpi, mpi, lv, dead });
@@ -124,10 +130,9 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   }
 
   // ================================================================ minimap
-  const minimap = createMinimap(hudRoot, { renderer, send });
-
-  // ================================================================ bottom bar
+  // ================================================================ bottom bar: [minimap][portrait][stats][abilities / bars / items]
   const bottom = h('div', 'h-bottom'); hudRoot.append(bottom);
+  const minimap = createMinimap(bottom, { renderer, send });
 
   // stats
   const stats = h('div', 'h-stats h-panel');
@@ -136,13 +141,67 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const r = h('div', 'r'); const l = h('span', 'l', label); const v = h('span', 'v', '0');
     r.append(l, v); stats.append(r); statRows[id] = { r, v };
   }
-  bottom.append(stats);
 
   // portrait
   const port = h('div', 'h-port h-panel'); const pimg = h('div', 'h-pimg'); const plv = h('div', 'h-plv', '1');
   const xpb = h('div', 'h-xp'); const xpi = h('i'); xpb.append(xpi); const resp = h('div', 'h-resp');
   port.append(pimg, plv, xpb, resp); bottom.append(port);
+  bottom.append(stats);                                                   // desktop only (touch shows the same numbers in the hold panel)
   let portKey = '';
+
+  // portrait gestures: tap / double tap / click = centre on my hero (touch.js overrides the action to also re-lock the camera);
+  // press-and-hold (PORTRAIT.HOLD_MS) = full stats panel while held, hidden on release
+  let portraitCentre = () => { if (ctxState.hero) focusUnit(ctxState.hero.id); };
+  const statP = h('div', 'h-statp h-panel'); hudRoot.append(statP);
+  let statOpen = false, statSig = '';
+  function renderStats() {
+    const hero = ctxState.hero; if (!hero) { closeStats(); return; }
+    const me = ctxState.state && ctxState.state.players ? ctxState.state.players.get(ctxState.mySid) : null;
+    const st = heroStats(hero, me, DATA); if (!st) return;
+    const sig = JSON.stringify(st); if (sig === statSig) return; statSig = sig;
+    statP.textContent = '';
+    const head = h('div', 'hd'); head.append(h('b', null, st.title), h('span', 'h-dim', st.sub)); statP.append(head);
+    const cols = h('div', 'cols'); const c1 = h('div', 'col'), c2 = h('div', 'col'); cols.append(c1, c2); statP.append(cols);
+    st.groups.forEach((g, i) => {
+      const box = h('div', 'grp'); box.append(h('div', 'gt', g.title));
+      for (const r of g.rows) { const row = h('div', 'r' + (r.pri ? ' pri' : '')); row.append(h('span', 'l', r.label), h('span', 'v', r.value)); box.append(row); }
+      (i < 2 ? c1 : c2).append(box);
+    });
+  }
+  function openStats() {
+    statOpen = true; statSig = ''; renderStats(); if (!statOpen) return;
+    const r = bottom.getBoundingClientRect(), hr = hudRoot.getBoundingClientRect();
+    statP.style.left = Math.max(0, r.left - hr.left) + 'px'; statP.style.bottom = Math.max(0, hr.bottom - r.top + 6) + 'px';
+    statP.classList.add('on');
+  }
+  function closeStats() { statOpen = false; statP.classList.remove('on'); }
+  {
+    let down = null, timer = 0;
+    const tNow = () => performance.now();
+    const clr = () => { clearTimeout(timer); timer = 0; };
+    port.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button > 0) return;
+      e.preventDefault(); e.stopPropagation();
+      down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: tNow(), moved: 0 };
+      try { port.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+      clr(); timer = setTimeout(() => { timer = 0; if (down && portraitPhase(tNow() - down.t, down.moved) === 'stats') openStats(); }, PORTRAIT.HOLD_MS);
+    });
+    port.addEventListener('pointermove', (e) => {
+      if (!down || e.pointerId !== down.id) return;
+      down.moved = Math.max(down.moved, Math.hypot(e.clientX - down.x, e.clientY - down.y));
+      if (portraitPhase(0, down.moved) === 'cancel') { clr(); }
+    });
+    const up = (e) => {
+      if (!down || e.pointerId !== down.id) return;
+      const d = down; down = null; clr();
+      try { port.releasePointerCapture(e.pointerId); } catch { /* */ }
+      const wasOpen = statOpen; closeStats();
+      if (wasOpen || e.type === 'pointercancel') return;
+      if (portraitPhase(tNow() - d.t, d.moved) === 'tap') portraitCentre();
+    };
+    port.addEventListener('pointerup', up); port.addEventListener('pointercancel', up);
+    port.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
 
   // main column
   const main = h('div', 'h-main'); bottom.append(main);
@@ -310,31 +369,57 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   // ---- range rings
   function drawRings(hero) {
     ringCtx.clearRect(0, 0, ring.width, ring.height); ringCtx.globalAlpha = 1;
-    if (!targeting || !hero || !renderer.worldToScreen) return;
+    if ((!targeting || !hero) && !povMarks.length || !renderer.worldToScreen) return;
+    const cl = nearClip();
     const circle = (cx, cy, r, color, fill, lw) => {
+      let pts = [];
+      for (let k = 0; k < 64; k++) { const a = (k / 64) * Math.PI * 2; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+      if (cl) pts = clipPolyNear(pts, cl.depth, cl.d);                              // keep the parts behind the camera out of the projection
+      if (pts.length < 3) return;
       ringCtx.beginPath();
-      for (let k = 0; k <= 64; k++) {
-        const a = (k / 64) * Math.PI * 2; const p = renderer.worldToScreen(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-        if (k === 0) ringCtx.moveTo(p.x, p.y); else ringCtx.lineTo(p.x, p.y);
-      }
+      pts.forEach((q, k) => { const p = renderer.worldToScreen(q[0], q[1]); if (k === 0) ringCtx.moveTo(p.x, p.y); else ringCtx.lineTo(p.x, p.y); });
       ringCtx.closePath();
       if (fill) { ringCtx.fillStyle = fill; ringCtx.fill(); }
       ringCtx.strokeStyle = color; ringCtx.lineWidth = lw || 2; ringCtx.stroke();
     };
-    if (targeting.rich) { drawRich(hero, circle); return; }
+    drawMarks(circle);
+    if (!targeting || !hero) return;
+    if (targeting.rich) { drawRich(hero, circle, cl); return; }
     const info = targeting.info || {};
     if (info.range > 0) circle(hero.x, hero.y, info.range, 'rgba(255,226,122,.85)', null);
     if (info.radius > 0 && aim) circle(aim.x, aim.y, info.radius, 'rgba(255,255,255,.9)', 'rgba(255,200,80,.12)');
   }
 
+  // spectator player-perspective: the player's order clicks (move green, attack red, spell blue), shrinking ring that fades over MARK_MS
+  const MARK_MS = 900, MARK_COL = { move: '110,255,140', amove: '255,170,70', attack: '255,90,70', cast: '120,200,255', item: '120,200,255' };
+  function drawMarks(circle) {
+    const now = performance.now();
+    for (let i = povMarks.length - 1; i >= 0; i--) {
+      const m = povMarks[i], k = (now - m.at) / MARK_MS;
+      if (k >= 1) { povMarks.splice(i, 1); continue; }
+      const u = m.id && ctxState.state ? ctxState.state.units.get(m.id) : null;
+      const x = u ? u.x : m.x, y = u ? u.y : m.y;
+      if (x == null || y == null) continue;
+      const col = MARK_COL[m.t] || MARK_COL.move, a = (1 - k).toFixed(2);
+      circle(x, y, (u ? 90 : 60) * (1.5 - k * 0.8), `rgba(${col},${a})`, `rgba(${col},${(a * 0.18).toFixed(2)})`, 3);
+    }
+  }
+
   // touch rangefinder (targeting.rich): range ring around the hero + the spell's world shape at the aim point + target marker,
   // fed by the same setTargeting / setAim path the desktop cursor uses.  Skill shots (line / cone) start at the hero.
-  function drawRich(hero, circle) {
+  // near-plane clip context: a point behind the perspective camera projects mirrored across the screen, so overlays are clipped first
+  function nearClip() {
+    const r = renderer.rig;
+    return r && r.camera && r.camera.matrixWorldInverse ? { depth: makeDepthFn(r.camera, r.tz || 0), d: (r.camera.near || 100) * 2 } : null;
+  }
+  function drawRich(hero, circle, cl) {
     const g = ringCtx, tg = targeting, sh = tg.shape || { type: 'none' };
     const bad = !!tg.cancel;
     const WARM = bad ? 'rgba(255,90,70,.3)' : 'rgba(255,120,60,.26)', EDGE = bad ? 'rgba(255,120,100,.95)' : 'rgba(255,255,255,.95)';
     const wp = (x, y) => renderer.worldToScreen(x, y);
     const poly = (pts, fill, stroke, lw) => {
+      if (cl) pts = clipPolyNear(pts, cl.depth, cl.d);
+      if (pts.length < 3) return;
       g.beginPath(); pts.forEach((p, i) => { const q = wp(p[0], p[1]); if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); }); g.closePath();
       if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw || 3; g.lineJoin = 'round'; g.stroke(); }
     };
@@ -344,8 +429,11 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const dx = aim.x - hero.x, dy = aim.y - hero.y, d = Math.hypot(dx, dy), ux = d > 1 ? dx / d : Math.cos(hero.facing || 0), uy = d > 1 ? dy / d : Math.sin(hero.facing || 0);
     const nx = -uy, ny = ux;
     // faint direction helper
-    const a0 = wp(hero.x, hero.y), a1 = wp(aim.x, aim.y);
-    g.save(); g.setLineDash([8, 7]); g.beginPath(); g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y); g.strokeStyle = 'rgba(120,235,255,.4)'; g.lineWidth = 2; g.stroke(); g.restore();
+    const seg = cl ? clipSegmentNear([hero.x, hero.y], [aim.x, aim.y], cl.depth, cl.d) : [[hero.x, hero.y], [aim.x, aim.y]];
+    if (seg) {
+      const a0 = wp(seg[0][0], seg[0][1]), a1 = wp(seg[1][0], seg[1][1]);
+      g.save(); g.setLineDash([8, 7]); g.beginPath(); g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y); g.strokeStyle = 'rgba(120,235,255,.4)'; g.lineWidth = 2; g.stroke(); g.restore();
+    }
     if (sh.type === 'line') {
       poly([[hero.x + nx * sh.w0 / 2, hero.y + ny * sh.w0 / 2], [hero.x + ux * sh.len + nx * sh.w1 / 2, hero.y + uy * sh.len + ny * sh.w1 / 2],
         [hero.x + ux * sh.len - nx * sh.w1 / 2, hero.y + uy * sh.len - ny * sh.w1 / 2], [hero.x - nx * sh.w0 / 2, hero.y - ny * sh.w0 / 2]], WARM, EDGE, 3);
@@ -361,7 +449,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     const mx = u ? u.x : aim.x, my = u ? u.y : aim.y;
     const col = bad ? 'rgba(255,110,90,.95)' : u ? (u.team !== ctxState.myTeam ? 'rgba(255,90,70,.98)' : 'rgba(110,255,140,.98)') : 'rgba(120,235,255,.95)';
     if (u || sh.type === 'none' || sh.type === 'circle') circle(mx, my, u ? 85 : 38, col, u ? 'rgba(255,255,255,.1)' : null);
-    const c = wp(mx, my); g.beginPath(); g.arc(c.x, c.y, 4, 0, Math.PI * 2); g.fillStyle = col; g.fill();
+    if (!cl || cl.depth(mx, my) >= cl.d) { const c = wp(mx, my); g.beginPath(); g.arc(c.x, c.y, 4, 0, Math.PI * 2); g.fillStyle = col; g.fill(); }
   }
 
   // ---- selection card update
@@ -380,11 +468,15 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   // ================================================================ per-frame update
   function update(state, hero, mySid, view) {
     if (!state || !state.players) return;
+    const povSid = view && view.povSid ? view.povSid : '';   // spectator watching a player: the HUD is that player's (gold, hero, team)
+    if (povSid) mySid = povSid;
     const me = state.players.get(mySid);
-    const spec = !!me && me.team === TEAM.SPEC;
-    const myTeam = spec ? TEAM.RADIANT : me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
-    if (spec !== specOn) { specOn = spec; specEl.style.display = spec ? '' : 'none'; }
-    ctxState = { state, hero, mySid, myTeam, time: state.time };
+    const spec = povSid ? true : !!me && me.team === TEAM.SPEC;
+    const myTeam = povSid ? (me ? me.team : TEAM.RADIANT) : spec ? TEAM.RADIANT : me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
+    if (spec !== specOn) { specOn = spec; }
+    sty(specEl, 'display', spec && !povSid ? '' : 'none');
+    cls(hudRoot, 'h-pov', !!povSid); povLocked = !!povSid;
+    ctxState = { state, hero, mySid, myTeam, time: state.time }; lastView = view || null;
     if (pendingFx.length) fx(pendingFx.splice(0));
 
     updateTop(state, mySid);
@@ -394,6 +486,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
 
     const has = !!hero;
     sty(bottom, 'visibility', has ? 'visible' : 'hidden');
+    sty(minimap.el, 'visibility', 'visible');                                      // the minimap also works for spectators (no hero)
+    if (!has) closeStats(); else if (statOpen) renderStats();
     if (has) {
       // portrait
       if (portKey !== hero.key) {
@@ -450,7 +544,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     }
     updateSel(state);
     // targeting banner
-    if (targeting) { sty(tgtBar, 'display', 'block'); const nm = targeting.name || ''; txt(tgtBar, nm ? `Select target: ${nm}  (Esc / right-click: cancel)` : 'Attack-move: click a target  (Esc: cancel)'); }
+    if (targeting && !povMode) { sty(tgtBar, 'display', 'block'); const nm = targeting.name || ''; txt(tgtBar, nm ? `Select target: ${nm}  (Esc / right-click: cancel)` : 'Attack-move: click a target  (Esc: cancel)'); }
     else sty(tgtBar, 'display', 'none');
     drawRings(hero);
   }
@@ -482,20 +576,48 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     update, fx,
     destroy() {
       removeEventListener('resize', onResize);
-      tooltip.destroy(); minimap.destroy(); feed.destroy(); msgs.destroy(); chat.destroy(); end.destroy();
+      tooltip.destroy(); shop.destroy(); minimap.destroy(); feed.destroy(); msgs.destroy(); chat.destroy(); end.destroy();
       hudRoot.textContent = ''; hudRoot.classList.remove('h-root');
     },
     // ---- hooks for input.js / sandbox
     setHandlers(hd) { handlers = Object.assign({ activate() {} }, hd); },
     setTargeting(tg) { targeting = tg; if (!tg) aim = null; },
+    /** spectator player-perspective: pick handler for the top-bar hero tiles (null = tiles centre the camera) */
+    setPovPick(fn) { povPick = typeof fn === 'function' ? fn : null; },
+    /** the watched player is aiming slot `slot` of `kind` at (ax, ay): same range ring / radius preview the player sees. tg null = not aiming */
+    setPovAim(tg, ax, ay) {
+      const u = ctxState.hero;
+      if (!tg || !u) { if (povMode) { targeting = null; aim = null; } povMode = false; return; }
+      const it = tg.k === 'item' ? u.items[tg.s] : u.abilities[tg.s], key = it && it.key;
+      if (!key) return;
+      povMode = true;
+      if (!targeting || targeting.kind !== tg.k || targeting.slot !== tg.s || targeting.key !== key) targeting = { kind: tg.k, slot: tg.s, key, info: targetInfo(tg.k, key, tg.k === 'item' ? 1 : it.level), name: prettyName(key) };
+      if (ax != null && ay != null) aim = { x: ax, y: ay };
+    },
+    /** spectator player-perspective: an accepted order of the watched player {t, x?, y?, id?, slot?} -> click marker + pressed ability / item button */
+    povOrder(e) {
+      if (!e) return;
+      if ((e.x != null && e.y != null) || e.id) { povMarks.push({ t: e.t, x: e.x, y: e.y, id: e.id || '', at: performance.now() }); if (povMarks.length > 12) povMarks.shift(); }
+      if ((e.t === 'cast' || e.t === 'item') && e.slot != null) {
+        const el = e.t === 'item' ? (itemEls[e.slot] && itemEls[e.slot].el) : (slots[e.slot] && slots[e.slot].ico);
+        if (el) { el.classList.remove('pressed'); void el.offsetWidth; el.classList.add('pressed'); clearTimeout(el._pt); el._pt = setTimeout(() => el.classList.remove('pressed'), 320); }
+      }
+    },
     setAim(x, y) { aim = { x, y }; },
     message,
     toggleShop() { shop.toggle(); },
     closeShop() { shop.close(); },
     isShopOpen: () => shop.isOpen(),
+    /** spectator watching a player: input.js leaves the camera / selection to the follow logic */
+    isPovLocked: () => povLocked,
+    /** what the local player is aiming right now (ability / item slot + ground point) for the spectator relay, or null */
+    povAim() { const t = targeting; return t && !povMode && (t.kind === 'ability' || t.kind === 'item') && t.slot >= 0 ? { tg: { k: t.kind, s: t.slot }, ax: aim ? aim.x : null, ay: aim ? aim.y : null } : null; },
     isTyping: () => chat.isTyping(),
     openChat() { chat.open(); },
     setScoreboard(v) { sb.setOpen(v); },
+    /** touch.js: what a portrait double tap does (re-lock + recentre); default = focus the hero */
+    setPortraitCentre(fn) { if (typeof fn === 'function') portraitCentre = fn; },
+    isStatsOpen: () => statOpen,
     select(id) { selectedId = id || null; },
     get selected() { return selectedId; },
     shop, chat, tooltip,

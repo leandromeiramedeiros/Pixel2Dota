@@ -65,7 +65,8 @@ export function createFx(args) {
       case EV.PROJ_END: guard('projEnd', () => PJ.end(ev.id)); return;
       case EV.SPELL: {
         const p = ev.x != null ? ev : su || tu;
-        if (p && p.x != null && !c.vis(p.x, p.y) && !(ev.x2 != null && c.vis(ev.x2, ev.y2)) && !(tu && c.vis(tu.x, tu.y))) return;   // fogged: not shown
+        const mine = su && c.view && su.team === c.view.myTeam;   // own team's casts always show (the fog may not have cast the spell's new vision yet)
+        if (!mine && p && p.x != null && !c.vis(p.x, p.y) && !(ev.x2 != null && c.vis(ev.x2, ev.y2)) && !(tu && c.vis(tu.x, tu.y))) return;   // fogged: not shown
         const fn = R.spells.get(ev.k) || (ev.k && ev.k.startsWith('item_') && R.spells.get('item_*')) || generic;
         guard('spell:' + ev.k, () => fn(ev, su, tu, c));
         return;

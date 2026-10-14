@@ -14,6 +14,22 @@ const CSS = `
 
 /* ---------- top bar ---------- */
 .h-spec { position:absolute; bottom:3u; left:50%; transform:translateX(-50%); padding:1u 3u; font-size:6u; color:#e8c36a; white-space:nowrap; }
+/* spectator: FREE ROAM | PLAYER PERSPECTIVE switch + player picker + fog checkbox (ui/spectate.js) */
+.h-spp { position:absolute; top:42u; left:50%; transform:translateX(-50%); padding:2u 3u; display:flex; flex-direction:column; align-items:center; gap:2u; font-size:6u; color:var(--txt); z-index:6; }
+.h-spp .m { display:flex; gap:2u; }
+.h-spp .b { cursor:pointer; padding:1u 4u; height:11u; font:inherit; font-weight:700; letter-spacing:.5u; color:var(--dim); background:#0a0d14; border:0; box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u #2b3550; }
+.h-spp .b:hover { color:var(--txt); } .h-spp .b.on { color:var(--gold); box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u var(--gold); }
+.h-spp .who { display:flex; gap:6u; }
+.h-spp .team { display:flex; gap:1u; }
+.h-spp .who-b { cursor:pointer; padding:1u; line-height:0; background:#0a0d14; border:0; box-shadow:0 0 0 1u var(--ink); opacity:.7; }
+.h-spp .team.rad .who-b { box-shadow:0 0 0 1u #2f7a3a; } .h-spp .team.dire .who-b { box-shadow:0 0 0 1u #8a2a2a; }
+.h-spp .who-b:hover { opacity:1; } .h-spp .who-b.on { opacity:1; box-shadow:0 0 0 2u var(--gold); }
+.h-spp .fog { display:flex; align-items:center; gap:2u; cursor:pointer; letter-spacing:.5u; }
+.h-spp .fog input { margin:0; width:7u; height:7u; accent-color:var(--gold); }
+/* ability / item button pressed by the watched player */
+.h-ico.pressed, .h-is.pressed { box-shadow:0 0 0 2u #fff, 0 0 8u 2u var(--gold); transform:translateY(1u); }
+/* the HUD of a watched player is read-only */
+.h-pov .h-shopbtn { display:none !important; }
 .h-top { position:absolute; top:3u; left:50%; transform:translateX(-50%); display:flex; align-items:flex-start; gap:2u; }
 .h-team { display:flex; gap:1u; }
 .h-hero { position:relative; width:24u; height:34u; background:#0c1018; box-shadow:0 0 0 1u var(--ink); pointer-events:auto; overflow:hidden; }
@@ -47,7 +63,17 @@ const CSS = `
 .h-stats .sep { height:1u; background:#2a3248; margin:1u 0; }
 .h-stats .r.pri .v { color:var(--gold); }
 .h-stats .b { color:#7fe08f; }
-.h-port { width:44u; height:56u; padding:3u; position:relative; }
+.h-port { width:44u; height:56u; padding:3u; position:relative; cursor:pointer; touch-action:none; user-select:none; -webkit-user-select:none; }
+/* hold-the-portrait stats panel (Dota-style); never takes pointer events so the held finger stays on the portrait */
+.h-statp { position:absolute; left:0; bottom:0; display:none; padding:4u 5u; pointer-events:none !important; z-index:25; min-width:200u; }
+.h-statp.on { display:block; }
+.h-statp .hd { display:flex; align-items:baseline; justify-content:space-between; gap:8u; margin-bottom:3u; padding-bottom:2u; border-bottom:1u solid #2a3248; font-size:8u; }
+.h-statp .hd b { color:var(--gold); font-weight:700; } .h-statp .hd span { color:var(--dim); font-size:7u; }
+.h-statp .cols { display:flex; gap:8u; } .h-statp .col { flex:1; min-width:0; display:flex; flex-direction:column; gap:3u; }
+.h-statp .gt { font-family:'Press Start 2P',monospace; font-size:5u; color:var(--dim); margin:1u 0 1u; }
+.h-statp .r { display:flex; justify-content:space-between; gap:6u; font-size:7u; line-height:1.35; }
+.h-statp .r .l { color:var(--dim); white-space:nowrap; } .h-statp .r .v { color:#fff; white-space:nowrap; font-weight:700; }
+.h-statp .r.pri .l, .h-statp .r.pri .v { color:var(--gold); }
 .h-port .h-pimg { position:absolute; left:3u; top:3u; width:38u; height:44u; background:#0a0d14; overflow:hidden; display:flex; justify-content:center; }
 .h-port.dead .h-pimg canvas { filter:grayscale(1) brightness(.55); }
 .h-port .h-plv { position:absolute; left:3u; top:3u; min-width:11u; height:10u; padding:2u 2u 0; background:rgba(5,7,11,.85); box-shadow:inset 0 0 0 1u var(--gold2); font-family:'Press Start 2P',monospace; font-size:6u; text-align:center; color:#fff; }
@@ -110,7 +136,7 @@ const CSS = `
 .h-tgtbar { position:absolute; left:50%; bottom:76u; transform:translateX(-50%); padding:2u 6u; background:rgba(5,7,11,.8); box-shadow:0 0 0 1u var(--gold2); color:var(--gold); font-size:8u; display:none; }
 
 /* ---------- minimap ---------- */
-.h-mm { position:absolute; left:2u; bottom:2u; padding:3u; pointer-events:auto; }
+.h-mm { position:relative; flex:0 0 auto; padding:3u; pointer-events:auto; }
 .h-mm .h-mmw { position:relative; background:#000; }
 .h-mm canvas { position:absolute; left:0; top:0; }
 .h-mm .h-mmcap { position:absolute; left:0; bottom:100%; margin-bottom:2u; display:none; }
@@ -138,6 +164,8 @@ const CSS = `
 .h-shop { position:absolute; right:3u; bottom:68u; width:276u; height:176u; display:none; flex-direction:column; padding:4u; gap:3u; }
 .h-shop.open { display:flex; }
 .h-shop header { display:flex; align-items:center; gap:4u; height:11u; }
+.h-shop header.drag { cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; margin:-4u -4u 0; padding:4u 4u 0; height:15u; }
+.h-shop header.drag:active { cursor:grabbing; }
 .h-shop header h3 { margin:0; font-size:9u; color:var(--gold); flex:1; font-weight:700; }
 .h-shop header .st { font-size:7u; }
 .h-shop .x { cursor:pointer; padding:1u 3u; background:#2a1414; color:#ff8a7a; box-shadow:0 0 0 1u var(--ink); }
@@ -161,6 +189,9 @@ const CSS = `
 /* ---------- scoreboard ---------- */
 .h-sb { position:absolute; left:50%; top:38u; transform:translateX(-50%); width:344u; display:none; padding:4u; gap:3u; flex-direction:column; }
 .h-sb.open { display:flex; }
+.h-sb .sbx { position:absolute; right:4u; top:4u; z-index:2; cursor:pointer; padding:1u 3u; background:#2a1414; color:#ff8a7a; box-shadow:0 0 0 1u var(--ink); font-size:8u; }
+.h-sb .sbx:hover { background:#4a1c1c; }
+.h-sb > .tm:first-child .ttl { padding-right:22u; }
 .h-sb .tm { display:flex; flex-direction:column; gap:1u; }
 .h-sb .th { display:grid; grid-template-columns:14u 1fr 14u 44u 36u 42u; gap:2u; align-items:center; padding:2u 3u; font-size:7u; }
 .h-sb .th.hd { color:var(--dim); } .h-sb .th.rad .n { color:var(--rad); } .h-sb .th.dire .n { color:var(--dire); }
@@ -193,7 +224,7 @@ const CSS = `
 .h-chat.typing input { display:block; }
 
 /* ---------- selection card ---------- */
-.h-sel { position:absolute; left:50%; bottom:62u; width:110u; padding:3u 4u; display:none; flex-direction:column; gap:2u; margin-left:-172u; }
+.h-sel { position:absolute; left:50%; bottom:104u; width:110u; padding:3u 4u; display:none; flex-direction:column; gap:2u; margin-left:-172u; }
 .h-sel.on { display:flex; }
 .h-sel .nm { font-size:8u; color:var(--gold); display:flex; justify-content:space-between; }
 .h-sel .nm.e { color:var(--dire); }
@@ -251,6 +282,7 @@ html.p2d-touch .h-hero .h-lv { font-size:max(11px, calc(11px * var(--k, 1))); }
 html.p2d-touch .h-bottom { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); bottom:calc(4px + env(safe-area-inset-bottom, 0px)); transform:none; padding-bottom:0; align-items:flex-end; gap:calc(4px * var(--k, 1)); }
 html.p2d-touch .h-bottom, html.p2d-touch .h-bottom * { pointer-events:none !important; }
 html.p2d-touch .h-bottom .h-port { pointer-events:auto !important; }
+html.p2d-touch .h-bottom .h-mm, html.p2d-touch .h-bottom .h-mm * { pointer-events:auto !important; }   /* minimap: tap / drag moves the camera */
 html.p2d-touch .h-port .h-plv { font-size:max(11px, calc(11px * var(--k, 1))); min-width:calc(18px * var(--k, 1)); height:calc(16px * var(--k, 1)); }
 html.p2d-touch .h-main { min-width:0; width:calc(156px * var(--k, 1)); }
 html.p2d-touch .h-bars { padding:calc(4px * var(--k, 1)); gap:calc(3px * var(--k, 1)); }
@@ -262,17 +294,34 @@ html.p2d-touch .h-inv, html.p2d-touch .h-shopbtn { display:none !important; }
 html.p2d-touch .h-invwrap { display:flex; }
 html.p2d-touch .h-goldrow { height:calc(26px * var(--k, 1)); min-width:calc(104px * var(--k, 1)); font-size:max(11px, calc(13px * var(--k, 1))); padding:calc(3px * var(--k, 1)) calc(7px * var(--k, 1)); gap:calc(6px * var(--k, 1)); }
 html.p2d-touch .h-goldpop { font-size:max(11px, calc(12px * var(--k, 1))); }
-html.p2d-touch .h-mm { --u:max(1.2px, calc(1.4px * var(--k, 1))); left:calc(6px + env(safe-area-inset-left, 0px)); bottom:auto; top:calc(48px * var(--k, 1) + env(safe-area-inset-top, 0px)); }
-html.p2d-touch .h-sel { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); margin-left:0; bottom:calc(96px * var(--k, 1)); width:100u; pointer-events:none; }
+html.p2d-touch .h-mm { --u:max(.9px, calc(1.05px * var(--k, 1))); margin-bottom:0; }   /* bottom-left cluster: minimap | portrait | bars (landscape phones) */
+/* narrow phones (< 760 px wide): the bottom-left cluster must stop short of the item row, so minimap / bars / gold shrink */
+html.p2d-narrow .h-mm { --u:calc(.9px * var(--k, 1)); }
+html.p2d-narrow .h-main { width:calc(128px * var(--k, 1)); }
+html.p2d-narrow .h-bar span { white-space:nowrap; font-size:10px; letter-spacing:-.5px; }
+html.p2d-narrow .h-goldrow { min-width:calc(68px * var(--k, 1)); padding:calc(3px * var(--k, 1)) calc(5px * var(--k, 1)); gap:calc(4px * var(--k, 1)); }
+html.p2d-touch .h-statp { --u:max(1.5px, calc(1.8px * var(--k, 1))); z-index:25; }
+html.p2d-touch .h-statp .hd { font-size:max(12px, 8u); } html.p2d-touch .h-statp .hd span, html.p2d-touch .h-statp .r { font-size:max(11px, 7u); }
+html.p2d-touch .h-statp .gt { font-size:max(8px, 5u); }
+html.p2d-touch .h-sel { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); margin-left:0; bottom:auto; top:calc(48px * var(--k, 1) + env(safe-area-inset-top, 0px)); width:100u; pointer-events:none; }
 html.p2d-touch .h-sel .nm { font-size:max(11px, calc(11px * var(--k, 1))); } html.p2d-touch .h-sel .b span { font-size:max(11px, calc(11px * var(--k, 1))); }
+html.p2d-touch .h-spp { --u:max(.9px, calc(1.05px * var(--k, 1))); left:calc(6px + env(safe-area-inset-left, 0px)); transform:none; align-items:flex-start; top:calc(6px + 40px * var(--k, 1) + env(safe-area-inset-top, 0px)); font-size:max(11px, calc(11px * var(--k, 1))); gap:3px; padding:3px 4px; }
+html.p2d-touch .h-spp .b { height:max(24px, calc(10 * var(--u))); padding:0 calc(6 * var(--u)); font-size:max(10px, calc(10px * var(--k, 1))); }
+html.p2d-touch .h-spp .who { gap:calc(4 * var(--u)); } html.p2d-touch .h-spp .who-b { padding:1px; }
+html.p2d-touch .h-spp .who-b canvas { width:max(22px, calc(18 * var(--u))) !important; height:max(22px, calc(18 * var(--u))) !important; }
+html.p2d-touch .h-spp .fog { min-height:24px; } html.p2d-touch .h-spp .fog input { width:18px; height:18px; }
+html.p2d-touch .h-pov .h-abil, html.p2d-touch .h-pov .h-inv { display:flex !important; pointer-events:none; }   /* a watched player's abilities / items: read-only strip */
+html.p2d-touch .h-pov .h-main { width:auto; }
 html.p2d-touch .h-spec { font-size:max(11px, calc(11px * var(--k, 1))); white-space:normal; width:min(360px, 36vw); text-align:center; }
 html.p2d-touch .h-chat { --u:calc(1.4px * var(--k, 1)); left:calc(6px + 150px * var(--k, 1) + env(safe-area-inset-left, 0px)); top:calc(50px * var(--k, 1)); bottom:auto; width:calc(210px * var(--k, 1)); }
 html.p2d-touch .h-chat.typing { left:50%; bottom:auto; top:6px; transform:translateX(-50%); width:min(420px, 70vw); z-index:60; }
 html.p2d-touch .h-chat input { font-size:16px; padding:8px; }
 html.p2d-touch .h-feed { --u:calc(1.4px * var(--k, 1)); top:calc(58px * var(--k, 1)); right:calc(6px + env(safe-area-inset-right, 0px)); width:calc(190px * var(--k, 1)); }
-html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); z-index:30; right:auto; left:50%; transform:translateX(-50%); bottom:auto; top:calc(6px + env(safe-area-inset-top, 0px)); max-height:calc(100% - 12px); overflow:auto; }
+html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); z-index:30; right:auto; left:50%; transform:translateX(-50%); bottom:auto; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); max-height:calc(100% - 54px * var(--bk, 1) - 10px - env(safe-area-inset-top, 0px)); overflow:auto; }   /* starts below the touch toggle buttons so SHOP stays tappable; draggable from its header */
 html.p2d-touch .h-shop .x { padding:6px 12px; }
-html.p2d-touch .h-sb { --u:calc(1.4px * var(--k, 1)); z-index:30; top:calc(6px + env(safe-area-inset-top, 0px)); max-height:calc(100% - 12px); overflow:auto; }
+html.p2d-touch .h-sb { --u:calc(1.4px * var(--k, 1)); z-index:15; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); max-height:calc(100% - 54px * var(--bk, 1) - 10px - env(safe-area-inset-top, 0px)); overflow:auto; }
+html.p2d-touch .h-sb .sbx { padding:6px 12px; font-size:14px; }
+html.p2d-touch .h-sb > .tm:first-child .ttl { padding-right:36px; }
 html.p2d-touch .h-end { z-index:40; }
 /* tooltips: hover-shows are hidden on touch; touch.js opens them (class t-on) from a tap / long press on a skill or item */
 html.p2d-touch .h-tip:not(.t-on) { display:none !important; }
@@ -338,6 +387,8 @@ html.p2d-touch .h-tip.t-compact .row { margin:0; }
 .t-cancel { position:absolute; display:none; pointer-events:none; border-radius:50%; flex-direction:column; align-items:center; justify-content:center; background:rgba(110,20,16,.6); box-shadow:inset 0 0 0 2px #ff6b5b, 0 0 0 2px rgba(5,7,11,.8); color:#ffd6d0; }
 .t-root.aiming .t-cancel { display:flex; }
 .t-cancel span { font-family:'Press Start 2P',monospace; font-size:18px; line-height:1; } .t-cancel em { font-style:normal; font-size:11px; margin-top:4px; }
+.t-aimknob { position:absolute; display:none; pointer-events:none; border-radius:50%; background:radial-gradient(circle at 40% 32%, rgba(190,250,255,.95), rgba(80,200,230,.55)); box-shadow:0 0 0 2px rgba(5,7,11,.75), 0 0 12px rgba(80,220,255,.6); z-index:9; }
+.t-aimknob.t-on { display:block; }
 .t-cancel.hot { background:rgba(220,50,40,.8); box-shadow:inset 0 0 0 3px #fff, 0 0 16px rgba(255,90,70,.9); }
 .t-joy { position:absolute; display:none; transform:translate(-50%,-50%); border-radius:50%; pointer-events:none; background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 3px rgba(212,167,60,.6), 0 0 0 2px rgba(5,7,11,.5); }
 .t-joy.on { display:block; }

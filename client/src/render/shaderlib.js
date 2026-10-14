@@ -1,5 +1,6 @@
 // Shared GLSL chunks + the shared uniform bag (the same Uniform objects are referenced by terrain / sprite / decal / particle materials).
 import * as THREE from 'three';
+import { MAX_GUSTS } from './wind.js';
 
 export const MAX_LIGHTS = 32;
 export const LIGHT_LEVELS = 9;    // quantisation steps per 1.0 of light (trainer: 9-level Bayer)
@@ -28,7 +29,7 @@ export function createSharedUniforms() {
     uLevels: { value: LIGHT_LEVELS },
     uFog: { value: fogTex },
     uFogMap: { value: new THREE.Vector4(-8832, 8832, 17664, 0) },           // x0, y1, size (world), enabled
-    uFogLv: { value: new THREE.Vector3(0.34, 0.6, 1) },                    // unexplored, explored brightness (v2: never pure black)
+    uFogLv: { value: new THREE.Vector3(0.5, 0.41, 0.6) },                   // fogged (explored) brightness, never-seen brightness, fogged desaturation; fog.js sets these from FOG_LEVEL / FOG_UNSEEN_DARKEN / FOG_DESAT
     uCamRight: { value: new THREE.Vector3(1, 0, 0) },
     uCamUp: { value: new THREE.Vector3(0, 1, 0) },
     uCamPos: { value: new THREE.Vector3() },
@@ -50,6 +51,9 @@ export function createSharedUniforms() {
     uLB: { value: new Float32Array(MAX_LIGHTS * 4) },                       // per light: bounce colour (light * ground albedo), w = ground y (three)
     uBounceK: { value: 0.4 },                                               // bounce strength
     uKnee: { value: new THREE.Vector2(1.1, 0.5) },                          // stacked spell light: untouched up to x, then rolls off to at most x + y (y 0 = off)
+    // spell wind (wind.js): uWind = base sway + gust gain (0 = static), then up to MAX_GUSTS packed gusts
+    uWind: { value: 1 }, uWN: { value: 0 },
+    uWA: { value: new Float32Array(MAX_GUSTS * 4) }, uWB: { value: new Float32Array(MAX_GUSTS * 4) }, uWC: { value: new Float32Array(MAX_GUSTS * 4) },
     uShadowP: { value: new THREE.Vector4(1 / 1024, 1, 0.0009, 0) },         // texel, strength, depth bias, enabled
   };
 }
@@ -81,16 +85,27 @@ float bayer4(vec2 p){
 // light quantised to uLevels steps with ordered dither (dp = stable art-pixel coordinate)
 vec3 quantL(vec3 l, vec2 dp){ float bay = bayer4(dp); return min(floor(l * uLevels + bay) / uLevels, vec3(1.7)); }
 
-// fog brightness at world point p (three coords), 5-step dithered edge
+// fog brightness at world point p (three coords): 1 visible, uFogLv.x fogged (explored), uFogLv.y never seen (<= x). Fog texture: R = visible
+// (eased + blurred CPU side = soft, animated edge), G = explored. Visibility is quantised to uLevels Bayer-dithered steps (soft pixel-art edge).
 float fogBright(vec3 p, vec2 dp){
   if (uFogMap.w < .5) return 1.;
   vec2 uv = vec2((p.x - uFogMap.x) / uFogMap.z, (p.z + uFogMap.y) / uFogMap.z);
   vec2 f = texture2D(uFog, uv).rg;
-  float lo = uFogLv.x;
-  float t = mix(mix(lo, uFogLv.y, f.g), 1., f.r);
-  t = (t - lo) / (1. - lo);
-  t = floor(t * 5. + bayer4(dp)) / 5.;
-  return lo + clamp(t, 0., 1.) * (1. - lo);
+  float b = bayer4(dp);
+  float seen = clamp(floor(f.g * 4. + b) / 4., 0., 1.);
+  float v = clamp(floor(f.r * uLevels + b) / uLevels, 0., 1.);
+  return mix(mix(uFogLv.y, uFogLv.x, seen), 1., v);
+}
+// graded fog colour (Dota look): visible = untouched; fogged = darkened, desaturated (uFogLv.z), cool blue, with a faint slow drifting cloud.
+vec3 fogGrade(vec3 col, vec3 p, vec2 dp){
+  float fb = fogBright(p, dp);
+  float amt = 1. - smoothstep(uFogLv.x, 1., fb);
+  if (amt <= 0.) return col * fb;
+  float l = dot(col, vec3(.299, .587, .114));
+  col = mix(col, vec3(l) * vec3(.78, .92, 1.14), amt * uFogLv.z);
+  float n = .5 + .25 * sin(p.x * .0034 + uTime * .11) * sin(p.z * .0029 - uTime * .08) + .25 * sin((p.x + p.z) * .0061 - uTime * .05);
+  float cl = (floor(n * 3. + bayer4(dp + 3.)) / 3. - .5) * .12;
+  return col * fb * (1. + amt * cl);
 }
 
 // key-light visibility at world point p (1 lit .. 1-strength shadowed). Normal offset + 4 Bayer-jittered taps give a dithered,

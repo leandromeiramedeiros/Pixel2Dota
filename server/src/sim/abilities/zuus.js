@@ -1,4 +1,4 @@
-// Zeus. Static Field is an INNATE (docs/ARCHITECTURE.md "Wave-2 rules"): level 1 from the start, not skill-pointable. The sim
+// Zeus. Static Field is an INNATE (docs/DECISIONS.md): level 1 from the start, not skill-pointable. The sim
 // does not initialise it (it starts at level 0, so its own hooks never run); every Zeus cast here forces it to 1 and fires the
 // pulse itself via staticField().
 import { ST, KIND } from '../../../../shared/protocol.js';

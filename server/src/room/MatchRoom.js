@@ -7,6 +7,7 @@ import { HEROES, HERO_KEYS, heroByShort } from '../../../shared/heroes.js';
 import { World } from '../sim/world.js';
 import { addXp } from '../sim/heroes.js';
 import { XP_TABLE } from '../../../shared/constants.js';
+import { cleanPov, povOrderEvent, createPovGate } from '../../../shared/pov.js';
 import {
   MatchState, Player, Unit, Ability, Item, VisionSrc,
   UNIT_FIELDS, ABILITY_FIELDS, ITEM_FIELDS, PLAYER_SIM_FIELDS,
@@ -54,7 +55,7 @@ export function syncVision(st, w) {
   const vs = w.visionSources;
   for (const [id, s] of vs) {
     let sv = st.vision.get(id);
-    if (!sv) { sv = new VisionSrc(); sv.id = id; sv.team = s.team; sv.r = Math.round(s.r); st.vision.set(id, sv); }
+    if (!sv) { sv = new VisionSrc(); sv.id = id; sv.team = s.team; sv.r = Math.round(s.r); sv.fly = !!s.fly; st.vision.set(id, sv); }
     const x = Math.round(s.x * 4) / 4, y = Math.round(s.y * 4) / 4;
     if (sv.x !== x) sv.x = x;
     if (sv.y !== y) sv.y = y;
@@ -134,6 +135,8 @@ export class MatchRoom extends Room {
     this.onMessage(MSG.LOBBY, (client, m) => this.safe(() => this.onLobby(client, m)));
     this.onMessage(MSG.ORDER, (client, m) => this.safe(() => this.onOrder(client, m)));
     this.onMessage(MSG.CHAT, (client, m) => this.safe(() => this.onChat(client, m)));
+    this.povGate = createPovGate();
+    this.onMessage(MSG.POV, (client, m) => this.safe(() => this.onPov(client, m)));
   }
 
   safe(fn) { try { fn(); } catch (e) { console.error('[room ' + this.roomId + ']', e); } }
@@ -311,6 +314,23 @@ export class MatchRoom extends Room {
     return true;
   }
 
+  // ---- spectator player-perspective relay: players' camera / selection / aim (MSG.POV) and every accepted order (humans + bots) go to spectator seats only
+  hasSpec() { for (const p of this.state.players.values()) if (p.team === TEAM.SPEC) return true; return false; }
+  relayPov(msg) { for (const c of this.clients) { const q = this.pl(c); if (q && q.team === TEAM.SPEC) c.send(MSG.POV, msg); } }
+  onPov(client, m) {
+    if (this.state.phase !== PHASE.GAME || !this.hasSpec()) return;
+    const p = this.pl(client);
+    if (!p || p.isBot || (p.team !== TEAM.RADIANT && p.team !== TEAM.DIRE)) return;
+    if (!this.povGate.state(client.sessionId, Date.now())) return;
+    const c = cleanPov(m);
+    if (c) this.relayPov({ s: p.sid, ...c });
+  }
+  onOrderIssued(pid, o) {
+    if (!this.hasSpec()) return;
+    const e = povOrderEvent(o);
+    if (e && this.povGate.order(pid, Date.now())) this.relayPov({ s: pid, o: e });
+  }
+
   onOrder(client, m) {
     if (this.state.phase !== PHASE.GAME || !this.world) return;
     const o = cleanOrder(m);
@@ -419,6 +439,7 @@ export class MatchRoom extends Room {
   startGame(slotted) {
     const w = new World({ seed: (Math.random() * 0x7fffffff) | 0 });
     this.world = w;
+    w.onOrder = (pid, o) => this.safe(() => this.onOrderIssued(pid, o));
     slotted.sort((a, b) => a.team - b.team || a.slot - b.slot);
     for (const p of slotted) {
       w.addHero({ pid: p.sid, team: p.team, heroKey: p.hero, bot: p.isBot, name: p.name, slot: p.slot, isHost: p.isHost, connected: p.connected });

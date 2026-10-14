@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { COMMON_GLSL } from './shaderlib.js';
 import { DEPTH_FRAG } from './shadow.js';
+import { WIND_GLSL } from './wind.js';
 import { createKit, instancedGeo, flushInstances, silhouetteFrame, DEPTH_GLSL } from './mesh3d.js';
 
 const VSCALE = 0.85;      // squat (see buildings3d.js)
@@ -52,14 +53,21 @@ uniform float uPull;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vLY, vPh, vSw;
 ${DEPTH_GLSL}
+${WIND_GLSL}
 void main(){
   vec3 p = position;
   float ph = iXf.z;
   float sw = aSw * aSw;
-  p.x += sw * 7. * sin(uTime * 1.5 + ph + position.y * .012);
-  p.z += sw * 4. * sin(uTime * 1.15 + ph * 1.7);
+  if (uWind > 0.) {                                             // base breeze (wind off at low quality: no sway maths at all)
+    p.x += uWind * sw * 7. * sin(uTime * 1.5 + ph + position.y * .012);
+    p.z += uWind * sw * 4. * sin(uTime * 1.15 + ph * 1.7);
+  }
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 w = iPos + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) * iXf.y;
+  if (uWind > 0. && uWN > 0 && sw > 0.) {                       // spell gusts (wind.js): world-space push of the canopy, trunks stay planted
+    vec2 g = gustAt(iPos.xz) * (.85 + .3 * sin(uTime * 5. + ph * 3.)) * (uWind * sw * 34. * iXf.y);
+    w.xz += g; w.y -= length(g) * .12;
+  }
   vW = w; vN = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c); vFoot = iPos;
   vLY = position.y; vPh = ph; vSw = aSw;
   vCol = mix(aCol, aCol2, iXf.w);
@@ -95,7 +103,7 @@ void main(){
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
   col += uRimOn * (step(.05, vSw) * uRimKey * fr * (.3 + kf) + pl * fr * .9);   // spell / practical light rims trunks too
-  gl_FragColor = vec4(col * fogBright(vFoot, dp), 1.);
+  gl_FragColor = vec4(fogGrade(col, vFoot, dp), 1.);
 }`;
 
 const IFLOATS = [['iPos', 3], ['iXf', 4]];

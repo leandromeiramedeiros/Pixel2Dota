@@ -5,13 +5,13 @@ import { DATA } from '../../shared/data.js';
 import { TEAM, ST } from '../../shared/protocol.js';
 import { SHOP_RANGE } from '../../shared/constants.js';
 import {
-  fmtClock, fmtCd, fmtGold, fmtRegen, fmtBar, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText, fmtRespawn,
+  fmtClock, fmtCd, fmtGold, fmtRegen, fmtBar, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText, fmtRespawn, heroStats, heroMagicResist, netWorth,
 } from '../src/ui/format.js';
 import {
   abilitySlotForCode, itemSlotForCode, targetInfo, teamOk, abilityReady, itemReady, canLearn, requiredLevel, pipCount,
-  orderForRightClick, orderForAttackClick, resolveTargetClick, resolveSelfCast, orderCast,
+  orderForRightClick, orderForAttackClick, resolveTargetClick, resolveSelfCast, orderCast, PORTRAIT, portraitPhase,
 } from '../src/ui/targeting.js';
-import { SHOP_CATEGORIES, categoryOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned } from '../src/ui/shopdata.js';
+import { SHOP_CATEGORIES, categoryOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned, clampPanelPos, parsePanelPos } from '../src/ui/shopdata.js';
 import { abilityTip, itemTip, recipeLines } from '../src/ui/tipdata.js';
 import { rasterRows, parseColor } from '../src/ui/pixels.js';
 import { expandUnits, hudScale } from '../src/ui/style.js';
@@ -195,8 +195,8 @@ test('effectiveCost: owned components are free', () => {
 });
 
 test('buyCheck: range, gold, full, dead, components', () => {
-  const free = Array.from({ length: 6 }, () => ({ key: '' }));
-  const full = Array.from({ length: 6 }, () => ({ key: 'item_boots' }));
+  const free = Array.from({ length: 9 }, () => ({ key: '' }));
+  const full = Array.from({ length: 9 }, () => ({ key: 'item_boots' }));
   assert.equal(buyCheck('item_tango', { gold: 1000, items: free, inRange: true }).ok, true);
   assert.equal(buyCheck('item_tango', { gold: 1000, items: free, inRange: false }).reason, 'range');
   const poor = buyCheck('item_tango', { gold: 50, items: free, inRange: true });
@@ -205,12 +205,12 @@ test('buyCheck: range, gold, full, dead, components', () => {
   assert.equal(buyCheck('item_tango', { gold: 1000, items: free, inRange: true, dead: true }).reason, 'dead');
   assert.equal(buyCheck('item_nope', { gold: 1, items: free, inRange: true }).reason, 'unknown');
   // stackable consumable can still be bought on a full inventory when you already hold it
-  const tangoFull = Array.from({ length: 6 }, (_, i) => ({ key: i ? 'item_boots' : 'item_tango', charges: 3 }));
+  const tangoFull = Array.from({ length: 9 }, (_, i) => ({ key: i ? 'item_boots' : 'item_tango', charges: 3 }));
   assert.equal(buyCheck('item_tango', { gold: 1000, items: tangoFull, inRange: true }).ok, true);
   // a recipe that consumes a held component fits in a full inventory
   const k = Object.keys(DATA.items).find((x) => DATA.items[x].recipe && DATA.items[x].recipe.parts.every((p) => !DATA.items[p].recipe) && DATA.items[x].recipe.parts.length);
   const parts = DATA.items[k].recipe.parts;
-  const inv = Array.from({ length: 6 }, (_, i) => ({ key: i < parts.length ? parts[i] : 'item_boots' }));
+  const inv = Array.from({ length: 9 }, (_, i) => ({ key: i < parts.length ? parts[i] : 'item_boots' }));
   assert.equal(buyCheck(k, { gold: 99999, items: inv, inRange: true }).ok, true);
 });
 
@@ -277,3 +277,45 @@ test('minimap: baked terrain is opaque and varied', () => {
 });
 
 test('TEAM constants sanity', () => { assert.equal(TEAM.RADIANT, 0); assert.equal(TEAM.DIRE, 1); });
+
+// ---------------------------------------------------------------- draggable panel helpers
+test('clampPanelPos keeps a panel fully on screen', () => {
+  assert.deepEqual(clampPanelPos(100, 50, 200, 100, 844, 390), { x: 100, y: 50 });
+  assert.deepEqual(clampPanelPos(-40, -9, 200, 100, 844, 390), { x: 2, y: 2 });
+  assert.deepEqual(clampPanelPos(900, 500, 200, 100, 844, 390), { x: 642, y: 288 });
+  assert.deepEqual(clampPanelPos(50, 50, 900, 500, 844, 390), { x: 2, y: 2 });   // bigger than the view: pin to the margin
+  assert.deepEqual(clampPanelPos(NaN, undefined, 10, 10, 100, 100), { x: 2, y: 2 });
+});
+
+test('parsePanelPos accepts only finite {x,y}', () => {
+  assert.deepEqual(parsePanelPos('{"x":12,"y":34}'), { x: 12, y: 34 });
+  assert.equal(parsePanelPos(null), null);
+  assert.equal(parsePanelPos('nope'), null);
+  assert.equal(parsePanelPos('{"x":"a","y":1}'), null);
+});
+
+test('heroStats: groups, attribute gains, armor %, AS, net worth', () => {
+  const key = Object.keys(DATA.heroes)[0], hd = DATA.heroes[key];
+  const u = { key, str: 25, agi: 20, int: 18, level: 3, xp: 0, dmgMin: 40, dmgMax: 44, dmgBonus: 2, armor: 4, ms: 300, atkRate: 1, atkRange: 150, items: [] };
+  const st = heroStats(u, { gold: 1234 }, DATA);
+  assert.deepEqual(st.groups.map((g) => g.title), ['ATTRIBUTES', 'ATTACK', 'DEFENCE', 'REGEN', 'GOLD']);
+  const row = (id) => st.groups.flatMap((g) => g.rows).find((r) => r.id === id);
+  assert.match(row('str').value, /^25/); assert.equal(row('dmg').value, '42-46'); assert.equal(row('ms').value, '300');
+  assert.equal(row('as').value, String(Math.round(hd.bat * 100))); assert.match(row('armor').value, /^4 \(/);
+  assert.equal(row('gold').value, '1,234'); assert.equal(row('nw').value, '1,234');
+  assert.equal(heroStats(u, null, DATA).groups.length, 4);               // no player record: no gold group
+  assert.equal(heroStats(null, null, DATA), null);
+});
+test('heroMagicResist / netWorth: base + int + item, items add their cost', () => {
+  const key = Object.keys(DATA.heroes)[0];
+  const lo = heroMagicResist({ key, int: 0, items: [] }, DATA), hi = heroMagicResist({ key, int: 100, items: [] }, DATA);
+  assert.ok(lo >= 0 && hi > lo && hi < 1);
+  const ik = Object.keys(DATA.items).find((k) => DATA.items[k].cost > 0);
+  assert.equal(netWorth({ items: [{ key: ik }, null] }, 100, DATA), 100 + DATA.items[ik].cost);
+  assert.equal(netWorth(null, -5, DATA), 0);
+});
+test('portrait gestures: hold shows stats, moving cancels, a short tap centres', () => {
+  assert.equal(portraitPhase(100, 0), 'tap');
+  assert.equal(portraitPhase(PORTRAIT.HOLD_MS, 0), 'stats');
+  assert.equal(portraitPhase(900, PORTRAIT.MOVE + 1), 'cancel');
+});

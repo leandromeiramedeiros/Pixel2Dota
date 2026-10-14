@@ -206,7 +206,7 @@ void main(){
   vec3 L = shadowAmb(sh) + uKeyCol * (max(dot(n, uKeyDir), 0.) * sh) + pointLights(vWorld + n * 6., n, .25);
   L = quantL(L, dp);
   float fg = fogBright(vWorld, dp);
-  vec3 col = (alb * L + alb * em) * fg;
+  vec3 col = fogGrade(alb * L + alb * em, vWorld, dp);
   float wmask = (face < .5 && isWater) ? 1. - fg : 1.;   // water mask (look agent): scene RT alpha, 0 = visible water (post SSR), 1 = anything else, rises with fog darkening
   gl_FragColor = vec4(col, wmask);
 }`;

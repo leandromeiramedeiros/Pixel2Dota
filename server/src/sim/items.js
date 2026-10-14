@@ -3,14 +3,16 @@
 //   applyStats(w, u, B)            add every owned item's `stats` into the bonus accumulator B (called from heroes.recalc)
 //   buy(w, u, key) -> bool         recipes auto-combine / missing parts are bought; consumables stack; shop range only
 //   sell(w, u, slot) -> bool       refund SELL_RATIO (full refund within SELL_FULL_WINDOW s of purchase)
-//   swap(w, u, a, b) -> bool       swap inventory slots
+//   swap(w, u, a, b) -> bool       swap slots 0..INV_SLOTS-1; backpack (ACTIVE_SLOTS..) -> main puts the moved item on BACKPACK_SWAP_CD (cd/cdMax)
 //   useInfo(w, u, slot) -> null | {targeting:'none'|'unit'|'point', range, castPoint, ready:bool, targetTeam?, targetType?, pierce?}
 //   use(w, u, slot, target)        run the active; target = {unit|null, x, y}. Pays mana / cooldown / charges itself.
 //                                  Returns {key, channel, tick, end} for the TP scroll.
 //   onEnemySpell(w, u, caster, abilityKey)  magic stick / wand charges
 //   hooks (heroes only): onAttack onAttackLanded onAttacked onDamaged onKill onDeath tick
+//   Inventory = ACTIVE_SLOTS main + backpack (INV_SLOTS total). Backpack items give no stats/passives, cannot be used, charge nothing; they still
+//   count for recipes, stacking and selling. Every stats / passive / hook / use path loops i < ACTIVE_SLOTS.
 //   Item state lives on u.items[i] = {key, charges, cd, cdMax} (+ private `_t` `_paid` `_attr` `_uses`).
-import { INV_SLOTS, KIND, ST } from '../../../shared/protocol.js';
+import { INV_SLOTS, ACTIVE_SLOTS, BACKPACK_SWAP_CD, KIND, ST } from '../../../shared/protocol.js';
 import { SHOP_RANGE, SELL_RATIO, SELL_FULL_WINDOW } from '../../../shared/constants.js';
 import { evSpell, evTp, evMsg } from './events.js';
 import { placeWard } from './wards.js';
@@ -25,6 +27,7 @@ const TREE_PICK = 160;             // tree must be within this of the clicked po
 const TANGO_RANGE = 260;           // tree footprints block units: DATA 165 is unreachable from the tree centre
 const BKB_BASE = 9, BKB_MIN = 6;
 
+const nMain = (u) => Math.min(u.items.length, ACTIVE_SLOTS);
 const empty = () => ({ key: '', charges: 0, cd: 0, cdMax: 0 });
 const norm = (w, key) => (w.data.items[key] ? key : w.data.items['item_' + key] ? 'item_' + key : key);
 const melee = (u) => !u._ranged;
@@ -33,7 +36,7 @@ const val = (d, name, def) => (d && d.values && d.values[name] !== undefined ? d
 export function applyStats(w, u, B) {
   const items = w.data.items;
   let bootMs = 0;
-  for (let i = 0; i < u.items.length; i++) {
+  for (let i = 0, n = nMain(u); i < n; i++) {
     const it = u.items[i]; if (!it.key) continue;
     const d = items[it.key]; if (!d) continue;
     if (d.stats) for (const k of STAT) if (d.stats[k]) { if (k === 'ms' && BOOTS[it.key]) continue; B[k] += d.stats[k]; }
@@ -107,7 +110,8 @@ function assemble(w, u, key, used, paid, tMin) {
     if (it._t !== undefined) t = Math.min(t, it._t);
     u.items[s] = empty();
   }
-  const slot = used.length ? Math.min.apply(null, used) : u.items.findIndex((it) => !it.key);
+  let slot = used.length ? Math.min.apply(null, used) : u.items.findIndex((it) => !it.key);
+  if (slot >= ACTIVE_SLOTS) { const f = u.items.findIndex((it, j) => j < ACTIVE_SLOTS && !it.key); if (f >= 0) slot = f; }   // built from backpack parts only: result goes to the main inventory
   if (!Number.isFinite(t)) t = w.time;
   const out = { key, charges: d.charges || 0, cd: 0, cdMax: 0, _t: t, _paid: pd };
   if (key === 'item_magic_wand') out.charges = Math.min(stick, val(d, 'max_charges', 20));
@@ -190,7 +194,7 @@ function buyInner(w, u, key) {
   if (p.gold < pl.cost) { msg(w, u, 'Not enough gold'); return false; }
   const free = u.items.findIndex((it) => !it.key);
   if (pl.used.length === 0 && free < 0) {
-    // full inventory: allowed only if the purchase completes a free recipe
+    // main + backpack full: allowed only if the purchase completes a free recipe
     u.items.push(empty());
     const idx = u.items.length - 1;
     u.items[idx] = { key, charges: d.charges || 0, cd: 0, cdMax: 0, _t: w.time, _paid: d.cost };
@@ -219,8 +223,15 @@ export function sell(w, u, slot) {
 }
 
 export function swap(w, u, a, b) {
-  if (a === b || a < 0 || b < 0 || a >= INV_SLOTS || b >= INV_SLOTS) return false;
+  if (u.items[a] && u.items[a].key === 'item_aegis' && b >= ACTIVE_SLOTS) return false;   // the Aegis only works in the main inventory
+  if (u.items[b] && u.items[b].key === 'item_aegis' && a >= ACTIVE_SLOTS) return false;
+  if (a === b || a < 0 || b < 0 || a >= INV_SLOTS || b >= INV_SLOTS || a >= u.items.length || b >= u.items.length) return false;
   const t = u.items[a]; u.items[a] = u.items[b]; u.items[b] = t;
+  // Dota rule: an item moved from the backpack into the main inventory is unusable for BACKPACK_SWAP_CD s (works for items without a cooldown too)
+  const lock = (it) => { if (it.key) { it.cd = Math.max(it.cd, BACKPACK_SWAP_CD); it.cdMax = Math.max(it.cdMax, it.cd); } };
+  if (a < ACTIVE_SLOTS && b >= ACTIVE_SLOTS) lock(u.items[a]);
+  else if (b < ACTIVE_SLOTS && a >= ACTIVE_SLOTS) lock(u.items[b]);
+  u._dirty = true;
   return true;
 }
 
@@ -247,6 +258,12 @@ function treeNear(w, u, x, y, reach) {
 }
 
 export function useInfo(w, u, slot) {
+  if (!(slot >= 0 && slot < ACTIVE_SLOTS)) return null;   // backpack items cannot be used
+  const r = useInfoOf(w, u, slot);
+  const it = u.items[slot];
+  return r && it.cd > 0 && r.ready ? { ...r, ready: false } : r;   // any cd (incl. the backpack-swap lock) blocks use
+}
+function useInfoOf(w, u, slot) {
   const it = u.items[slot];
   if (!it || !it.key) return null;
   const d = w.data.items[it.key]; if (!d) return null;
@@ -289,8 +306,9 @@ function tpDestination(w, u, x, y) {
 }
 
 export function use(w, u, slot, target) {
+  if (!(slot >= 0 && slot < ACTIVE_SLOTS)) return;
   const it = u.items[slot];
-  if (!it || !it.key) return;
+  if (!it || !it.key || it.cd > 0) return;   // cd also covers the backpack-swap lock for items with no cooldown of their own
   const d = w.data.items[it.key]; if (!d) return;
   const tx = target && Number.isFinite(target.x) ? target.x : u.x, ty = target && Number.isFinite(target.y) ? target.y : u.y;
   switch (it.key) {
@@ -420,7 +438,7 @@ function heroSource(w, src) {
 
 export function onAttack(w, u, tgt, info) {
   let crit = null;
-  for (let i = 0; i < u.items.length; i++) {
+  for (let i = 0, n = nMain(u); i < n; i++) {
     const it = u.items[i];
     if (it.key === 'item_quelling_blade' && tgt && tgt.kind === KIND.CREEP) {
       const d = w.data.items[it.key];
@@ -443,7 +461,7 @@ export function onDamaged(w, u, src, dealt, type) {
     w.removeModifier(u, 'item_clarity');
   }
   if (hero) {
-    for (let i = 0; i < u.items.length; i++) {
+    for (let i = 0, n = nMain(u); i < n; i++) {
       const it = u.items[i];
       if (it.key === 'item_blink' && it.cd < BLINK_HIT_CD) { it.cd = BLINK_HIT_CD; if (it.cdMax < BLINK_HIT_CD) it.cdMax = BLINK_HIT_CD; }
     }
@@ -453,7 +471,7 @@ export function onDamaged(w, u, src, dealt, type) {
 export function onKill(w, u, victim) {}
 
 export function onEnemySpell(w, u, caster, key) {
-  for (let i = 0; i < u.items.length; i++) {
+  for (let i = 0, n = nMain(u); i < n; i++) {
     const it = u.items[i];
     if (it.key !== 'item_magic_stick' && it.key !== 'item_magic_wand') continue;
     const mx = val(w.data.items[it.key], 'max_charges', 10);
@@ -462,7 +480,7 @@ export function onEnemySpell(w, u, caster, key) {
 }
 export function onDeath(w, u, killer) {}
 
-export function tick(w, u, dt) {
+export function tick(w, u, dt) {   // cooldowns and the Aegis timer run for the backpack too
   for (let i = 0; i < u.items.length; i++) {
     const it = u.items[i];
     if (it.cd > 0) it.cd = Math.max(0, it.cd - dt);
@@ -471,13 +489,17 @@ export function tick(w, u, dt) {
 }
 
 // ------------------------------------------------------------------------------------------------ Aegis of the Immortal
-/** Put an Aegis (expires after DATA disappear_time, 5 min) in u's first free slot. Returns false when the inventory is full. */
+/** Put an Aegis (expires after DATA disappear_time, 5 min) in u's main inventory (a main item steps into a free backpack slot if needed). False when full. */
 export function grantAegis(w, u) {
   const d = w.data.items.item_aegis, exp = w.time + (d && d.values ? d.values.disappear_time : 300);
   const have = u.items.find((it) => it.key === 'item_aegis');
   if (have) { have._exp = exp; return true; }
-  const free = u.items.findIndex((it) => !it.key);
-  if (free < 0) return false;
+  let free = u.items.findIndex((it, j) => j < ACTIVE_SLOTS && !it.key);
+  if (free < 0) {
+    const bp = u.items.findIndex((it, j) => j >= ACTIVE_SLOTS && !it.key);
+    if (bp < 0) return false;
+    free = ACTIVE_SLOTS - 1; u.items[bp] = u.items[free];
+  }
   u.items[free] = { key: 'item_aegis', charges: 0, cd: 0, cdMax: 0, _t: w.time, _paid: 0, _exp: exp };
   u._dirty = true;
   return true;
