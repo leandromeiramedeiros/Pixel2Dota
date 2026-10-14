@@ -36,16 +36,16 @@ export function createProjectiles(c, R) {
   const teamDefs = {};
   for (const [name, team] of [['r', 0], ['d', 1]]) {
     const pal = team === 0 ? PAL.sun : PAL.blood;
-    teamDefs['creep_ranged_' + team] = { frames: 'creep_ranged_' + name, fps: 10, scale: 1.2, tint: [1.2, 1.2, 1.2], emit: 2.2, pal, light: { col: pal.lt, radius: 190, int: 0.5 }, trail: { pal, rate: 30, size: [5, 9] } };
+    teamDefs['creep_ranged_' + team] = { frames: 'creep_ranged_' + name, fps: 10, scale: 1.2, tint: [1.1, 1.1, 1.1], emit: 1.3, pal, light: { col: pal.lt, radius: 190, int: 0.5 }, trail: { pal, rate: 18, size: [4, 7] } };
     const tp = team === 0 ? PAL.gold : PAL.arc;
-    teamDefs['tower_' + team] = { frames: 'tower_' + name, fps: 10, scale: 1.4, tint: [1.3, 1.3, 1.3], emit: 2.6, pal: tp, light: { col: tp.lt, radius: 360, int: 1.2 }, trail: { pal: tp, rate: 70, size: [10, 18], up: 20 } };
+    teamDefs['tower_' + team] = { frames: 'tower_' + name, fps: 10, scale: 1.2, tint: [1, 1, 1], emit: 1.1, pal: tp, light: { col: tp.lt, radius: 360, int: 1.2 }, trail: { pal: tp, rate: 30, size: [6, 11], up: 20 } };
   }
   const ORBDEF = {};
   for (const ch of ['Q', 'W', 'E']) {
     const pal = ch === 'Q' ? PAL.ice : ch === 'W' ? PAL.arc : PAL.fire;
     ORBDEF[ch] = { frames: 'invoker_orb_' + ch.toLowerCase(), fps: 12, scale: 1.4, tint: [1.4, 1.4, 1.4], emit: 3, pal, light: { col: pal.lt, radius: 300, int: 1, elem: ch }, trail: { pal, rate: 80, size: [8, 14] } };
   }
-  const ATK_LIGHT = 0.3;   // basic-attack light scale
+  const ATK_LIGHT = 0.3, ATK_TRAIL = [0.45, 0.45, 0.45];   // basic attacks: light scale, trail ramp (kept under the bloom threshold)
   function atkDef(k, su) {
     if (k === 'invoker') { const o = su && su.orbs ? su.orbs[su.orbs.length - 1] : 'Q'; return ORBDEF[(o || 'Q').toUpperCase()] || ORBDEF.Q; }
     const team = su && su.team === 1 ? 1 : 0;
@@ -79,7 +79,7 @@ export function createProjectiles(c, R) {
   }
   function defaultHit(p) {
     const pal = p.def.pal || PAL.mana;
-    c.sparks(p.x, p.y, p.z, pal, { count: 8, life: [0.15, 0.4], speed: [60, 200], size0: [6, 10] });
+    c.sparks(p.x, p.y, p.z, pal, { count: p.atk ? 4 : 8, life: [0.15, 0.4], speed: [60, 200], size0: p.atk ? [4, 7] : [6, 10] });
     const a = p.atk;
     P.burst({ x: p.x, y: p.y, z: p.z, count: 2, life: [0.12, 0.2], size0: a ? 12 : 22, size1: a ? 18 : 34, col0: pal.hot, col1: pal.mid, a0: a ? 0.6 : 1, a1: 0, mode: 'glow', noScale: true });
     if (!a) c.glow(p.x, p.y, p.z, pal.lt, 260, 1.2, 0.25, { mode: 'fade' });
@@ -138,7 +138,7 @@ export function createProjectiles(c, R) {
     for (let i = 0; i < n; i++) {
       const a = Math.random(); // distribute along this frame's travel for a continuous streak
       P.spawn(c.pix(pal, { x: p.x - p.dx * p.sp * dt * a + rnd(-sp, sp), y: p.y - p.dy * p.sp * dt * a + rnd(-sp, sp), z: p.z - p.dz * p.sp * dt * a + rnd(-sp, sp) * 0.5,
-        life: tr.life || [0.25, 0.55], px: [0.8, 1.8], vel: [0, 0, 0], speed: [0, 12], up: tr.up || 0, gravity: tr.grav != null ? tr.grav : -160, drag: 2, linger: [0.3, 0.8] }));
+        life: tr.life || [0.25, 0.55], px: [0.8, 1.8], vel: [0, 0, 0], speed: [0, 12], up: tr.up || 0, gravity: tr.grav != null ? tr.grav : -160, drag: 2, linger: [0.3, 0.8], rampTint: p.atk ? ATK_TRAIL : undefined }));
     }
   }
 

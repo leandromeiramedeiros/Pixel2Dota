@@ -177,7 +177,7 @@ export function createRenderer({ canvas, sheets }) {
         const t = u(ev.t); if (!t) break;
         actors.flash(ev.t, 1);
         if (settings.damageNumbers && fog.isVisible(t.x, t.y)) overlay.text(t.x, t.y, (t.z || 0), Math.round(ev.d), ev.c ? '#ffd24a' : DMG_COL[ev.ty] || '#ffffff', ev.c ? 1.3 : 0.9, { big: !!ev.c });
-        particles.burst({ x: t.x, y: t.y, z: (t.z || 0) + 40, count: 3, life: [0.15, 0.3], size0: 10, size1: 3, col0: [3, 2.2, 1.4], col1: [1.5, 0.6, 0.2], a0: 1, a1: 0, speed: [60, 160], drag: 4, stamp: 'p_hit_' + ((Math.random() * 4) | 0) });
+        particles.burst({ x: t.x, y: t.y, z: (t.z || 0) + 40, count: 3, life: [0.15, 0.3], size0: 10, size1: 3, col0: [1.3, 1.0, 0.7], col1: [0.9, 0.45, 0.15], a0: 1, a1: 0, speed: [60, 160], drag: 4, stamp: 'p_hit_' + ((Math.random() * 4) | 0) });
         break;
       }
       case 'gold': { const t = u(ev.t); if (t && settings.damageNumbers) overlay.text(t.x, t.y, t.z || 0, '+' + ev.g, '#ffd23a', 1.4); break; }
