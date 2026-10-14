@@ -23,9 +23,9 @@ export function register(c, R) {
     for (let i = 0; i < n; i++) {
       const ch = s[i] === 'q' || s[i] === 'w' || s[i] === 'e' ? s[i].toUpperCase() : s[i];
       const o = ORB[ch]; if (!o) continue;
-      const a = ph + i * (TAU / 3), R0 = 88;
+      const a = ph + i * (TAU / 3), R0 = 58;
       const back = Math.sin(a), dk = 1 - 0.35 * Math.max(0, back);   // far half of the ring: dimmer and smaller (reads as depth in a still frame)
-      const ox = u.x + Math.cos(a) * R0, oy = u.y + Math.sin(a) * R0, oz = zc + Math.sin(a) * 16;
+      const ox = u.x + Math.cos(a) * R0, oy = u.y + Math.sin(a) * R0, oz = zc + Math.sin(a) * 10;
       const mul = elemMul(ch, c.T, i * 7.3 + u.id.length);
       // body: sprite quad + two halo glows (soft wide + tight hot)
       const f = fOrb[ch];
@@ -45,7 +45,7 @@ export function register(c, R) {
       // orbit trail: comet tail laid along the ring behind the orb (fading pixels), so the circling reads even in a still frame
       for (let k = 1; k <= 5; k++) {
         const b = a - k * 0.13;
-        P.spawn(c.pix(o.pal, { x: u.x + Math.cos(b) * R0, y: u.y + Math.sin(b) * R0, z: zc + Math.sin(b) * 16, life: 0.05, px: k < 3 ? 1.6 : 1, a0: 1 - k * 0.16, a1: 0, speed: 0, settle: false, keep: true }));
+        P.spawn(c.pix(o.pal, { x: u.x + Math.cos(b) * R0, y: u.y + Math.sin(b) * R0, z: zc + Math.sin(b) * 10, life: 0.05, px: k < 3 ? 1.6 : 1, a0: 1 - k * 0.16, a1: 0, speed: 0, settle: false, keep: true }));
       }
     }
   }
