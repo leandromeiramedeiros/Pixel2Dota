@@ -102,7 +102,7 @@ export class World {
   }
 
   /** Validated order from a player/bot. Returns true when accepted. */
-  order(pid, o) { return O.issue(this, pid, o); }
+  order(pid, o) { const r = O.issue(this, pid, o); if (r && this.onOrder) this.onOrder(pid, o); return r; }   // onOrder: room hook (spectator POV relay), set by MatchRoom
   /** Order for any unit (summons, etc). */
   orderUnit(u, o) { return O.push(this, u, o); }
 

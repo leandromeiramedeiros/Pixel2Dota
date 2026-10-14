@@ -117,6 +117,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
 
   // ---- mouse
   function onMouseDown(e) {
+    if (call('isPovLocked')) return;   // spectator watching a player: camera and selection follow that player
     mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
     if (e.button === 1) { e.preventDefault(); if (showcase()) orbitDrag = { moved: true }; else midDrag = { x: e.clientX, y: e.clientY }; return; }
     if (e.button === 0 && e.altKey && !mode && showcase()) { e.preventDefault(); orbitDrag = { moved: true }; return; }
@@ -171,6 +172,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   function onWheel(e) {
     if (!(e.target === canvas)) return;
     e.preventDefault();
+    if (call('isPovLocked')) return;
     renderer.zoom(Math.sign(e.deltaY) * Math.min(3, Math.max(1, Math.round(Math.abs(e.deltaY) / 100))));
   }
   const noCtx = (e) => e.preventDefault();
@@ -244,7 +246,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
       if (mouse.x <= r.left + EDGE) vx -= 1; else if (mouse.x >= r.right - EDGE) vx += 1;
       if (mouse.y <= r.top + EDGE) vy += 1; else if (mouse.y >= r.bottom - EDGE) vy -= 1;
     }
-    if (vx || vy) {
+    if (call('isPovLocked')) { /* the follow camera owns the target */ } else if (vx || vy) {
       const n = Math.hypot(vx, vy) || 1; const t = renderer.getTarget();
       renderer.setTarget(clampW(t.x + (vx / n) * vh * PAN_SPEED * dt), clampW(t.y + (vy / n) * vh * PAN_SPEED * dt));
       camLock = false;

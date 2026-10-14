@@ -74,7 +74,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   const top = h('div', 'h-top'); hudRoot.append(top);
   const specEl = h('div', 'h-spec h-panel', 'SPECTATING · both teams’ vision · move the camera with the minimap, screen edges or arrow keys');
   specEl.style.display = 'none'; hudRoot.append(specEl);
-  let specOn = false;
+  let specOn = false, povPick = null, povMode = false, povLocked = false;
+  const povMarks = [];   // spectator player-perspective: recent order clicks {x, y, id, t, at} (drawn on the ring canvas)
   const teamBoxes = { [TEAM.RADIANT]: h('div', 'h-team'), [TEAM.DIRE]: h('div', 'h-team') };
   const mid = h('div', 'h-mid h-panel');
   const scoreR = h('div', 'h-score rad', '0'), scoreD = h('div', 'h-score dire', '0');
@@ -96,7 +97,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       const mpm = h('div', 'h-mpm'); const mpi = h('i'); mpm.append(mpi);
       const lv = h('div', 'h-lv', '1'); const dead = h('div', 'h-dead');
       el.append(pt, hpm, mpm, lv, dead);
-      el.addEventListener('click', () => focusUnit(p.heroId));
+      el.addEventListener('click', () => (povPick ? povPick(p) : focusUnit(p.heroId)));
       tooltip.bind(el, () => ({ type: 'text', title: p.name || heroName(p.hero), lines: [heroName(p.hero)] }));
       teamBoxes[p.team].append(el);
       tiles.push({ p, el, hpi, mpi, lv, dead });
@@ -368,7 +369,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   // ---- range rings
   function drawRings(hero) {
     ringCtx.clearRect(0, 0, ring.width, ring.height); ringCtx.globalAlpha = 1;
-    if (!targeting || !hero || !renderer.worldToScreen) return;
+    if ((!targeting || !hero) && !povMarks.length || !renderer.worldToScreen) return;
     const cl = nearClip();
     const circle = (cx, cy, r, color, fill, lw) => {
       let pts = [];
@@ -381,10 +382,27 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       if (fill) { ringCtx.fillStyle = fill; ringCtx.fill(); }
       ringCtx.strokeStyle = color; ringCtx.lineWidth = lw || 2; ringCtx.stroke();
     };
+    drawMarks(circle);
+    if (!targeting || !hero) return;
     if (targeting.rich) { drawRich(hero, circle, cl); return; }
     const info = targeting.info || {};
     if (info.range > 0) circle(hero.x, hero.y, info.range, 'rgba(255,226,122,.85)', null);
     if (info.radius > 0 && aim) circle(aim.x, aim.y, info.radius, 'rgba(255,255,255,.9)', 'rgba(255,200,80,.12)');
+  }
+
+  // spectator player-perspective: the player's order clicks (move green, attack red, spell blue), shrinking ring that fades over MARK_MS
+  const MARK_MS = 900, MARK_COL = { move: '110,255,140', amove: '255,170,70', attack: '255,90,70', cast: '120,200,255', item: '120,200,255' };
+  function drawMarks(circle) {
+    const now = performance.now();
+    for (let i = povMarks.length - 1; i >= 0; i--) {
+      const m = povMarks[i], k = (now - m.at) / MARK_MS;
+      if (k >= 1) { povMarks.splice(i, 1); continue; }
+      const u = m.id && ctxState.state ? ctxState.state.units.get(m.id) : null;
+      const x = u ? u.x : m.x, y = u ? u.y : m.y;
+      if (x == null || y == null) continue;
+      const col = MARK_COL[m.t] || MARK_COL.move, a = (1 - k).toFixed(2);
+      circle(x, y, (u ? 90 : 60) * (1.5 - k * 0.8), `rgba(${col},${a})`, `rgba(${col},${(a * 0.18).toFixed(2)})`, 3);
+    }
   }
 
   // touch rangefinder (targeting.rich): range ring around the hero + the spell's world shape at the aim point + target marker,
@@ -450,10 +468,14 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   // ================================================================ per-frame update
   function update(state, hero, mySid, view) {
     if (!state || !state.players) return;
+    const povSid = view && view.povSid ? view.povSid : '';   // spectator watching a player: the HUD is that player's (gold, hero, team)
+    if (povSid) mySid = povSid;
     const me = state.players.get(mySid);
-    const spec = !!me && me.team === TEAM.SPEC;
-    const myTeam = spec ? TEAM.RADIANT : me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
-    if (spec !== specOn) { specOn = spec; specEl.style.display = spec ? '' : 'none'; }
+    const spec = povSid ? true : !!me && me.team === TEAM.SPEC;
+    const myTeam = povSid ? (me ? me.team : TEAM.RADIANT) : spec ? TEAM.RADIANT : me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
+    if (spec !== specOn) { specOn = spec; }
+    sty(specEl, 'display', spec && !povSid ? '' : 'none');
+    cls(hudRoot, 'h-pov', !!povSid); povLocked = !!povSid;
     ctxState = { state, hero, mySid, myTeam, time: state.time }; lastView = view || null;
     if (pendingFx.length) fx(pendingFx.splice(0));
 
@@ -522,7 +544,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     }
     updateSel(state);
     // targeting banner
-    if (targeting) { sty(tgtBar, 'display', 'block'); const nm = targeting.name || ''; txt(tgtBar, nm ? `Select target: ${nm}  (Esc / right-click: cancel)` : 'Attack-move: click a target  (Esc: cancel)'); }
+    if (targeting && !povMode) { sty(tgtBar, 'display', 'block'); const nm = targeting.name || ''; txt(tgtBar, nm ? `Select target: ${nm}  (Esc / right-click: cancel)` : 'Attack-move: click a target  (Esc: cancel)'); }
     else sty(tgtBar, 'display', 'none');
     drawRings(hero);
   }
@@ -560,11 +582,36 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     // ---- hooks for input.js / sandbox
     setHandlers(hd) { handlers = Object.assign({ activate() {} }, hd); },
     setTargeting(tg) { targeting = tg; if (!tg) aim = null; },
+    /** spectator player-perspective: pick handler for the top-bar hero tiles (null = tiles centre the camera) */
+    setPovPick(fn) { povPick = typeof fn === 'function' ? fn : null; },
+    /** the watched player is aiming slot `slot` of `kind` at (ax, ay): same range ring / radius preview the player sees. tg null = not aiming */
+    setPovAim(tg, ax, ay) {
+      const u = ctxState.hero;
+      if (!tg || !u) { if (povMode) { targeting = null; aim = null; } povMode = false; return; }
+      const it = tg.k === 'item' ? u.items[tg.s] : u.abilities[tg.s], key = it && it.key;
+      if (!key) return;
+      povMode = true;
+      if (!targeting || targeting.kind !== tg.k || targeting.slot !== tg.s || targeting.key !== key) targeting = { kind: tg.k, slot: tg.s, key, info: targetInfo(tg.k, key, tg.k === 'item' ? 1 : it.level), name: prettyName(key) };
+      if (ax != null && ay != null) aim = { x: ax, y: ay };
+    },
+    /** spectator player-perspective: an accepted order of the watched player {t, x?, y?, id?, slot?} -> click marker + pressed ability / item button */
+    povOrder(e) {
+      if (!e) return;
+      if ((e.x != null && e.y != null) || e.id) { povMarks.push({ t: e.t, x: e.x, y: e.y, id: e.id || '', at: performance.now() }); if (povMarks.length > 12) povMarks.shift(); }
+      if ((e.t === 'cast' || e.t === 'item') && e.slot != null) {
+        const el = e.t === 'item' ? (itemEls[e.slot] && itemEls[e.slot].el) : (slots[e.slot] && slots[e.slot].ico);
+        if (el) { el.classList.remove('pressed'); void el.offsetWidth; el.classList.add('pressed'); clearTimeout(el._pt); el._pt = setTimeout(() => el.classList.remove('pressed'), 320); }
+      }
+    },
     setAim(x, y) { aim = { x, y }; },
     message,
     toggleShop() { shop.toggle(); },
     closeShop() { shop.close(); },
     isShopOpen: () => shop.isOpen(),
+    /** spectator watching a player: input.js leaves the camera / selection to the follow logic */
+    isPovLocked: () => povLocked,
+    /** what the local player is aiming right now (ability / item slot + ground point) for the spectator relay, or null */
+    povAim() { const t = targeting; return t && !povMode && (t.kind === 'ability' || t.kind === 'item') && t.slot >= 0 ? { tg: { k: t.kind, s: t.slot }, ax: aim ? aim.x : null, ay: aim ? aim.y : null } : null; },
     isTyping: () => chat.isTyping(),
     openChat() { chat.open(); },
     setScoreboard(v) { sb.setOpen(v); },

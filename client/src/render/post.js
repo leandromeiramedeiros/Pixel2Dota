@@ -282,12 +282,14 @@ void main(){
   float dy = vUv.y - uDofY;   // uDofY: focus band follows the view inset (touch HUD) so the sharp band stays on the framed target
   float d0 = 1., dist = 1e5, zv = 1e5; vec3 vd = vec3(0.);
   vec3 hor = mix(vec3(.62, .68, .68), vec3(.07, .09, .17), uNight), zen = mix(vec3(.25, .42, .60), vec3(.02, .03, .09), uNight);
+#ifdef SHOWCASE
   if (uSky > .002) {   // showcase: view distance from depth (depth = 1 means nothing was drawn)
     d0 = texture2D(tDepth, vUv).r;
     vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
     vd = q.xyz / q.w; vd /= -vd.z;
     if (d0 < .99999) { zv = uPAB.y / (d0 * 2. - 1. + uPAB.x); dist = zv * length(vd); }
   }
+#endif
   // tilt-shift (normal play, fades out as the showcase comes in): bands from the cheap half / quarter-res blurs
   float dof = max(smoothstep(.17, 0., dy), smoothstep(.74, 1., dy)) * (1. - uSky) * uDof;
   if (dof > .003) {
@@ -297,6 +299,7 @@ void main(){
     vec3 soft = mix(sA, sB, smoothstep(.25, .95, dof));
     c = mix(c, soft, clamp(dof * 1.25, 0., 1.));
   }
+#ifdef SHOWCASE
   // showcase (medium/high): real depth of field. Focus plane = camera-to-target distance (the hero); beyond ~1.3x it blurs progressively (bokeh disc gather, bright
   // spots bloom into discs, taps that are sharper and nearer than the centre are rejected so the hero keeps a clean edge), the near foreground is a little soft.
   if (uSky > .002 && uDof > .01) {
@@ -323,6 +326,7 @@ void main(){
       c = acc / ws;
     }
   }
+#endif
   // water: SSR (rgb = reflected radiance, a = water mask)
   vec4 sr = texture2D(tSsr, vUv);
   float wm = sr.a;
@@ -344,6 +348,7 @@ void main(){
   vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
   float hz = smoothstep(.4, 1., vUv.y) * .55 * (1. - uSky);
   c = mix(c, haze + b * .6, hz);
+#ifdef SHOWCASE
   if (uSky > .002) {   // showcase: sky behind the world + rolling distance fog into the horizon colour (depth = 1 means nothing was drawn)
     vec3 wd = normalize(mat3(uCamWorld) * vd);
     float el = clamp(wd.y, 0., 1.);
@@ -396,6 +401,7 @@ void main(){
     }
     c = mix(c, base, uSky);
   }
+#endif
   // light scatter in the haze: soft halo around the strongest on-screen lights, screen-composited (the directional shafts are cone meshes, beams.js)
   c = tmHue(c, .7);   // before the screen composites below (they clamp to 1 and would clip each channel)
   if (uRays > .001 && uGN > 0) {
@@ -425,6 +431,7 @@ void main(){
   gl_FragColor = vec4(c, 1.);
 }`;
 
+const SKY_MIN = 0.002;   // showcase factor below this = normal camera (same threshold as the shader)
 const SUN_ELEV = 0.13;   // showcase camera sees only ~+5..+14 deg of sky: the sun / moon keep the key light azimuth but sit this low (sin of the elevation)
 
 export function createPost(renderer, shared) {
@@ -451,14 +458,17 @@ export function createPost(renderer, shared) {
       uLP: sharedLP, uLC: sharedLC, uLN: sharedLN,
     },
   });
-  const mFinal = mk(FINAL, {
+  const finalUniforms = {
     tScene: { value: null }, tBloom: { value: null }, tDofA: { value: null }, tDofB: { value: null }, tSsr: { value: null },
     uBloom: { value: 0.9 }, uVig: { value: 0.35 }, uNight: { value: 0 }, uTime: { value: 0 }, uOut: { value: new THREE.Vector2() },
     uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
     uSky: { value: 0 }, uAtmos: { value: 2 }, uFocus: { value: 800 }, uPxAng: { value: 0.002 }, uRT: { value: new THREE.Vector2() }, uSun: { value: new THREE.Vector3(-0.5, 0.13, 0.45) }, tDepth: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() },
-  });
+  };
+  // two FINAL programs sharing one uniform set: the normal one has the sky / fog / mist / bokeh code compiled out (no ALU, registers, depth fetch), SHOWCASE only while state.sky > 0
+  const mFinal = mk(FINAL, finalUniforms);
+  const mFinalShow = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: FINAL, uniforms: finalUniforms, defines: { SHOWCASE: 1 }, depthTest: false, depthWrite: false });
 
   const rtOpts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, stencilBuffer: false, generateMipmaps: false, colorSpace: THREE.NoColorSpace };
   const lin = { ...rtOpts, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
@@ -498,6 +508,7 @@ export function createPost(renderer, shared) {
     return true;
   }
 
+  let warm = 1, frames = 0;
   function pass(mat, target) { quad.material = mat; renderer.setRenderTarget(target); renderer.render(scene, cam); }
 
   // project the strongest on-screen lights for the scatter pass (uLP is already sorted strongest-first by lights.js)
@@ -577,23 +588,27 @@ export function createPost(renderer, shared) {
       u.uHaze.value.set(0.17 + (0.04 - 0.17) * night, 0.31 + (0.09 - 0.31) * night, 0.33 + (0.15 - 0.33) * night);
       pass(mSsr, ssr_rt);
     }
-    const f = mFinal.uniforms;
+    const showcase = state.sky > SKY_MIN, f = finalUniforms;
     f.tScene.value = scene_rt.texture; f.tBloom.value = bloomTex || noBloom; f.tDofA.value = dofA.texture; f.tDofB.value = dofB.texture; f.tSsr.value = ssr_rt.texture;
     f.uBloom.value = bloomTex ? state.bloomStrength : 0; f.uVig.value = state.vignette; f.uNight.value = night; f.uTime.value = time;
     f.uOut.value.set(outW, outH);
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
     f.uDof.value = doDof ? state.dofStrength : 0; f.uDofY.value = state.dofY || 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
     f.uRays.value = state.rays ? state.raysStrength : 0;
-    f.uSky.value = state.sky; f.uAtmos.value = state.atmos; f.uFocus.value = state.focus; f.uRT.value.set(w, h); f.uPxAng.value = camera.fov * Math.PI / 180 / h; f.tDepth.value = scene_rt.depthTexture;
-    if (shared) { const k = shared.uKeyDir.value, e = SUN_ELEV, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; f.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, lowered into the visible sky band
-    f.uInvProj.value.copy(camera.projectionMatrixInverse); f.uCamWorld.value.copy(camera.matrixWorld); f.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); f.uCamPos.value.copy(camera.position);
+    f.uSky.value = state.sky;
+    if (showcase) {   // sky / mist / bokeh inputs: skipped (and the depth texture left unbound by FINAL) in the normal camera
+      f.uAtmos.value = state.atmos; f.uFocus.value = state.focus; f.uRT.value.set(w, h); f.uPxAng.value = camera.fov * Math.PI / 180 / h; f.tDepth.value = scene_rt.depthTexture;
+      if (shared) { const k = shared.uKeyDir.value, e = SUN_ELEV, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; f.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, lowered into the visible sky band
+      f.uInvProj.value.copy(camera.projectionMatrixInverse); f.uCamWorld.value.copy(camera.matrixWorld); f.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); f.uCamPos.value.copy(camera.position);
+    }
     f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;
-    pass(mFinal, null);
+    pass(showcase ? mFinalShow : mFinal, null);
+    if (warm === 1 && ++frames > 30) { warm = 2; renderer.setRenderTarget(null); quad.material = mFinalShow; renderer.compile(scene, cam); }   // build the showcase program off the first-zoom path
   }
 
   return {
     state, setRT, render, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
-    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); quadGeo.dispose(); noBloom.dispose(); },
+    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); quadGeo.dispose(); noBloom.dispose(); },
   };
 }

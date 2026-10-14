@@ -14,6 +14,22 @@ const CSS = `
 
 /* ---------- top bar ---------- */
 .h-spec { position:absolute; bottom:3u; left:50%; transform:translateX(-50%); padding:1u 3u; font-size:6u; color:#e8c36a; white-space:nowrap; }
+/* spectator: FREE ROAM | PLAYER PERSPECTIVE switch + player picker + fog checkbox (ui/spectate.js) */
+.h-spp { position:absolute; top:42u; left:50%; transform:translateX(-50%); padding:2u 3u; display:flex; flex-direction:column; align-items:center; gap:2u; font-size:6u; color:var(--txt); z-index:6; }
+.h-spp .m { display:flex; gap:2u; }
+.h-spp .b { cursor:pointer; padding:1u 4u; height:11u; font:inherit; font-weight:700; letter-spacing:.5u; color:var(--dim); background:#0a0d14; border:0; box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u #2b3550; }
+.h-spp .b:hover { color:var(--txt); } .h-spp .b.on { color:var(--gold); box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u var(--gold); }
+.h-spp .who { display:flex; gap:6u; }
+.h-spp .team { display:flex; gap:1u; }
+.h-spp .who-b { cursor:pointer; padding:1u; line-height:0; background:#0a0d14; border:0; box-shadow:0 0 0 1u var(--ink); opacity:.7; }
+.h-spp .team.rad .who-b { box-shadow:0 0 0 1u #2f7a3a; } .h-spp .team.dire .who-b { box-shadow:0 0 0 1u #8a2a2a; }
+.h-spp .who-b:hover { opacity:1; } .h-spp .who-b.on { opacity:1; box-shadow:0 0 0 2u var(--gold); }
+.h-spp .fog { display:flex; align-items:center; gap:2u; cursor:pointer; letter-spacing:.5u; }
+.h-spp .fog input { margin:0; width:7u; height:7u; accent-color:var(--gold); }
+/* ability / item button pressed by the watched player */
+.h-ico.pressed, .h-is.pressed { box-shadow:0 0 0 2u #fff, 0 0 8u 2u var(--gold); transform:translateY(1u); }
+/* the HUD of a watched player is read-only */
+.h-pov .h-shopbtn { display:none !important; }
 .h-top { position:absolute; top:3u; left:50%; transform:translateX(-50%); display:flex; align-items:flex-start; gap:2u; }
 .h-team { display:flex; gap:1u; }
 .h-hero { position:relative; width:24u; height:34u; background:#0c1018; box-shadow:0 0 0 1u var(--ink); pointer-events:auto; overflow:hidden; }
@@ -289,6 +305,13 @@ html.p2d-touch .h-statp .hd { font-size:max(12px, 8u); } html.p2d-touch .h-statp
 html.p2d-touch .h-statp .gt { font-size:max(8px, 5u); }
 html.p2d-touch .h-sel { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); margin-left:0; bottom:auto; top:calc(48px * var(--k, 1) + env(safe-area-inset-top, 0px)); width:100u; pointer-events:none; }
 html.p2d-touch .h-sel .nm { font-size:max(11px, calc(11px * var(--k, 1))); } html.p2d-touch .h-sel .b span { font-size:max(11px, calc(11px * var(--k, 1))); }
+html.p2d-touch .h-spp { --u:max(.9px, calc(1.05px * var(--k, 1))); left:calc(6px + env(safe-area-inset-left, 0px)); transform:none; align-items:flex-start; top:calc(6px + 40px * var(--k, 1) + env(safe-area-inset-top, 0px)); font-size:max(11px, calc(11px * var(--k, 1))); gap:3px; padding:3px 4px; }
+html.p2d-touch .h-spp .b { height:max(24px, calc(10 * var(--u))); padding:0 calc(6 * var(--u)); font-size:max(10px, calc(10px * var(--k, 1))); }
+html.p2d-touch .h-spp .who { gap:calc(4 * var(--u)); } html.p2d-touch .h-spp .who-b { padding:1px; }
+html.p2d-touch .h-spp .who-b canvas { width:max(22px, calc(18 * var(--u))) !important; height:max(22px, calc(18 * var(--u))) !important; }
+html.p2d-touch .h-spp .fog { min-height:24px; } html.p2d-touch .h-spp .fog input { width:18px; height:18px; }
+html.p2d-touch .h-pov .h-abil, html.p2d-touch .h-pov .h-inv { display:flex !important; pointer-events:none; }   /* a watched player's abilities / items: read-only strip */
+html.p2d-touch .h-pov .h-main { width:auto; }
 html.p2d-touch .h-spec { font-size:max(11px, calc(11px * var(--k, 1))); white-space:normal; width:min(360px, 36vw); text-align:center; }
 html.p2d-touch .h-chat { --u:calc(1.4px * var(--k, 1)); left:calc(6px + 150px * var(--k, 1) + env(safe-area-inset-left, 0px)); top:calc(50px * var(--k, 1)); bottom:auto; width:calc(210px * var(--k, 1)); }
 html.p2d-touch .h-chat.typing { left:50%; bottom:auto; top:6px; transform:translateX(-50%); width:min(420px, 70vw); z-index:60; }

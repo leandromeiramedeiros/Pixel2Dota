@@ -6,7 +6,7 @@ export const TICK_HZ = 30;
 export const PATCH_MS = 1000 / 30; // one patch per sim tick, like Dota (30 Hz snapshots)
 export const INTERP_MS = 100;
 
-export const MSG = { LOBBY: 'lobby', ORDER: 'order', CHAT: 'chat', FX: 'fx' };
+export const MSG = { LOBBY: 'lobby', ORDER: 'order', CHAT: 'chat', FX: 'fx', POV: 'pov' };   // POV: player camera/selection/orders relayed to spectators only (shared/pov.js)
 
 export const PHASE = { LOBBY: 'lobby', GAME: 'game', ENDED: 'ended' };
 

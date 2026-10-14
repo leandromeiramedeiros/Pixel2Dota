@@ -175,6 +175,39 @@ test('spectators: host toggle, spectator seat, join a live match, no orders', { 
   await v0.leave(); await host.leave();
 });
 
+test('pov: player camera + accepted orders reach spectators only; bad / spoofed input dropped', { timeout: 40000 }, async () => {
+  const host = await new Client(base).create(ROOM, { name: 'Host' });
+  const code = host.roomId;
+  host.send(MSG.LOBBY, { t: LOBBY.SPECS, on: true });
+  await until(() => host.state.spectators === true, 3000, 'spectators on');
+  const spec = await new Client(base).joinById(code, { name: 'Spec' });
+  await until(() => host.state.players.size === 2, 3000, 'spec joined');
+  spec.send(MSG.LOBBY, { t: LOBBY.SLOT, team: 3 });
+  await until(() => host.state.players.get(spec.sessionId)?.team === 3, 3000, 'spec seat');
+  host.send(MSG.LOBBY, { t: LOBBY.HERO, key: 'npc_dota_hero_sven' });
+  host.send(MSG.LOBBY, { t: LOBBY.FILL });
+  await until(() => host.state.players.size === 11, 3000, 'fill');
+  host.send(MSG.LOBBY, { t: LOBBY.START });
+  await until(() => host.state.phase === 'game' && host.state.units.size >= 10, 10000, 'game');
+  const got = [], own = [];
+  spec.onMessage(MSG.POV, (m) => got.push(m)); host.onMessage(MSG.POV, (m) => own.push(m));
+
+  host.send(MSG.POV, { x: 100.4, y: -200, d: 99999, sel: 'abc', evil: 1 });
+  const st = await until(() => got.find((m) => !m.o), 3000, 'pov state relayed');
+  assert.deepEqual(st, { s: host.sessionId, x: 100, y: -200, d: 2700, sel: 'abc' });
+  host.send(MSG.POV, { x: 'no', y: 0, d: 1 });
+  spec.send(MSG.POV, { x: 1, y: 1, d: 900 });                       // spectators cannot send a camera
+  await sleep(300);
+  assert.equal(got.filter((m) => !m.o).length, 1, 'bad / spectator state dropped');
+
+  host.send(MSG.ORDER, { t: 'move', x: 500, y: 600 });
+  const o = await until(() => got.find((m) => m.o && m.s === host.sessionId && m.o.x === 500), 3000, 'order relayed');
+  assert.ok(got.some((m) => m.o && m.s !== host.sessionId), 'bot orders are relayed too');
+  assert.equal(o.o.t, 'move'); assert.equal(o.o.y, 600);
+  assert.equal(own.length, 0, 'players never receive pov traffic');
+  await spec.leave(); await host.leave();
+});
+
 test('spectators off: live match refuses joins', { timeout: 20000 }, async () => {
   const host = await new Client(base).create(ROOM, { name: 'H' });
   host.send(MSG.LOBBY, { t: LOBBY.HERO, key: 'npc_dota_hero_sven' });

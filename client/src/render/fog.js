@@ -188,6 +188,8 @@ export function createFog(uniforms) {
     state: st, texture: tex,
     setEnabled(on) { st.enabled = !!on; uniforms.uFogMap.value.w = on ? 1 : 0; },
     revealAll(on) { revealAll = !!on; dirty = true; },
+    /** forget explored ground + structure ghosts (the vision perspective changed: spectator team switch) */
+    reset() { explored.fill(0); easeX.fill(0); ghosts.clear(); st.castAcc = 1; dirty = true; },
     /** call every frame; casts at ~8 Hz, eases + uploads at ~24 Hz */
     update(view, myTeam, dt) {
       if (!st.enabled) return;

@@ -286,6 +286,9 @@ export function createRenderer({ canvas, sheets }) {
     setViewInset({ top = 0, bottom = 0 } = {}) { rig.setViewInset(top, bottom); post.state.dofY = (bottom - top) / 2; },
     zoom(delta) { rig.zoom(delta); },
     zoomBy(f) { rig.zoomBy(f); },
+    /** spectator player-perspective: follow another camera's distance (clamped to this client's zoom range) */
+    setDistance(d) { rig.distanceGoal = Math.max(rig.minDist, Math.min(rig.maxDist, d)); },
+    getDistance() { return rig.distanceGoal; },
     setCameraFar(d, start) { rig.setFar(d, start); fitRT(true); },
     isShowcase() { return rig.showcase; },
     /** Orbit the hero in the showcase (dYaw rad, + = eye towards east; dPitch deg, + = more top-down). false outside the showcase. */

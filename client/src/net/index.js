@@ -1,5 +1,5 @@
 // Colyseus client wrapper + snapshot interpolation. See docs/ARCHITECTURE.md "Client code interfaces".
-//   createNet(endpoint?) -> { listLobbies, create, join, resume, leave, send, onFx, onChange, onLeave, view, room, state, mySid, connected }
+//   createNet(endpoint?) -> { listLobbies, create, join, resume, leave, send, onFx, onPov, onChange, onLeave, view, room, state, mySid, connected }
 import { Client } from '@colyseus/sdk';
 import { ROOM, MSG, INTERP_MS } from '@p2d/shared/protocol.js';
 import { heightAt } from '@p2d/shared/map.js';
@@ -73,7 +73,7 @@ export function createNet(endpoint) {
   const httpUrl = wsUrl.replace(/^ws/, 'http');
   const client = new Client(wsUrl);
 
-  const fxCbs = new Set(), changeCbs = new Set(), leaveCbs = new Set();
+  const fxCbs = new Set(), povCbs = new Set(), changeCbs = new Set(), leaveCbs = new Set();
   const recs = new Map();                 // unit id -> sample ring
   const views = new Map();                // unit id -> reused UnitView
   const unitList = [], visList = [];
@@ -120,6 +120,7 @@ export function createNet(endpoint) {
     leave() { tokenSet(null); lastSet(null); const r = net.room; net.room = null; net.state = null; net.connected = false; if (r) { try { r.leave(true); } catch { /* ignore */ } } },
     send(type, payload) { const r = net.room; if (r) r.send(type, payload); },   // during a drop the SDK queues it and flushes on reconnect
     onFx(cb) { fxCbs.add(cb); return () => fxCbs.delete(cb); },
+    onPov(cb) { povCbs.add(cb); return () => povCbs.delete(cb); },   // spectators: players' camera / selection / orders (shared/pov.js)
     onChange(cb) { changeCbs.add(cb); return () => changeCbs.delete(cb); },
     onLeave(cb) { leaveCbs.add(cb); return () => leaveCbs.delete(cb); },
     view,
@@ -133,6 +134,7 @@ export function createNet(endpoint) {
     recs.clear(); views.clear(); trees.clear(); treeSig = ''; clock.reset();
     tokenSet(room.reconnectionToken);
     room.onMessage(MSG.FX, onFxMsg);
+    room.onMessage(MSG.POV, (m) => { for (const cb of povCbs) cb(m); });
     room.onStateChange((st) => {
       net.state = st;
       if (net.room === room) { const own = ownSid(st.players, room.sessionId); if (own !== net.mySid) { net.mySid = own; seatSet(room.roomId, own); } }
