@@ -3,6 +3,7 @@
 import { Client } from '@colyseus/sdk';
 import { ROOM, MSG, INTERP_MS } from '@p2d/shared/protocol.js';
 import { heightAt } from '@p2d/shared/map.js';
+import { createClock } from './clock.js';
 
 const RING = 8;               // samples kept per unit
 const SNAP_DIST = 450;        // |dx,dy| between consecutive samples above this = teleport (blink, tp, respawn): no lerp
@@ -79,6 +80,16 @@ export function createNet(endpoint) {
   const trees = new Set();
   let treeSig = '';
   let stamp = 0;
+  const clock = createClock();
+  // fx events keep their old lead over the (now adaptive) unit delay: held back by however much the delay grew past INTERP_MS
+  let fxRelease = 0;
+  const emitFx = (events) => { for (const cb of fxCbs) cb(events); };
+  const onFxMsg = (events) => {
+    const now = performance.now(), hold = clock.delay() - INTERP_MS;
+    if (hold <= 1 && fxRelease <= now) { emitFx(events); return; }
+    fxRelease = Math.max(fxRelease, now + Math.max(0, hold));
+    setTimeout(() => emitFx(events), fxRelease - now);
+  };
 
   const net = {
     room: null, state: null, mySid: '', connected: false, endpoint: wsUrl,
@@ -112,14 +123,16 @@ export function createNet(endpoint) {
     onChange(cb) { changeCbs.add(cb); return () => changeCbs.delete(cb); },
     onLeave(cb) { leaveCbs.add(cb); return () => leaveCbs.delete(cb); },
     view,
+    /** current interpolation delay, ms (adapts to network jitter) */
+    delay: () => clock.delay(),
   };
 
   function attach(room) {
     net.room = room; net.state = room.state; net.mySid = ownSid(room.state && room.state.players, room.sessionId); net.connected = true;
     seatSet(room.roomId, net.mySid);
-    recs.clear(); views.clear(); trees.clear(); treeSig = '';
+    recs.clear(); views.clear(); trees.clear(); treeSig = ''; clock.reset();
     tokenSet(room.reconnectionToken);
-    room.onMessage(MSG.FX, (events) => { for (const cb of fxCbs) cb(events); });
+    room.onMessage(MSG.FX, onFxMsg);
     room.onStateChange((st) => {
       net.state = st;
       if (net.room === room) { const own = ownSid(st.players, room.sessionId); if (own !== net.mySid) { net.mySid = own; seatSet(room.roomId, own); } }
@@ -139,7 +152,7 @@ export function createNet(endpoint) {
 
   // One call per state patch: push (arrival-time, x, y, facing, anim) into each unit's ring.
   function sample(st) {
-    const now = performance.now();
+    const now = performance.now(), ts = clock.stamp(st.time, now);
     stamp++;
     const units = st.units;
     if (!units) return;
@@ -152,7 +165,7 @@ export function createNet(endpoint) {
       if (r.n < RING) { s = r.s[(r.head + r.n) % RING]; r.n++; }
       else { s = r.s[r.head]; r.head = (r.head + 1) % RING; }
       // guarantee strictly increasing stamps even when two patches land in the same ms
-      s.t = last && now <= last.t ? last.t + 0.5 : now;
+      s.t = last && ts <= last.t ? last.t + 0.5 : ts;
       s.x = u.x; s.y = u.y; s.f = u.facing; s.anim = u.anim; s.seq = u.animSeq; s.rate = u.animRate;
       s.at = !last || last.anim !== s.anim || last.seq !== s.seq ? s.t : last.at;   // when this anim/animSeq began
     });
@@ -177,7 +190,7 @@ export function createNet(endpoint) {
     out.night = st ? !!st.night : false;
     unitList.length = 0;
     if (!st || !st.units) return out;
-    const rt = (nowMs == null ? performance.now() : nowMs) - INTERP_MS;
+    const rt = (nowMs == null ? performance.now() : nowMs) - clock.delay();
     st.units.forEach((u, id) => {
       const r = recs.get(id);
       if (!r || !r.n) return;
