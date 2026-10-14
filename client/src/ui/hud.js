@@ -1,0 +1,460 @@
+// HUD (DOM overlay). createHud(hudRoot, { send, renderer, sheets }) -> { update(state, myHeroUnit, mySid, view), fx(events), destroy(), ...input hooks }
+// Input hooks used by input.js: setHandlers, setTargeting, setAim, message, toggleShop, closeShop, isShopOpen, isTyping, openChat, setScoreboard, select.
+import { DATA } from '../../../shared/data.js';
+import { MSG, ORDER, EV, KIND, TEAM, INV_SLOTS } from '../../../shared/protocol.js';
+import { HEROES } from '../../../shared/heroes.js';
+import { injectStyle, hudScale } from './style.js';
+import {
+  fmtClock, fmtCd, fmtRespawn, fmtGold, fmtNum, fmtRegen, fmtBar, clamp01, xpProgress, sweepDeg, prettyName, heroName, heroShort, heroRegen, dmgText,
+} from './format.js';
+import { pixelEl, paintInto } from './pixels.js';
+import { GLYPHS } from './glyphs.js';
+import { heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo } from './targeting.js';
+import { inShopRange, sellValue } from './shopdata.js';
+import { createTooltip } from './tooltip.js';
+import { createMinimap } from './minimap.js';
+import { createShop } from './shop.js';
+import { createScoreboard, createFeed, createMessages, createChat, createEnd, h, sizeU, faceEl } from './panels.js';
+
+const teamCls = (t) => (t === TEAM.RADIANT ? 'rad' : t === TEAM.DIRE ? 'dire' : '');
+const ORB_CLS = { q: 'q', w: 'w', e: 'e' };
+
+/** unit.key -> display name (heroes, creeps, buildings). */
+export function unitName(u) {
+  if (!u) return '';
+  if (u.kind === KIND.HERO) return heroName(u.key);
+  let k = String(u.key || u.kind || '').replace(/^npc_dota_/, '').replace(/^creep_/, '').replace(/goodguys/, 'radiant').replace(/badguys/, 'dire');
+  return k.split('_').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+
+export function createHud(hudRoot, { send, renderer, sheets }) {
+  injectStyle();
+  hudRoot.classList.add('h-root');
+  const sheetsSafe = sheets || {};
+  const icons = sheetsSafe.icons;
+
+  // ---- tiny cached DOM setters
+  const txt = (el, s) => { s = String(s); if (el._t !== s) { el._t = s; el.textContent = s; } };
+  const sty = (el, p, v) => { const k = '_s' + p; if (el[k] !== v) { el[k] = v; el.style[p] = v; } };
+  const cls = (el, c, on) => { on = !!on; const k = '_c' + c; if (el[k] !== on) { el[k] = on; el.classList.toggle(c, on); } };
+
+  // ---- scale
+  function applyScale() {
+    const w = hudRoot.clientWidth || innerWidth, hh = hudRoot.clientHeight || innerHeight;
+    hudRoot.style.setProperty('--u', hudScale(w, hh) + 'px');
+    const dpr = window.devicePixelRatio || 1;
+    ring.width = Math.round(w * dpr); ring.height = Math.round(hh * dpr);
+    ring.style.width = w + 'px'; ring.style.height = hh + 'px';
+    ringCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  const ring = h('canvas', 'h-ring'); const ringCtx = ring.getContext('2d');
+  hudRoot.append(ring);
+
+  const tooltip = createTooltip(hudRoot, sheetsSafe);
+  let handlers = { activate() {}, };
+  let ctxState = { state: null, hero: null, mySid: '', myTeam: -1, time: 0 };
+
+  const message = (t, warn) => msgs.show(t, warn);
+  const msgs = createMessages(hudRoot);
+  const feed = createFeed(hudRoot);
+  const chat = createChat(hudRoot, { send });
+  const sb = createScoreboard(hudRoot, { sheets: sheetsSafe });
+  const end = createEnd(hudRoot);
+
+  // ================================================================ top bar
+  const top = h('div', 'h-top'); hudRoot.append(top);
+  const teamBoxes = { [TEAM.RADIANT]: h('div', 'h-team'), [TEAM.DIRE]: h('div', 'h-team') };
+  const mid = h('div', 'h-mid h-panel');
+  const scoreR = h('div', 'h-score rad', '0'), scoreD = h('div', 'h-score dire', '0');
+  const clk = h('div', 'h-clk'); const clockT = h('b', null, '0:00'); const dn = h('div', 'h-dn');
+  clk.append(clockT, dn); mid.append(scoreR, clk, scoreD);
+  top.append(teamBoxes[TEAM.RADIANT], mid, teamBoxes[TEAM.DIRE]);
+  const sunEl = sizeU(pixelEl(GLYPHS.sun, null, 1), 13), moonEl = sizeU(pixelEl(GLYPHS.moon, null, 1), 11);
+  dn.append(sunEl);
+  let topSig = '', tiles = [], wasNight = false;
+
+  function buildTop(players) {
+    for (const t of [TEAM.RADIANT, TEAM.DIRE]) teamBoxes[t].textContent = '';
+    tiles = [];
+    for (const p of players) {
+      if (p.team !== TEAM.RADIANT && p.team !== TEAM.DIRE) continue;
+      const el = h('div', 'h-hero ' + teamCls(p.team));
+      const pt = h('div', 'h-pt'); pt.append(faceEl(sheetsSafe, p.hero, 24));
+      const hpm = h('div', 'h-hpm'); const hpi = h('i'); hpm.append(hpi);
+      const mpm = h('div', 'h-mpm'); const mpi = h('i'); mpm.append(mpi);
+      const lv = h('div', 'h-lv', '1'); const dead = h('div', 'h-dead');
+      el.append(pt, hpm, mpm, lv, dead);
+      el.addEventListener('click', () => {
+        const u = p.heroId && ctxState.state ? ctxState.state.units.get(p.heroId) : null;
+        if (u && renderer.setTarget) renderer.setTarget(u.x, u.y);
+      });
+      tooltip.bind(el, () => ({ type: 'text', title: p.name || heroName(p.hero), lines: [heroName(p.hero)] }));
+      teamBoxes[p.team].append(el);
+      tiles.push({ p, el, hpi, mpi, lv, dead });
+    }
+  }
+
+  function updateTop(state, mySid) {
+    const players = [];
+    state.players.forEach((p) => players.push(p));
+    players.sort((a, b) => (a.team - b.team) || (a.slot - b.slot));
+    const sig = players.map((p) => p.sid + p.hero + p.team).join('|');
+    if (sig !== topSig) { topSig = sig; buildTop(players); }
+    let kr = 0, kd = 0;
+    for (const p of players) { if (p.team === TEAM.RADIANT) kr += p.kills; else if (p.team === TEAM.DIRE) kd += p.kills; }
+    txt(scoreR, kr); txt(scoreD, kd);
+    txt(clockT, fmtClock(state.time));
+    if (!!state.night !== wasNight || !dn.firstChild) { wasNight = !!state.night; dn.textContent = ''; dn.append(wasNight ? moonEl : sunEl); }
+    for (const t of tiles) {
+      const u = t.p.heroId ? state.units.get(t.p.heroId) : null;
+      cls(t.el, 'me', t.p.sid === mySid);
+      cls(t.el, 'disc', !t.p.connected && !t.p.isBot);
+      if (!u) { cls(t.el, 'dead', false); continue; }
+      const dead = u.respawn > 0;
+      cls(t.el, 'dead', dead);
+      txt(t.dead, dead ? fmtRespawn(u.respawn) : '');
+      txt(t.lv, u.level);
+      sty(t.hpi, 'width', (clamp01(u.hp / (u.maxHp || 1)) * 100).toFixed(1) + '%');
+      sty(t.mpi, 'width', (clamp01(u.maxMana > 0 ? u.mana / u.maxMana : 0) * 100).toFixed(1) + '%');
+    }
+  }
+
+  // ================================================================ minimap
+  const minimap = createMinimap(hudRoot, { renderer, send });
+
+  // ================================================================ bottom bar
+  const bottom = h('div', 'h-bottom'); hudRoot.append(bottom);
+
+  // stats
+  const stats = h('div', 'h-stats h-panel');
+  const statRows = {};
+  for (const [id, label] of [['str', 'STR'], ['agi', 'AGI'], ['int', 'INT'], ['dmg', 'DMG'], ['armor', 'ARM'], ['ms', 'SPD']]) {
+    const r = h('div', 'r'); const l = h('span', 'l', label); const v = h('span', 'v', '0');
+    r.append(l, v); stats.append(r); statRows[id] = { r, v };
+  }
+  bottom.append(stats);
+
+  // portrait
+  const port = h('div', 'h-port h-panel'); const pimg = h('div', 'h-pimg'); const plv = h('div', 'h-plv', '1');
+  const xpb = h('div', 'h-xp'); const xpi = h('i'); xpb.append(xpi); const resp = h('div', 'h-resp');
+  port.append(pimg, plv, xpb, resp); bottom.append(port);
+  let portKey = '';
+
+  // main column
+  const main = h('div', 'h-main'); bottom.append(main);
+  const topRow = h('div', 'h-buffs'); const orbs = h('div', 'h-orbs'); topRow.append(orbs); main.append(topRow);
+  const abil = h('div', 'h-abil h-panel'); main.append(abil);
+  const bars = h('div', 'h-bars h-panel'); main.append(bars);
+  const hpBar = h('div', 'h-bar hp'); const hpFill = h('i'); const hpTxt = h('span'); const hpReg = h('em');
+  hpBar.append(hpFill, hpTxt, hpReg);
+  const mpBar = h('div', 'h-bar mp'); const mpFill = h('i'); const mpTxt = h('span'); const mpReg = h('em');
+  mpBar.append(mpFill, mpTxt, mpReg);
+  bars.append(hpBar, mpBar);
+
+  const orbEls = [h('div', 'h-orb n'), h('div', 'h-orb n'), h('div', 'h-orb n')];
+  orbs.append(...orbEls);
+  let abilKey = '', slots = [], buffSig = '';
+  let targeting = null, aim = null;
+
+  function buildAbilities(hero) {
+    abil.textContent = ''; slots = [];
+    const letters = heroKeyLetters(hero.key);
+    const n = hero.abilities.length;
+    for (let i = 0; i < n; i++) {
+      const slot = h('div', 'h-slot');
+      const learn = h('div', 'h-learn', '+');
+      const ico = h('div', 'h-ico');
+      const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = 20;
+      const sweep = h('div', 'h-sweep'), cdt = h('div', 'h-cdt'), key = h('div', 'h-key', letters[i] || ''), mc = h('div', 'h-mc');
+      ico.append(cv, sweep, cdt, key, mc);
+      const pips = h('div', 'h-pips');
+      slot.append(learn, ico, pips); abil.append(slot);
+      const s = { slot, learn, ico, cv, sweep, cdt, mc, pips, key: '', pipN: -1 };
+      learn.addEventListener('click', (e) => { e.stopPropagation(); if (ctxState.hero && canLearn(ctxState.hero, i)) send(MSG.ORDER, { t: ORDER.LEARN, slot: i }); });
+      ico.addEventListener('click', (e) => { if (e.ctrlKey || e.altKey) { if (ctxState.hero && canLearn(ctxState.hero, i)) send(MSG.ORDER, { t: ORDER.LEARN, slot: i }); } else handlers.activate('ability', i, e); });
+      tooltip.bind(ico, () => {
+        const hero = ctxState.hero; const ab = hero && hero.abilities[i]; if (!ab || !ab.key || /empty/.test(ab.key) && !ab.level) return null;
+        const a = hero.abilities;
+        const orbsLv = a.length >= 3 && hero.orbs !== undefined && /invoker/.test(hero.key) ? { quaslevel: a[0].level, wexlevel: a[1].level, exortlevel: a[2].level } : null;
+        return { type: 'ability', key: ab.key, level: ab.level, orbs: orbsLv };
+      });
+      slots.push(s);
+    }
+  }
+
+  function updateAbilities(hero) {
+    const key = hero.key + ':' + hero.abilities.length;
+    if (key !== abilKey) { abilKey = key; buildAbilities(hero); }
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i], ab = hero.abilities[i];
+      if (!ab) continue;
+      if (s.key !== ab.key) {
+        s.key = ab.key;
+        if (icons) { if (!paintInto(s.cv, icons, ab.key, 1)) { const g = s.cv.getContext('2d'); g.clearRect(0, 0, 20, 20); } }
+        const n = pipCount(ab.key); if (n !== s.pipN) {
+          s.pipN = n; s.pips.textContent = '';
+          for (let k = 0; k < n; k++) s.pips.append(h('div', 'h-pip'));
+          s.pipEls = Array.from(s.pips.childNodes);
+        }
+      }
+      const info = targetInfo('ability', ab.key, ab.level);
+      cls(s.ico, 'off', ab.level < 1);
+      cls(s.ico, 'passive', info.mode === 'passive');
+      const lacksMana = ab.level > 0 && hero.mana < (ab.mana || 0);
+      cls(s.ico, 'nomana', lacksMana);
+      const cd = ab.cd > 0.05;
+      cls(s.ico, 'cd', cd);
+      if (cd) { sty(s.sweep, '--a', sweepDeg(ab.cd, ab.cdMax) + 'deg'); txt(s.cdt, fmtCd(ab.cd)); }
+      txt(s.mc, ab.mana > 0 && ab.level > 0 ? ab.mana : '');
+      sty(s.mc, 'display', ab.mana > 0 && ab.level > 0 ? 'block' : 'none');
+      cls(s.ico, 'active', !!(targeting && targeting.kind === 'ability' && targeting.slot === i));
+      cls(s.learn, 'on', canLearn(hero, i));
+      if (s.pipEls) for (let k = 0; k < s.pipEls.length; k++) cls(s.pipEls[k], 'on', k < ab.level);
+    }
+  }
+
+  // inventory + gold
+  const invWrap = h('div', 'h-invwrap'); bottom.append(invWrap);
+  const inv = h('div', 'h-inv h-panel'); invWrap.append(inv);
+  const botRow = h('div'); botRow.style.display = 'flex'; botRow.style.gap = 'calc(2 * var(--u))';
+  const goldRow = h('div', 'h-goldrow h-panel'); const goldIco = sizeU(pixelEl(GLYPHS.coin, null, 1), 9); const goldT = h('span', null, '0');
+  goldRow.style.flex = '1'; goldRow.append(goldIco, goldT);
+  const shopBtn = h('div', 'h-shopbtn h-panel', 'SHOP');
+  botRow.append(goldRow, shopBtn); invWrap.append(botRow);
+  const itemEls = [];
+  const itemSeen = [];
+  let dragFrom = -1;
+
+  const ctxMenu = h('div', 'h-ctx'); hudRoot.append(ctxMenu);
+  const closeCtx = () => { ctxMenu.style.display = 'none'; };
+  addEventListener('mousedown', (e) => { if (!ctxMenu.contains(e.target)) closeCtx(); }, true);
+
+  for (let i = 0; i < INV_SLOTS; i++) {
+    const el = h('div', 'h-is'); el.draggable = true;
+    const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = 20;
+    const sweep = h('div', 'h-sweep'), cdt = h('div', 'h-cdt'), key = h('div', 'h-key', ITEM_LETTERS[i]), ch = h('div', 'h-ch');
+    el.append(cv, sweep, cdt, key, ch); inv.append(el);
+    const s = { el, cv, sweep, cdt, ch, key: '' };
+    itemEls.push(s);
+    el.addEventListener('click', (e) => handlers.activate('item', i, e));
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const it = ctxState.hero && ctxState.hero.items[i]; if (!it || !it.key) return;
+      const age = ctxState.time - (itemSeen[i] ? itemSeen[i].t : -999);
+      const inRange = shopRange(ctxState.hero);
+      ctxMenu.textContent = '';
+      const sell = h('div', inRange ? '' : 'dis', `Sell for ${fmtGold(sellValue(it.key, age))}g`);
+      sell.addEventListener('click', () => { closeCtx(); if (inRange) send(MSG.ORDER, { t: ORDER.SELL, slot: i }); else message('Out of shop range', true); });
+      ctxMenu.append(sell);
+      ctxMenu.style.left = e.clientX + 'px'; ctxMenu.style.top = e.clientY + 'px'; ctxMenu.style.display = 'block';
+    });
+    el.addEventListener('dragstart', (e) => { dragFrom = i; tooltip.hide(); try { e.dataTransfer.setData('text/plain', String(i)); e.dataTransfer.effectAllowed = 'move'; } catch { /* */ } });
+    el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('over'); });
+    el.addEventListener('dragleave', () => el.classList.remove('over'));
+    el.addEventListener('drop', (e) => { e.preventDefault(); el.classList.remove('over'); if (dragFrom >= 0 && dragFrom !== i) send(MSG.ORDER, { t: ORDER.SWAP, a: dragFrom, b: i }); dragFrom = -1; });
+    el.addEventListener('dragend', () => { dragFrom = -1; for (const o of itemEls) o.el.classList.remove('over'); });
+    tooltip.bind(el, () => {
+      const it = ctxState.hero && ctxState.hero.items[i]; if (!it || !it.key) return null;
+      return { type: 'item', key: it.key, items: ctxState.hero.items, extra: [{ text: 'Right-click: sell. Drag: swap slots.', cls: 'note' }] };
+    });
+  }
+  tooltip.bind(shopBtn, () => ({ type: 'text', title: 'Shop (B / F4)', lines: ['Buy items near your fountain'] }));
+
+  // buffs
+  const buffBox = h('div', 'h-buffs'); buffBox.style.minWidth = '0'; buffBox.style.padding = '0';
+  topRow.insertBefore(buffBox, orbs);
+  function updateBuffs(hero) {
+    const list = hero.buffs ? Array.from({ length: hero.buffs.length }, (_, i) => hero.buffs[i]) : [];
+    const sig = list.join(',');
+    if (sig === buffSig) return; buffSig = sig;
+    buffBox.textContent = '';
+    for (const b of list.slice(0, 8)) {
+      const e = h('div', 'h-buff', prettyName(b).slice(0, 2).toUpperCase());
+      tooltip.bind(e, () => ({ type: 'text', title: prettyName(b), lines: [] }));
+      buffBox.append(e);
+    }
+  }
+
+  // targeting banner
+  const tgtBar = h('div', 'h-tgtbar'); hudRoot.append(tgtBar);
+
+  // selection card
+  const sel = h('div', 'h-sel h-panel'); const selNm = h('div', 'nm'); const selB = h('div', 'b'); const selBi = h('i'); const selBt = h('span');
+  selB.append(selBi, selBt); sel.append(selNm, selB); hudRoot.append(sel);
+  let selectedId = null;
+
+  // shop
+  const shop = createShop(hudRoot, { sheets: sheetsSafe, send, tooltip, onMessage: message });
+  shopBtn.addEventListener('click', () => shop.toggle());
+
+  // ---- shop range (my team's fountain)
+  let shopPos = null, shopPosT = 0;
+  function findShop(state, myTeam) {
+    if (shopPos && ctxState.time - shopPosT < 1e9) return shopPos;
+    state.units.forEach((u) => { if (u.kind === KIND.FOUNTAIN && u.team === myTeam) shopPos = { x: u.x, y: u.y }; });
+    shopPosT = ctxState.time;
+    return shopPos;
+  }
+  function shopRange(hero) { return !!(hero && ctxState.state && inShopRange(hero, findShop(ctxState.state, ctxState.myTeam))); }
+
+  // ---- gold popup
+  function goldPop(g) {
+    const e = h('div', 'h-goldpop', '+' + g); goldRow.append(e);
+    setTimeout(() => e.remove(), 1100);
+  }
+
+  // ---- range rings
+  function drawRings(hero) {
+    ringCtx.clearRect(0, 0, ring.width, ring.height);
+    if (!targeting || !hero || !renderer.worldToScreen) return;
+    const circle = (cx, cy, r, color, fill) => {
+      ringCtx.beginPath();
+      for (let k = 0; k <= 64; k++) {
+        const a = (k / 64) * Math.PI * 2; const p = renderer.worldToScreen(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        if (k === 0) ringCtx.moveTo(p.x, p.y); else ringCtx.lineTo(p.x, p.y);
+      }
+      ringCtx.closePath();
+      if (fill) { ringCtx.fillStyle = fill; ringCtx.fill(); }
+      ringCtx.strokeStyle = color; ringCtx.lineWidth = 2; ringCtx.stroke();
+    };
+    const info = targeting.info || {};
+    if (info.range > 0) circle(hero.x, hero.y, info.range, 'rgba(255,226,122,.85)', null);
+    if (info.radius > 0 && aim) circle(aim.x, aim.y, info.radius, 'rgba(255,255,255,.9)', 'rgba(255,200,80,.12)');
+  }
+
+  // ---- selection card update
+  function updateSel(state) {
+    const u = selectedId ? state.units.get(selectedId) : null;
+    if (!u || (ctxState.hero && u.id === ctxState.hero.id)) { cls(sel, 'on', false); return; }
+    cls(sel, 'on', true);
+    const enemy = u.team !== ctxState.myTeam;
+    sel.firstChild.className = 'nm' + (enemy ? ' e' : '');
+    selB.className = 'b' + (enemy ? ' e' : '');
+    if (selNm._n !== unitName(u) + (u.level || '')) { selNm._n = unitName(u) + (u.level || ''); selNm.textContent = ''; selNm.append(h('span', null, unitName(u)), h('span', 'h-dim', u.level ? 'L' + u.level : '')); }
+    sty(selBi, 'width', (clamp01(u.hp / (u.maxHp || 1)) * 100).toFixed(1) + '%');
+    txt(selBt, fmtBar(u.hp, u.maxHp));
+  }
+
+  // ================================================================ per-frame update
+  function update(state, hero, mySid, view) {
+    if (!state || !state.players) return;
+    const me = state.players.get(mySid);
+    const myTeam = me ? me.team : view && view.myTeam != null ? view.myTeam : -1;
+    ctxState = { state, hero, mySid, myTeam, time: state.time };
+    if (pendingFx.length) fx(pendingFx.splice(0));
+
+    updateTop(state, mySid);
+    minimap.update({ state, myTeam, hero, mySid });
+    sb.update(state, mySid);
+    if (state.phase === 'ended') end.show(state.winner, myTeam);
+
+    const has = !!hero;
+    sty(bottom, 'visibility', has ? 'visible' : 'hidden');
+    if (has) {
+      // portrait
+      if (portKey !== hero.key) {
+        portKey = hero.key; pimg.textContent = '';
+        const sh = sheetsSafe[heroShort(hero.key)];
+        if (sh && sh.frames && sh.frames.portrait) { const c = pixelEl(sh, 'portrait', 1); sizeU(c, 32, 42); pimg.append(c); }
+      }
+      const dead = hero.respawn > 0;
+      cls(port, 'dead', dead); txt(resp, dead ? fmtRespawn(hero.respawn) : '');
+      txt(plv, hero.level);
+      sty(xpi, 'width', (xpProgress(hero.xp, hero.level) * 100).toFixed(1) + '%');
+      // bars
+      const rg = heroRegen(hero, DATA);
+      sty(hpFill, 'width', (clamp01(hero.hp / (hero.maxHp || 1)) * 100).toFixed(1) + '%');
+      sty(mpFill, 'width', (clamp01(hero.maxMana > 0 ? hero.mana / hero.maxMana : 0) * 100).toFixed(1) + '%');
+      txt(hpTxt, fmtBar(hero.hp, hero.maxHp)); txt(mpTxt, fmtBar(hero.mana, hero.maxMana));
+      txt(hpReg, fmtRegen(rg.hp)); txt(mpReg, fmtRegen(rg.mana));
+      // stats
+      const hd = DATA.heroes[hero.key]; const primary = hd ? hd.attr : '';
+      for (const a of ['str', 'agi', 'int']) { txt(statRows[a].v, hero[a]); cls(statRows[a].r, 'pri', a === primary); }
+      txt(statRows.dmg.v, dmgText(hero)); txt(statRows.armor.v, fmtNum(hero.armor, 1)); txt(statRows.ms.v, hero.ms);
+      updateAbilities(hero);
+      updateBuffs(hero);
+      // orbs
+      const inv7 = /invoker/.test(hero.key);
+      sty(orbs, 'display', inv7 ? 'flex' : 'none');
+      if (inv7) {
+        const o = String(hero.orbs || '').toLowerCase();
+        for (let i = 0; i < 3; i++) { const c = ORB_CLS[o[i]] || 'n'; if (orbEls[i]._k !== c) { orbEls[i]._k = c; orbEls[i].className = 'h-orb ' + c; } }
+      }
+      // items
+      for (let i = 0; i < INV_SLOTS; i++) {
+        const s = itemEls[i], it = hero.items[i];
+        const k = it && it.key ? it.key : '';
+        if (s.key !== k) {
+          s.key = k;
+          const g = s.cv.getContext('2d'); g.clearRect(0, 0, 20, 20);
+          if (k && icons) paintInto(s.cv, icons, k, 1);
+          itemSeen[i] = k ? { key: k, t: state.time } : null;
+        }
+        const cd = it && it.cd > 0.05;
+        cls(s.el, 'cd', cd);
+        if (cd) { sty(s.sweep, '--a', sweepDeg(it.cd, it.cdMax) + 'deg'); txt(s.cdt, fmtCd(it.cd)); }
+        const ch = it && it.charges > 0 && (DATA.items[k] ? DATA.items[k].stack || DATA.items[k].charges : true);
+        sty(s.ch, 'display', ch ? 'block' : 'none'); if (ch) txt(s.ch, it.charges);
+        cls(s.el, 'active', !!(targeting && targeting.kind === 'item' && targeting.slot === i));
+      }
+    }
+    if (me) txt(goldT, fmtGold(me.gold));
+    // shop
+    {
+      const inR = hero ? shopRange(hero) : false;
+      shop.update({ gold: me ? me.gold : 0, items: hero ? Array.from({ length: hero.items.length }, (_, i) => hero.items[i]) : [], inRange: inR, dead: !!(hero && hero.respawn > 0) });
+    }
+    updateSel(state);
+    // targeting banner
+    if (targeting) { sty(tgtBar, 'display', 'block'); const nm = targeting.name || ''; txt(tgtBar, nm ? `Select target: ${nm}  (Esc / right-click: cancel)` : 'Attack-move: click a target  (Esc: cancel)'); }
+    else sty(tgtBar, 'display', 'none');
+    drawRings(hero);
+  }
+
+  // ================================================================ events
+  const pendingFx = [];
+  function fx(events) {
+    if (!events) return;
+    if (!ctxState.state) { for (const e of events) pendingFx.push(e); return; }
+    const st = ctxState.state;
+    for (const ev of events) {
+      switch (ev.e) {
+        case EV.KILL: feed.kill(ev, st, ctxState.mySid); break;
+        case EV.CHAT: chat.add(ev); break;
+        case EV.MSG: if (ev.text) { msgs.show(ev.text, false); } break;
+        case EV.GOLD: if (ctxState.hero && ev.t === ctxState.hero.id && ev.g > 0) goldPop(ev.g); break;
+        case EV.END: end.show(ev.winner, ctxState.myTeam); break;
+        default: break;
+      }
+    }
+  }
+
+  // ================================================================ lifecycle
+  applyScale();
+  const onResize = () => applyScale();
+  addEventListener('resize', onResize);
+
+  return {
+    update, fx,
+    destroy() {
+      removeEventListener('resize', onResize);
+      tooltip.destroy(); minimap.destroy(); feed.destroy(); msgs.destroy(); chat.destroy(); end.destroy();
+      hudRoot.textContent = ''; hudRoot.classList.remove('h-root');
+    },
+    // ---- hooks for input.js / sandbox
+    setHandlers(hd) { handlers = Object.assign({ activate() {} }, hd); },
+    setTargeting(tg) { targeting = tg; if (!tg) aim = null; },
+    setAim(x, y) { aim = { x, y }; },
+    message,
+    toggleShop() { shop.toggle(); },
+    closeShop() { shop.close(); },
+    isShopOpen: () => shop.isOpen(),
+    isTyping: () => chat.isTyping(),
+    openChat() { chat.open(); },
+    setScoreboard(v) { sb.setOpen(v); },
+    select(id) { selectedId = id || null; },
+    get selected() { return selectedId; },
+    shop, chat, tooltip,
+  };
+}

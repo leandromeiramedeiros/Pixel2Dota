@@ -18,7 +18,7 @@ w.after(sec, fn)                   // one-shot timer, fn(w) called at the end of
 ```
 
 Orders (`o`): `{t:'move',x,y,q?}` `{t:'attack',id,q?}` `{t:'amove',x,y,q?}` `{t:'stop'}` `{t:'hold'}`
-`{t:'cast',slot,id?,x?,y?,q?}` `{t:'item',slot,id?,x?,y?,q?}` `{t:'learn',slot}` `{t:'buy',item}` `{t:'sell',slot}` `{t:'swap',a,b}`.
+`{t:'cast',slot,id?,x?,y?,q?}` `{t:'item',slot,id?,x?,y?,q?}` `{t:'learn',slot}` `{t:'buy',key}` `{t:'sell',slot}` `{t:'swap',a,b}`.
 `q` = shift-queue (max 8). `learn/buy/sell/swap` apply immediately and return success.
 
 ## Queries (all use the start-of-tick spatial grid; edge distance includes unit radius)

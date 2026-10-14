@@ -436,5 +436,4 @@ export default {
     '....KRRqRqK...'
   ]
   }
-});
-})(typeof window !== 'undefined' ? window : globalThis;
+};

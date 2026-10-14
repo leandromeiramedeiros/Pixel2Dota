@@ -22,7 +22,7 @@ export function issue(w, pid, o) {
   if (!u) return false;
   switch (o.t) {
     case ORDER.LEARN: return !u._dead && H.learn(w, u, o.slot | 0);
-    case ORDER.BUY: return typeof o.key === 'string' && !!items.buy(w, u, o.key);
+    case ORDER.BUY: { const k = o.key ?? o.item; return typeof k === 'string' && !!items.buy(w, u, k); }
     case ORDER.SELL: return !!items.sell(w, u, o.slot | 0);
     case ORDER.SWAP: return !!items.swap(w, u, o.a | 0, o.b | 0);
   }
@@ -208,7 +208,8 @@ function doCast(w, u, o, dt) {
     if (r !== true) { if (typeof r === 'string') notify(w, u, r); shift(u); return; }
     let tgt = { unit: null, x: u.x, y: u.y };
     if (spec.mode === 'unit') {
-      const t = w.units.get(o.id);
+      const tt = spec.itemSpec ? spec.itemSpec.targetTeam : spec.d && spec.d.targetTeam;
+      const t = w.units.get(o.id) || (o.id == null && /FRIENDLY|ALLY/.test(String(tt)) ? u : null); // ally-target with no id = self-cast
       if (!unitTargetOk(w, u, t, spec.d, spec.h, spec.itemSpec)) { shift(u); return; }
       tgt = { unit: t, x: t.x, y: t.y };
     } else if (spec.mode === 'point') {
