@@ -188,9 +188,9 @@ export function createCtx(args) {
   c.dust = (x, y, z, o, pal) => { const p = pal || PAL.earth; return burst({ x, y, z: z + 4, count: 20, shape: 'disc', radius: 20, life: [0.5, 1.1], size0: [20, 34], size1: [40, 66], col0: p.low, col1: p.dim, a0: 0.8, a1: 0, speed: [30, 140], flat: true, up: 14, drag: 2.2, mode: gmode }, o); };
   c.leaves = (x, y, z, o) => burst({ x, y, z, count: 14, shape: 'sphere', radius: 14, life: [0.9, 1.8], size0: 14, size1: 12, col0: [0.9, 1.2, 0.45], col1: [0.6, 0.9, 0.3], a0: 0.95, a1: 0.4, speed: [60, 190], up: [40, 160], gravity: -170, drag: 1.2, stamp: 'p_leaf', spin: [-5, 5], rot: [0, TAU] }, o);
   /** Flash: bright glow core and a short light. */
-  c.flash = (x, y, z, pal, size, dur) => {
+  c.flash = (x, y, z, pal, size, dur, lk = 1) => {   // lk scales the light (non-spell flashes stay dim)
     P.burst({ x, y, z, count: 3, life: [dur || 0.18, (dur || 0.18) * 1.5], size0: size * 0.75, size1: size * 1.4, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: gmode, noScale: true });
-    c.glow(x, y, z, pal.lt, Math.min(560, size * 5 + 80), 1.5, (dur || 0.18) * 3, { mode: 'fade' });
+    c.glow(x, y, z, pal.lt, Math.min(560, size * 5 + 80) * Math.sqrt(lk), 1.5 * lk, (dur || 0.18) * 3, { mode: 'fade' });
   };
   /** Line of pixel sparks along a->b (o.count density). */
   c.line = (x0, y0, z0, x1, y1, z1, pal, o) => burst(c.pix(pal, { x: x0, y: y0, z: z0, x2: x1, y2: y1, z2: z1, count: Math.max(16, Math.round(Math.hypot(x1 - x0, y1 - y0) * 0.45)), shape: 'line', life: [0.2, 0.5], speed: [0, 30], settle: false }), o);

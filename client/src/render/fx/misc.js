@@ -13,24 +13,24 @@ export function register(c, R) {
     if (x == null || !c.vis(x, y)) return;
     if (k.startsWith('npc_dota_hero_')) {
       // hero: soul flash + ring + rising wisps + embers
-      c.flash(x, y, z + 80, PAL.gold, 90, 0.3);
+      c.flash(x, y, z + 80, PAL.gold, 90, 0.3, 0.3);
       c.ring(x, y, z, PAL.gold, { R: 200, life: [0.5, 0.8] });
       c.blob(x, y, z + 70, PAL.sun, { count: 40, speed: [80, 300], size0: [26, 44] });
       c.embers(x, y, z + 40, PAL.gold, { count: 36 });
       P.burst(c.pix(PAL.ice, { x, y, z: z + 20, count: 260, shape: 'disc', radius: 24, life: [1.0, 1.9], speed: [0, 30], up: [140, 320], drag: 0.7, settle: false, rampTint: [1.3, 1.3, 1.3] }));
       c.smoke(x, y, z + 30, { count: 16 });
-      c.glow(x, y, z + 90, PAL.gold.lt, 520, 2.2, 0.8);
+      c.glow(x, y, z + 90, PAL.gold.lt, 240, 0.6, 0.6);   // deaths stay dim: big lights are for spells and items
     } else if (BUILDING.test(k)) {
       const big = /fort|ancient/i.test(k);
       const s = big ? 2.2 : 1.3;
-      c.flash(x, y, z + 80, PAL.fire, 120 * s, 0.35);
+      c.flash(x, y, z + 80, PAL.fire, 120 * s, 0.35, 0.4);
       c.ring(x, y, z, PAL.fire, { R: 260 * s, life: [0.6, 1.0] });
       c.pillar(x, y, z, PAL.fire, { count: Math.round(200 * s), radius: 70 * s, up: [500, 1800] });
       c.embers(x, y, z + 60, PAL.fire, { count: Math.round(50 * s), speed: [200, 600] });
       c.smoke(x, y, z + 40, { count: Math.round(24 * s), radius: 60 * s, size0: [50, 80], size1: [120, 180] });
       c.dust(x, y, z, { count: Math.round(30 * s), speed: [60, 260] });
-      c.glow(x, y, z + 110, PAL.fire.lt, 700 * s, 2.6, 1.2);
-      if (big) c.later(0.35, () => { c.ring(x, y, z, PAL.sun, { R: 520 }); c.flash(x, y, z + 120, PAL.sun, 200, 0.4); });
+      c.glow(x, y, z + 110, PAL.fire.lt, 300 * s, 0.8, 1.0);
+      if (big) c.later(0.35, () => { c.ring(x, y, z, PAL.sun, { R: 520 }); c.flash(x, y, z + 120, PAL.sun, 200, 0.4, 0.4); });
     } else {
       // creep / summon / ward: small soul puff
       c.sparks(x, y, z + 40, PAL.mana, { count: 8, speed: [60, 180] });

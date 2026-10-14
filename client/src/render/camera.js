@@ -7,11 +7,20 @@ import { heightAt } from '../../../shared/map.js';
 const D2R = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-/** Camera parameters at a distance: pitch/fov interpolate between (pitchMin, fovMin) at closeDistance and (pitch, fov) at distance. */
+/** Camera parameters at a distance: pitch/fov interpolate between (pitchMin, fovMin) at closeDistance and (pitch, fov) at distance;
+ *  below closeDistance they keep dropping to the showcase close-up (low, narrow, over the hero) at showcaseDistance. */
 export function camParams(d, cfg = CAMERA) {
-  const t = clamp((d - cfg.closeDistance) / (cfg.distance - cfg.closeDistance), 0, 1);
-  const pitch = cfg.pitchMin + (cfg.pitch - cfg.pitchMin) * t;
-  const fovH = cfg.fovH43Min + (cfg.fovH43 - cfg.fovH43Min) * t;
+  let pitch, fovH;
+  if (d >= cfg.closeDistance || cfg.showcaseDistance == null) {
+    const t = clamp((d - cfg.closeDistance) / (cfg.distance - cfg.closeDistance), 0, 1);
+    pitch = cfg.pitchMin + (cfg.pitch - cfg.pitchMin) * t;
+    fovH = cfg.fovH43Min + (cfg.fovH43 - cfg.fovH43Min) * t;
+  } else {
+    const s = clamp((d - cfg.showcaseDistance) / (cfg.closeDistance - cfg.showcaseDistance), 0, 1);
+    const e = s * s * (3 - 2 * s);
+    pitch = cfg.showcasePitch + (cfg.pitchMin - cfg.showcasePitch) * e;
+    fovH = cfg.showcaseFovH43 + (cfg.fovH43Min - cfg.showcaseFovH43) * e;
+  }
   return { pitch, fovH43: fovH, vfov: vfov(fovH) };
 }
 
@@ -26,8 +35,9 @@ export class CameraRig {
     this.tz = 0;                          // smoothed ground height under the target
     this.distance = CAMERA.distance;
     this.distanceGoal = CAMERA.distance;
-    this.minDist = CAMERA.distance;       // normal play: 1134..1200; dev zoom widens
+    this.minDist = CAMERA.showcaseDistance;   // zoom in only: far (1134 desktop, 1450 touch) .. showcase close-up
     this.maxDist = CAMERA.distanceMax;
+    this.far = CAMERA.distanceMax;
     this.aspect = 16 / 9;
     this.params = camParams(this.distance);
     this.snap = true;
@@ -35,11 +45,17 @@ export class CameraRig {
     this.apply();
   }
 
-  setDevZoom(on) { this.minDist = on ? 700 : CAMERA.distance; this.maxDist = on ? 2600 : CAMERA.distanceMax; this.distanceGoal = clamp(this.distanceGoal, this.minDist, this.maxDist); }
+  setDevZoom(on) { this.maxDist = on ? 2600 : this.far; this.distanceGoal = clamp(this.distanceGoal, this.minDist, this.maxDist); }
+  /** Furthest (and starting) distance: desktop 1134, touch 1450. */
+  setFar(d) { this.far = this.maxDist = d; this.distance = this.distanceGoal = d; }
+  /** Multiply the distance (factor < 1 = closer), clamped to showcase..far. */
+  zoomBy(f) { this.distanceGoal = clamp(this.distanceGoal * f, this.minDist, this.maxDist); }
+  /** Close-up past the normal close camera: the game keeps the hero centred. */
+  get showcase() { return this.distanceGoal < CAMERA.closeDistance - 1; }
   setTarget(x, y, snap = false) { this.goal.x = x; this.goal.y = y; if (snap) { this.target.x = x; this.target.y = y; this.tz = heightAt(x, y); } }
   getTarget() { return { x: this.goal.x, y: this.goal.y }; }
-  /** Wheel notch delta (positive = zoom out). */
-  zoom(delta) { this.distanceGoal = clamp(this.distanceGoal + delta * 33, this.minDist, this.maxDist); }
+  /** Wheel notch delta (positive = zoom out). ~9 notches from 1134 to the showcase close-up. */
+  zoom(delta) { this.zoomBy(Math.pow(1.12, delta)); }
   pan(dx, dy) { this.goal.x += dx; this.goal.y += dy; this.target.x += dx; this.target.y += dy; }
   /** Edge pan helper: mouse position in 0..1 viewport coords -> world movement for dt seconds. */
   edgePan(mx, my, dt, speed = 1800, margin = 0.012) {

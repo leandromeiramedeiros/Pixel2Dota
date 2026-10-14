@@ -51,6 +51,10 @@ export async function startGame({ root, net }) {
     view.myHeroId = p?.heroId || '';
     const hero = view.myHeroId ? st.units.get(view.myHeroId) : null;
     if (hero && !centred) { renderer.setTarget(hero.x, hero.y); centred = true; }
+    if (hero && renderer.isShowcase()) {   // showcase close-up stays on the (interpolated) hero
+      const hv = view.units.find((u) => u.id === view.myHeroId);
+      if (hv) renderer.setTarget(hv.x, hv.y);
+    }
     renderer.update(view, dt);
     hud.update(st, hero, net.mySid, view);
   };

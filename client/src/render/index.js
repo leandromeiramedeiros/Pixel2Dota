@@ -1,10 +1,10 @@
 // createRenderer({ canvas, sheets }) -> contract in docs/ARCHITECTURE.md ("Client code interfaces").
 import * as THREE from 'three';
 import { getMap, heightAt } from '../../../shared/map.js';
-import { ART_UNITS_PER_PX } from '../../../shared/constants.js';
+import { ART_UNITS_PER_PX, CAMERA } from '../../../shared/constants.js';
 import { ST } from '../../../shared/protocol.js';
 import { buildAtlas } from '../art/atlas.js';
-import { CameraRig } from './camera.js';
+import { CameraRig, camParams, visibleHeight } from './camera.js';
 import { createSharedUniforms } from './shaderlib.js';
 import { createLights } from './lights.js';
 import { createTerrain } from './terrain.js';
@@ -27,7 +27,7 @@ let fxMods = {};
 try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */ }
 
 const DEFAULTS = {
-  pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 0, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
+  pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
   shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: true, clutter: true,
 };
 
@@ -84,10 +84,13 @@ export function createRenderer({ canvas, sheets }) {
     rtSettledH = 0;
   }
   function fitRT(force) {
+    const vis = rig.visibleHeight / ART_UNITS_PER_PX;
+    if (post.height) uniforms.uArtPx.value = post.height / vis;   // every frame: sprites track a zoom while the target size holds
     const settled = Math.abs(rig.distance - rig.distanceGoal) < 1;
     if (!force && !settled && rtSettledH) return;
-    const vis = rig.visibleHeight / ART_UNITS_PER_PX;
-    const h = Math.max(48, Math.round(vis * settings.pixelScale));
+    // zoomed in past the normal camera (showcase) the low-res target keeps its normal-view size: art pixels grow into crisp blocks
+    const visN = visibleHeight(CAMERA.distance, camParams(CAMERA.distance).vfov) / ART_UNITS_PER_PX;
+    const h = Math.max(48, Math.round(Math.max(vis, visN) * settings.pixelScale));
     if (h === rtSettledH && post.height === h) return;
     rtSettledH = h;
     const w = Math.round(h * (cssW / cssH));
@@ -180,7 +183,7 @@ export function createRenderer({ canvas, sheets }) {
       case 'gold': { const t = u(ev.t); if (t && settings.damageNumbers) overlay.text(t.x, t.y, t.z || 0, '+' + ev.g, '#ffd23a', 1.4); break; }
       case 'heal': { const t = u(ev.t); if (t && settings.damageNumbers && ev.a >= 1) overlay.text(t.x, t.y, t.z || 0, '+' + Math.round(ev.a), '#5be36a', 0.9); break; }
       case 'mana': { const t = u(ev.t); if (t && settings.damageNumbers && ev.a >= 1) overlay.text(t.x, t.y, t.z || 0, '+' + Math.round(ev.a), '#5b8cff', 0.9); break; }
-      case 'lvl': { const t = u(ev.t); if (t) { overlay.text(t.x, t.y, t.z || 0, 'LEVEL UP', '#fff08a', 1.6, { big: true }); particles.burst({ x: t.x, y: t.y, z: (t.z || 0) + 10, count: 40, shape: 'ring', radius: 30, life: [0.6, 1.1], size0: 14, size1: 4, col0: [3, 2.6, 0.8], col1: [1.5, 1, 0.3], a0: 1, a1: 0, speed: [10, 30], up: [90, 240], gravity: -80, drag: 1, stamp: 'p_star' }); lights.add({ x: t.x, y: t.y, z: (t.z || 0) + 60, r: 1, g: 0.9, b: 0.4, radius: 420, intensity: 1.2 }); } break; }
+      case 'lvl': { const t = u(ev.t); if (t) { overlay.text(t.x, t.y, t.z || 0, 'LEVEL UP', '#fff08a', 1.6, { big: true }); particles.burst({ x: t.x, y: t.y, z: (t.z || 0) + 10, count: 40, shape: 'ring', radius: 30, life: [0.6, 1.1], size0: 14, size1: 4, col0: [3, 2.6, 0.8], col1: [1.5, 1, 0.3], a0: 1, a1: 0, speed: [10, 30], up: [90, 240], gravity: -80, drag: 1, stamp: 'p_star' }); lights.add({ x: t.x, y: t.y, z: (t.z || 0) + 60, r: 1, g: 0.9, b: 0.4, radius: 200, intensity: 0.4 }); } break; }
       case 'death': {
         const t = u(ev.t); if (!t) break;
         particles.burst({ x: t.x, y: t.y, z: (t.z || 0) + 20, count: 14, life: [0.5, 1.0], size0: 18, size1: 40, col0: [0.5, 0.45, 0.4], col1: [0.2, 0.18, 0.16], a0: 0.7, a1: 0, speed: [20, 70], up: [10, 60], drag: 2.2, mode: 'glow' });
@@ -270,6 +273,9 @@ export function createRenderer({ canvas, sheets }) {
     setTarget(x, y) { rig.setTarget(x, y, false); },
     snapTarget(x, y) { rig.setTarget(x, y, true); },
     zoom(delta) { rig.zoom(delta); },
+    zoomBy(f) { rig.zoomBy(f); },
+    setCameraFar(d) { rig.setFar(d); fitRT(true); },
+    isShowcase() { return rig.showcase; },
     getTarget() { return rig.getTarget(); },
     update,
     fx(events) {

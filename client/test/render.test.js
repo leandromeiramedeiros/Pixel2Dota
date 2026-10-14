@@ -69,6 +69,14 @@ test('camParams: game angle at default distance, closer is flatter', () => {
   assert.ok(visibleHeight(1134, far.vfov) > 1000);
 });
 
+test('camParams: showcase close-up below the close camera, continuous at closeDistance', () => {
+  const sc = camParams(CAMERA.showcaseDistance), near = camParams(CAMERA.closeDistance), justIn = camParams(CAMERA.closeDistance - 0.01);
+  assert.equal(sc.pitch, CAMERA.showcasePitch);
+  assert.ok(sc.pitch < near.pitch && sc.vfov < near.vfov);
+  assert.ok(Math.abs(justIn.pitch - near.pitch) < 0.01 && Math.abs(justIn.vfov - near.vfov) < 0.01);
+  assert.equal(camParams(CAMERA.showcaseDistance - 100).pitch, CAMERA.showcasePitch);   // clamped
+});
+
 test('selectLights: capped, prefers bright & near', () => {
   const list = [];
   for (let i = 0; i < 50; i++) list.push({ x: i * 100, y: 0, radius: 300, intensity: 1 });

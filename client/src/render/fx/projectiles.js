@@ -45,6 +45,7 @@ export function createProjectiles(c, R) {
     const pal = ch === 'Q' ? PAL.ice : ch === 'W' ? PAL.arc : PAL.fire;
     ORBDEF[ch] = { frames: 'invoker_orb_' + ch.toLowerCase(), fps: 12, scale: 1.4, tint: [1.4, 1.4, 1.4], emit: 3, pal, light: { col: pal.lt, radius: 300, int: 1, elem: ch }, trail: { pal, rate: 80, size: [8, 14] } };
   }
+  const ATK_LIGHT = 0.3;   // basic-attack light scale
   function atkDef(k, su) {
     if (k === 'invoker') { const o = su && su.orbs ? su.orbs[su.orbs.length - 1] : 'Q'; return ORBDEF[(o || 'Q').toUpperCase()] || ORBDEF.Q; }
     const team = su && su.team === 1 ? 1 : 0;
@@ -61,7 +62,7 @@ export function createProjectiles(c, R) {
     const p = alloc(); if (!p) return null;
     p.def = def; p.key = key; p.id = id || ''; p.frames = def.frames ? framesOf(c, def.frames) : null;
     p.x = sx; p.y = sy; p.z = sz; p.z0 = sz; p.tid = tid || ''; p.sid = sid || ''; p.track = track; p.tx = ex; p.ty = ey; p.tz = ez; p.sp = sp > 0 ? sp : 900;
-    p.t = 0; p.seed = Math.random() * 100; p.data = null;
+    p.t = 0; p.seed = Math.random() * 100; p.data = null; p.atk = false;
     const dx = ex - sx, dy = ey - sy, dz = ez - sz, d = Math.hypot(dx, dy, dz) || 1;
     p.dx = dx / d; p.dy = dy / d; p.dz = dz / d; p.d0 = Math.max(1, Math.hypot(dx, dy));
     p.maxT = d / p.sp + (maxExtra == null ? 1.2 : maxExtra);
@@ -79,8 +80,9 @@ export function createProjectiles(c, R) {
   function defaultHit(p) {
     const pal = p.def.pal || PAL.mana;
     c.sparks(p.x, p.y, p.z, pal, { count: 8, life: [0.15, 0.4], speed: [60, 200], size0: [6, 10] });
-    P.burst({ x: p.x, y: p.y, z: p.z, count: 2, life: [0.12, 0.2], size0: 22, size1: 34, col0: pal.hot, col1: pal.mid, a0: 1, a1: 0, mode: 'glow', noScale: true });
-    c.glow(p.x, p.y, p.z, pal.lt, 260, 1.2, 0.25, { mode: 'fade' });
+    const a = p.atk;
+    P.burst({ x: p.x, y: p.y, z: p.z, count: 2, life: [0.12, 0.2], size0: a ? 12 : 22, size1: a ? 18 : 34, col0: pal.hot, col1: pal.mid, a0: a ? 0.6 : 1, a1: 0, mode: 'glow', noScale: true });
+    if (!a) c.glow(p.x, p.y, p.z, pal.lt, 260, 1.2, 0.25, { mode: 'fade' });
   }
 
   const _tint = [1, 1, 1];
@@ -119,7 +121,8 @@ export function createProjectiles(c, R) {
         const tr = def.trail;
         if (tr) { if (typeof tr === 'function') tr(c, p, dt); else trail(tr, p, dt); }
         const lt = def.light;
-        if (lt) c.lightNow(p.x, p.y, p.z + 6, lt.col, lt.radius, lt.int * (lt.elem ? elemMul(lt.elem, c.T, p.seed) : 1), 0);
+        // only spells and items cast big lights: basic attacks (heroes, creeps, towers) carry a faint glow
+        if (lt) c.lightNow(p.x, p.y, p.z + 6, lt.col, p.atk ? Math.min(lt.radius, 130) : lt.radius, (p.atk ? ATK_LIGHT : 1) * lt.int * (lt.elem ? elemMul(lt.elem, c.T, p.seed) : 1), 0);
         if (def.tick) def.tick(c, p, dt);
       }
       if (done) impact(p);
@@ -149,7 +152,8 @@ export function createProjectiles(c, R) {
       if (!def || !c.vis(su.x, su.y) && !c.vis(tu.x, tu.y)) return;
       const sz = c.chest(su);
       const off = su.kind === 'tower' ? 0 : 26, f = su.facing || 0;
-      launch(def, ev.k, '', su.x + Math.cos(f) * off, su.y + Math.sin(f) * off, sz, tu.id, su.id, tu.x, tu.y, c.chest(tu), ev.sp, true, 0.8);
+      const p = launch(def, ev.k, '', su.x + Math.cos(f) * off, su.y + Math.sin(f) * off, sz, tu.id, su.id, tu.x, tu.y, c.chest(tu), ev.sp, true, 0.8);
+      if (p) p.atk = true;
     },
     /** EV.PROJ */
     start(ev, su, tu) {
