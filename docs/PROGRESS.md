@@ -36,3 +36,14 @@
 - Fog of war quite dark
 - Weak sniper_headshot and gold icons
 - Neutrals/Roshan/wards (server/src/sim/neutrals.js, wards.js): no neutral abilities, single Roshan pit, no HUD ward stock display; sentry true sight 1050 and observer restock 135 s are the baked values
+
+## Local session (2026-10-14)
+
+- P1: in-match menu (Esc / ☰): Resume, Graphics Low/Medium/High (persisted; Low by default on phones; auto-drop on low FPS), FPS/ping, Quit to lobby
+- P2: no fight whiteout: adaptive exposure + hue-preserving roll-off (post.js tmHue), gentler bloom, spell-light hue locality, light selection linear in radius
+- Touch zoom 1300 (pinch to 1450)
+- Spell rings (`c.ringDecal`) are 3D geo3d targeting discs with a coloured ground light; no Bayer dither on geo3d fx / beams
+- Invoker orbs orbit tight at chest height with comet trails; each lights, rims and shadows its side of him
+- Universal sprite depth: each sprite pixel sorts at its true height above the foot (upright card), so 3D fx, lights, orbs and meshes occlude units consistently
+- Barracks/house hip roofs no longer warped
+- Still open: iPhone retest (rejoin, rubber-banding, zoom 1300, Low vs High, ☰ menu)

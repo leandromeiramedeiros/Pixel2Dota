@@ -41,9 +41,10 @@ void main(){
   vFoot = iPos;
   vRect = iRect; vSize = iSize; vTint = iTint; vOut = iOut; vMisc = iMisc;
   // upright-card depth: world height of this vertex = its RT-px offset above the foot / RT px per world unit of height at the foot
+  // (pixels below the pivot, e.g. centred pickups, keep the foot depth so they never sink under the terrain)
   vec4 fu = projectionMatrix * viewMatrix * vec4(iPos + vec3(0., 100., 0.), 1.);
   float kpx = max((fu.y / fu.w - fp.y / fp.w) * .5 * uRT.y / 100., 1e-3);
-  vec4 fh = projectionMatrix * viewMatrix * vec4(iPos + vec3(0., off.y / kpx, 0.) + toCam * ${DEPTH_PULL.toFixed(1)}, 1.);
+  vec4 fh = projectionMatrix * viewMatrix * vec4(iPos + vec3(0., max(off.y, 0.) / kpx, 0.) + toCam * ${DEPTH_PULL.toFixed(1)}, 1.);
   gl_Position = vec4(ndc * fp.w, fh.z / fh.w * fp.w, fp.w);
 }`;
 
