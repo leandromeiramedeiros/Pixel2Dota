@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { COMMON_GLSL, UNIFORMS_GLSL } from '../shaderlib.js';
 
 export const MAX_TUBES = 24;
-export const MAX_DISCS = 32;
+export const MAX_DISCS = 64;
 export const MAX_RIB = 480;          // ribbon instances (2 per bolt segment: glow + core)
 export const MAX_BOLT_SEG = 56;
 const STRIDE = 16;                   // 4 vec4 per instance in every batch
@@ -24,8 +24,8 @@ const HASH = /* glsl */ `float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.
 // fog-of-war dim, same remap particles.js uses
 const FOGK = /* glsl */ `float fogK(vec3 w){ float fb = fogBright(w, gl_FragCoord.xy); return clamp((fb - uFogLv.x) / (1. - uFogLv.x), 0., 1.); }`;
 const OUT = /* glsl */ `
-vec4 outCol(vec3 col, float v, float n){            // Bayer-quantised intensity: floor(v*n + bayer)/n, alpha channel untouched
-  float q = floor(v * n + bayer4(gl_FragCoord.xy)) / n;
+vec4 outCol(vec3 col, float v, float n){            // stepped intensity bands (no ordered dither: it read as a fine white grid), faint tail stays smooth; alpha untouched
+  float q = floor(v * n + .5) / n; if (q < .5 / n) q = v;
   return vec4(col * q, 0.);
 }`;
 

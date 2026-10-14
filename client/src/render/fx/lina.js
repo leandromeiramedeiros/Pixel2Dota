@@ -35,7 +35,7 @@ export function register(c, R) {
     const p = c.at(ev, su, null); if (!p) return;
     const x = p.x, y = p.y, rad = ev.r || 225, dur = ev.dur || 0.5, z = c.zAt(x, y);
     c.ringDecal(x, y, rad, dur + 0.1, [3.4, 1.2, 0.5], { emit: 1.4, pulse: 0.3, pulseHz: 14, fadeOut: 0.05 });
-    c.decal(x, y, 'decal_ring_target', rad * 0.6 / 78, dur, { tint: [3.6, 1.8, 0.7], emit: 1.2, spin: -2, fadeOut: 0.05 });
+    c.ringDecal(x, y, rad * 0.6, dur, [3.6, 1.8, 0.7], { emit: 1.2, spin: -2, fadeOut: 0.05, light: false });
     const lt = c.glow(x, y, z + 30, pal.lt, rad * 2.2, 0.2, dur, { mode: 'flat', elem: 'E' });
     c.run(dur, (r, dt) => {
       lt.int = 0.2 + 0.9 * r.k;

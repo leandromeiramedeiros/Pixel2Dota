@@ -165,7 +165,8 @@ float hfShadow(vec3 p, vec3 lp){
   return vis;
 }   // receivers that also cast as billboards (sprites) set 0: their own light-facing card would self-shadow them
 vec3 pointLights(vec3 p, vec3 n, float soft){
-  vec3 acc = vec3(0.), sp = vec3(0.);   // sp: spell light, compressed as a whole so a stacked teamfight doesn't blow out to white
+  vec3 acc = vec3(0.), sp = vec3(0.), hw = vec3(0.);   // sp: spell light, compressed as a whole so a stacked teamfight doesn't blow out to white
+  float ws = 0.;                                         // hw / ws: colour weighted by each light's own brightness (local dominant hue)
   for (int i = 0; i < ${MAX_LIGHTS}; i++){
     if (i >= uLN) break;
     vec3 d = uLP[i].xyz - p;
@@ -182,8 +183,10 @@ vec3 pointLights(vec3 p, vec3 n, float soft){
     }
     float ndl = max(dot(n, d / max(dist, 1.)), 0.);
     vec3 c = uLC[i].rgb * (a * mix(ndl, 1., spell ? max(soft, .7) : soft));   // spell lights stay strong at grazing angles
-    if (spell) sp += c; else acc += c;
+    if (spell) { sp += c; float w = max(c.r, max(c.g, c.b)); hw += c * w; ws += w; } else acc += c;
   }
+  // overlapping spells: pull the summed colour toward the locally dominant light's hue (a plain sum of 20 colours is a muddy lavender)
+  if (ws > 1e-3) { vec3 hc = hw / ws; float mh = max(hc.r, max(hc.g, hc.b)), ms = max(sp.r, max(sp.g, sp.b)); if (mh > 1e-4) sp = mix(sp, hc * (ms / mh), .6); }
   float m = max(sp.r, max(sp.g, sp.b)), o = m - uKnee.x;
   if (uKnee.y > 0. && o > 0.) sp *= (uKnee.x + o / (1. + o / uKnee.y)) / m;   // hue-preserving soft knee on the brightest channel
   return acc + sp;

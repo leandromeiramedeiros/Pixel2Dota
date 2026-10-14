@@ -86,7 +86,7 @@ export function register(c, R) {
     c.ring(su.x, su.y, su.z || 0, pal, { R: 140 });
     c.blob(su.x, su.y, c.chest(su), PAL.arc, { count: 30, speed: [40, 160] });
     c.swirl(id, 1.4, PAL.arc, { r: 34, rate: 60, speed: 6 });
-    c.decal(su.x, su.y, 'decal_ring_target', rad / 78, dur, { tint: [0.35, 0.8, 1.4], emit: 1, follow: id, fadeIn: 0.1, fadeOut: 0.12, bright: 0.9, spin: 0.1 });
+    c.ringDecal(su.x, su.y, rad, dur, [0.35, 0.8, 1.4], { emit: 0.9, follow: id, fadeIn: 0.1, fadeOut: 0.12, spin: 0.1 });
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
       const n = c.n(70 * dt);
@@ -133,7 +133,7 @@ export function register(c, R) {
     const x = ev.x, y = ev.y; if (x == null) return;
     const rad = ev.r || 675, dur = ev.dur || 2.9, z = c.zAt(x, y), pal = PAL.arc;
     c.ringDecal(x, y, rad, dur + 0.2, [1.4, 0.6, 2.8], { emit: 1.4, spin: 0.3, pulse: 0.2, pulseHz: 14, fadeOut: 0.1 });
-    c.decal(x, y, 'decal_ring_target', rad * 0.66 / 78, dur, { tint: [0.8, 0.4, 1.8], emit: 1, spin: -0.6, pulse: 0.15, pulseHz: 9, fadeOut: 0.1 });
+    c.ringDecal(x, y, rad * 0.66, dur, [0.8, 0.4, 1.8], { emit: 1, spin: -0.6, pulse: 0.15, pulseHz: 9, fadeOut: 0.1, light: false });
     const lt = c.glow(x, y, z + 70, pal.lt, rad * 0.8, 0.5, dur, { mode: 'flat', elem: 'W' });
     c.run(dur, (r, dt) => {
       lt.int = 0.5 + 1.6 * r.k;
