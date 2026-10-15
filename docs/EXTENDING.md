@@ -20,7 +20,7 @@ any spell without a server) or a real match with cheats. Never self-certify visu
    Full surface: `server/src/sim/API.md`.
 4. **Bots** `server/src/sim/bots.js`: optional `BUILD[heroKey]` (item list; falls back to Sven's) and `MELEE_CORE[heroKey]` (1 melee / 2 ranged start set; else caster set).
    Skill learning and spell usage are generic (DATA behavior); add a special case only if the hero misplays (see `mirana_leap`).
-5. **Body (voxel)** `shared/vox/heroes/<short>.js`, a params file on the kit ([VOXEL.md](VOXEL.md); samples `heroes/lina.js`, `creeps/melee.js`):
+5. **Body (voxel)** `shared/vox/heroes/<short>.js`, a params file on the kit ([VOXEL.md](VOXEL.md); samples `heroes/lina.js`, `creeps/melee_radiant.js`):
    `META { rig, grid, cx, cy }`, `build(pose)` -> `Vox` (34x30x48, faces -y, feet on z 0), `ANIMS { idle, walk, attack, cast, stunned }`.
    Body = `solve('biped', PROP, pose)` + `parts.js` builders; materials via `useMat` (override only signature colours; emissives carry a `tier`; heroes
    never use `team: true`: one colour scheme for both teams); poses = `LIBRARY[rig](opts)` + `withPoses` for signature frames.

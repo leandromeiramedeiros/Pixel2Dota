@@ -5,9 +5,12 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Vox } from '../../shared/vox/vox.js';
 import * as LINA from '../../shared/vox/lina.js';
+import * as MELEE_R from '../../shared/vox/creeps/melee_radiant.js';
+import * as MELEE_D from '../../shared/vox/creeps/melee_dire.js';
 import { meshVox, buildVoxFrames, faceNormal, voxCentre, emitGain, F_TEAM, F_CORNER, TIER_K } from '../src/render/voxmesh.js';
 
-const MODELS = [{ name: 'lina', build: LINA.build || LINA.buildLina, anims: LINA.ANIMS, cx: 17, cy: 15, eyes: true }];
+const MODELS = [{ name: 'lina', build: LINA.build || LINA.buildLina, anims: LINA.ANIMS, cx: 17, cy: 15, eyes: true },
+  ...[['melee_radiant', MELEE_R], ['melee_dire', MELEE_D]].map(([name, m]) => ({ name, build: m.build, anims: m.ANIMS, cx: m.META.cx, cy: m.META.cy, eyes: true }))];
 const EYE = /^(lash|iris|pupil|shine|eye)/;
 
 /** Brute-force footprint of a Vox (model units, unit 1, grounded) for comparison with userData.fp. */
@@ -85,7 +88,8 @@ test('voxmesh: emissive tiers (+ legacy Lina names) and team flag', () => {
   assert.equal(emitGain({ name: 'x', tier: 'eye' }), TIER_K.eye);
   assert.equal(emitGain({ name: 'x', tier: 'signature' }), TIER_K.signature);
   assert.equal(emitGain({ name: 'x', tier: 'spell' }), TIER_K.spell);
-  assert.equal(emitGain({ name: 'x', tier: 'eye', gain: 3 }), 1);           // gain clamped into the tier band
+  assert.equal(emitGain({ name: 'x', tier: 'eye', gain: 1.4 }), 1.4);       // per-model gain is free (Invoker orbs, Rubick staff tip) ...
+  assert.equal(emitGain({ name: 'x', tier: 'spell', gain: 3 }), 1.8);        // ... inside the global EMIT_RANGE cap
   assert.equal(emitGain({ name: 'x' }), 1);                                 // untiered
   assert.equal(emitGain({ name: 'f4' }), 1.7); assert.equal(emitGain({ name: 'shine' }), 0.95);   // legacy names keep their gains
   assert.equal(emitGain({ name: 'f3', tier: 'spell' }), 1.5);               // ... also once the model declares the same tier

@@ -12,16 +12,17 @@ import * as THREE from 'three';
 import { smoothNormal } from '../../../shared/vox/vox.js';
 
 export const F_TEAM = 8, F_CORNER = 16;   // aFace bit fields (face id in bits 0-2)
-// Emissive tiers (mats declare mat.tier; optional mat.gain fine-tunes inside the tier band): eyes / mouth <= 1, signature glow ~1.2, spell flames mildly HDR.
+// Emissive tiers = starting gains (mats declare mat.tier): eyes / mouth <= 1, signature glow ~1.2, spell flames mildly HDR. A model may set its own
+// mat.gain per part (Invoker's orbs, Rubick's staff tip): free inside EMIT_RANGE, the global cap that keeps bloom from whiting out.
 export const TIER_K = { eye: 1, signature: 1.2, spell: 1.6 };
-const TIER_BAND = { eye: [0.5, 1], signature: [1, 1.35], spell: [1.35, 1.8] };
-const LEGACY_TIER = { shine: ['eye', 0.95], f1: ['signature', 1], f2: ['signature', 1.15], f3: ['spell', 1.5], f4: ['spell', 1.7] };   // Lina's pre-tier names keep their exact gains
+export const EMIT_RANGE = [0.5, 1.8];
+const LEGACY_TIER = { shine: ['eye', 0.95], f1: ['signature', 1], f2: ['signature', 1.15], f3: ['spell', 1.5], f4: ['spell', 1.7] };   // Lina's tuned gains
 
-/** Emit gain of an emissive material: its tier (or the legacy name table), clamped to the tier band; untiered = 1. */
+/** Emit gain of an emissive material: mat.gain, else Lina's tuned value, else its tier's default (untiered = 1); clamped to EMIT_RANGE. */
 export function emitGain(mat) {
-  const L = LEGACY_TIER[mat.name], tier = mat.tier || (L && L[0]); if (!TIER_K[tier]) return 1;
-  const b = TIER_BAND[tier], g = mat.gain ?? (L && L[0] === tier ? L[1] : TIER_K[tier]);
-  return Math.min(b[1], Math.max(b[0], g));
+  const L = LEGACY_TIER[mat.name], tier = mat.tier || (L && L[0]);
+  const g = mat.gain ?? (L && L[0] === tier ? L[1] : TIER_K[tier] ?? 1);
+  return Math.min(EMIT_RANGE[1], Math.max(EMIT_RANGE[0], g));
 }
 
 /** Default colour hook: lit mats -> light ramp step (ramp[2]) as albedo, emissive mats -> emit colour, tier gain. Colours are /255 floats. */

@@ -1,13 +1,14 @@
 // Voxel kit check (node tools/art/heroes/vox_kit_check.mjs):
 //  1. Lina equivalence: the kit port (shared/vox/heroes/lina.js) vs the frozen hand-built original (lina_vox_ref.mjs), every ANIMS frame:
 //     voxel diff by material name, material defs (ramp / emit / noShadow), and a render diff with the showcase camera (lina_vox_shot.mjs).
-//  2. Kit models (creeps): every frame builds, feet on z = 0, nothing touches the grid walls, team voxels present, emissive tiers valid.
+//  2. Kit models (creeps): every frame builds, feet on z = 0, nothing touches the grid walls, team voxels present (META.team), emissive tiers valid.
 //  3. Rig classes: every class solves its default pose and every library pose to finite joints.
 import { renderVox } from '../vox.mjs';
 import { build as buildLina, ANIMS } from '../../../shared/vox/heroes/lina.js';
 import * as linaShim from '../../../shared/vox/lina.js';
 import { buildLina as buildRef, ANIMS as REF_ANIMS } from './lina_vox_ref.mjs';
-import * as melee from '../../../shared/vox/creeps/melee.js';
+import * as meleeRadiant from '../../../shared/vox/creeps/melee_radiant.js';
+import * as meleeDire from '../../../shared/vox/creeps/melee_dire.js';
 import { RIGS, solve } from '../../../shared/vox/rig.js';
 import { LIBRARY } from '../../../shared/vox/poses.js';
 import { TIERS } from '../../../shared/vox/mats.js';
@@ -34,7 +35,7 @@ for (const [anim, poses] of Object.entries(ANIMS)) poses.forEach((p, i) => {
 ok(total === 0 && totalPx === 0, `Lina differs from the reference: ${total} voxels, ${totalPx} px`);
 
 // ---- 2. kit models
-for (const [name, mod] of Object.entries({ melee })) {
+for (const [name, mod] of Object.entries({ meleeRadiant, meleeDire })) {
   const { cx, cy } = mod.META;
   for (const [anim, poses] of Object.entries(mod.ANIMS)) poses.forEach((p, i) => {
     const v = mod.build(p), tag = `${name} ${anim}[${i}]`;
@@ -47,10 +48,11 @@ for (const [name, mod] of Object.entries({ melee })) {
     }
     ok(zmin === 0, `${tag}: feet not on z = 0 (min z ${zmin})`);
     ok(wall === 0, `${tag}: ${wall} voxels on the grid walls (clipped)`);
-    ok(team > 0, `${tag}: no team voxels`);
+    if (mod.META.team) ok(team > 0, `${tag}: no team voxels`);   // team-tinted models only (lane melee creeps are two models)
     ok(Math.abs(sx / nf - cx) < 2.5, `${tag}: feet centre x ${(sx / nf).toFixed(1)} far from cx ${cx}`);
     for (const m of v.mats.slice(1)) if (m.emit) ok(TIERS.includes(m.tier), `${tag}: emissive ${m.name} without a valid tier`);
-    if (i === 0) console.log(`${tag.padEnd(16)} voxels ${nv}  team ${team}  feet centre (${(sx / nf).toFixed(1)}, ${(sy / nf).toFixed(1)})`);
+    let zmax = 0; for (let k = 0; k < v.g.length; k++) if (v.g[k]) zmax = Math.max(zmax, Math.floor(k / (v.X * v.Y)));
+    if (i === 0) console.log(`${tag.padEnd(22)} height ${zmax + 1}  voxels ${nv}  team ${team}  feet centre (${(sx / nf).toFixed(1)}, ${(sy / nf).toFixed(1)})`);
   });
 }
 

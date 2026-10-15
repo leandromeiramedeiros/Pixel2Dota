@@ -1,7 +1,7 @@
 # Voxel units: kit, runtime, rules
 
 Every unit, building, tree, clutter prop and the terrain is voxel. FX, particles, projectiles and telegraphs are not. Item and ability icons stay
-pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creep (`shared/vox/creeps/melee.js`) are the samples. To add one, see
+pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creeps (`shared/vox/creeps/melee_radiant.js`, `melee_dire.js`) are the samples. To add one, see
 [EXTENDING.md](EXTENDING.md#add-a-hero).
 
 ![Voxel Lina](voxel-chibi/lina_vox.png)
@@ -26,7 +26,7 @@ pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creep (`shared/v
 - One material id per voxel (`Uint8`, 0 = empty, max 255 mats per model).
 - **Characters 4.2 world units per voxel, world 8.4** (exact 2:1). Size a model by voxel count, never by scaling `unit`. Proportions follow Dota:
   creep < hero < Roshan; a tower is about 3 heroes tall.
-- Grids: hero 34x30x48 (~44 tall), creep 24x22x32 (~29 tall), big neutrals / Roshan larger. The face goes first on a smaller grid: a hero needs room for a
+- Grids: hero 34x30x48 (~44 tall), creep ~30x30x34 (~25-29 tall; room for weapons in every pose), big neutrals / Roshan larger. The face goes first on a smaller grid: a hero needs room for a
   3x4 eye (lash, iris, pupil, shine).
 
 ## Model contract
@@ -67,8 +67,8 @@ Pose channels (all optional): `bob`; `spine` / `head` / `body` `[pitch, yaw, rol
 `useMat(v, name, { from, ...overrides })`. Heroes pick by name and override only signature colours.
 - **Lit** `{ ramp: [dark, mid, light, highlight] }`, hue-shifted (shadows to purple / crimson, highlights warm, never black / white). Outline = the dark step
   toward deep purple. `noShadow` on skin (hair shadow makes the face dirty).
-- **Emissive** `{ emit, tier }`, never shaded. Tiers: `eye` <= 1.0, `signature` ~1.2, `spell` 1.5-1.7 (`mat.gain` fine-tunes inside the band). Glow keys
-  on the tier, never the name; only Lina's old names keep their original gains (`LEGACY_TIER`) until the director re-approves her at tier values.
+- **Emissive** `{ emit, tier, gain? }`, never shaded. Tiers give the starting gain: `eye` 1.0, `signature` 1.2, `spell` 1.6. A hero may tune its own
+  glowing parts with `gain` (Invoker's orbs, Rubick's staff tip, Lina's flames); every gain is capped to `EMIT_RANGE` 0.5-1.8 so bloom never whites out.
 - `team: true` = tinted per instance (creeps, buildings; never heroes).
 - Library: skin (`skin`, `skinPale`, `skinTan`, `skinDeep`, `skinGreen`, `blush`), metal (`gold`, `silver`, `steel`, `iron`, `bronze`), `leather[L]`,
   cloth (`clothRed` ... `clothBlack`), `wood[Dark]`, `stone`, `bone`, team (`teamCloth`, `teamMetal`), face (`lash`, `pupil`, `mouth`, `shine`, `eyeDot`,
@@ -102,7 +102,7 @@ model.
 ## Rules
 1. **Likeness lives in a few params:** fringe line, eye block (size, lash wing, shine), hair-curtain silhouette, one signature part. Body detail barely shows.
 2. **Hair = a shell with a carved face window**, not strands. Paint face details with `paintFront`.
-3. **Emissive only for eyes and signature / spell parts**, on the tier scale.
+3. **Emissive only for eyes and signature / spell parts**; tiers are the default, each hero may tune its own.
 4. **No runtime skinning:** frames are rebuilt per pose at load. Sway (`aSw`, trees today; planned for hair / capes) is the only vertex animation.
 5. **Every model has checks:** add it to `vox_kit_check.mjs` and `MODELS` in `voxmesh.test.js` (feet on z 0, winding, footprint, tiers, memory).
 6. **Director gate per model:** an offline sheet + an in-game shot to the creative director before registering. Never self-certify visuals.
@@ -114,7 +114,7 @@ One director gate per batch, with in-game shots.
 | Batch | Scope | State |
 |---|---|---|
 | 0. Foundation | Compact mesher, lazy build, registry, footprint, kit, tiers, team tint, death, CI checks | done |
-| 1. Lane creeps | Melee, ranged, siege (team tint); `max` >= 64 per frame | melee model drafted |
+| 1. Lane creeps | Melee, ranged, siege: Radiant and Dire are separate models after the Dota 2 ones (no team tint); `max` >= 64 per frame | melee Radiant + Dire drafted, awaiting the director gate |
 | 2. Buildings | Tower, barracks, fort, fountain, shop, lantern, filler; `lean: false`; rubble on destroy | |
 | 3. Heroes | The 12 after Lina | |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |

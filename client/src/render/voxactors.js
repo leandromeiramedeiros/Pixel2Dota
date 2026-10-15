@@ -26,6 +26,7 @@ export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: char
  */
 export const VOX_UNITS = {
   lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
+  // melee creeps: shared/vox/creeps/melee_radiant.js + melee_dire.js (separate models, no team tint) are not registered until the director gate.
 };
 /** Registry entry from a model module ({ build, ANIMS, META: { cx, cy, rig } }); o overrides (unit, max, lean, keys, ...). */
 export function voxEntry(mod, o = {}) {
