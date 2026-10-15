@@ -19,25 +19,28 @@
 //
 // API (G = c.G; every call returns false when its batch is full or a <= 0; col = [r,g,b] HDR; a = alpha gain, stepped / dithered)
 //   G.tube(x, y, z, h, r0, r1, col, a, o)        base centre, height along o.axis, base / top radius
-//        o {axis [x,y,z], sweep, start, edge, front, swirl, phase, pow, flare, top, foot, footPull}
+//        o {axis [x,y,z], sweep, start, edge, front, swirl, phase, pow, flare, top, foot, footPull, smoke (alpha-over batch, max 16: dust can darken)}
 //   G.disc(x, y, z, R, mode, col, a, o)          flat on the ground at z; mode 0 RING {rin, p1 power, p2 rim}, 1 TARGET {n dashes, p0 phase, p1 fill,
-//        p2 rays}, 2 SHOCK {p0 front 0..1, p1 band, p2 mist, n cells}, 3 FILL {p1 falloff, p2 noise, p3 rim, rin spokes, n, p0 spoke phase}
+//        p2 rays}, 2 SHOCK {p0 front 0..1, p1 band, p2 mist, n cells}, 3 FILL {p1 falloff, p2 noise, p3 rim, rin spokes, n, p0 spoke phase}; any mode: pull
 //   G.orb(x, y, z, R, col, a, mode, o)           centre; mode G.GLOW {p2 centre fill} | G.ICE {p1 glint share}; o {sx, sy, sz, yaw, pitch, roll, lump, seed, foot, footPull}
 //   G.shard(x, y, z, L, w, yaw, pitch, roll, col, a, mode, o)   base point -> tip; ICE / GLOW; o {lump, seed, p1, p2, foot, footPull}
 //   G.rock(x, y, z, R, lava, heat, spin, a, o)   opaque lava rock (writes depth)
 //   b = G.newBolt() (pooled, null when all 20 are out) ; b.roll(c.T, period, x0, y0, z0, x1, y1, z1, {depth, jag, branches, branchLen, branchJag})
 //        G.bolt(b, glowCol, glowPx, coreCol, corePx, a) every frame ; G.free(b) when done (c.run(dur, fn, () => G.free(b)))
+//   G.groundSpan(zAt, x, y, R) -> {z, pull} for a wide disc on uneven ground (once per cast)
 //   G.lod (0 low, 1 medium, 2 high / ultra) ; G.stats (this frame's instance counts) ; G.peak / G.resetPeak() (budget high-water marks)
 // Depth near units: voxel units write their FOOT depth (mesh3d propDepth: foot card pulled ~20 toward the camera), so anything at body height
 // with real depth wins the depth test even behind them. foot / footPull: solids take ONE depth (their centre's ground point: hidden whole,
 // never chopped), tubes take it PER VERTEX (a band round a unit splits at his sides; the camera-side half also takes the nearer upright-card
 // depth so it stays in front of sprites (sprites.js), and above FOOT_TOP (140) the depth blends back to real so tall columns are not swallowed
-// by terrain behind). Discs lie on the ground; bolts use real depth (+12).
+// by terrain behind). Discs lie flat at z (o.pull: depth pulled toward the camera so a wide disc shows through terrain bumps; G.groundSpan
+// gives the mid height + pull for a circle); bolts use real depth (+12).
 // Only call G.* from update-time code (c.run / c.later callbacks, projectile trail / hit / tick, R.each), never from an event handler.
 import * as THREE from 'three';
 import { COMMON_GLSL, UNIFORMS_GLSL } from '../shaderlib.js';
 
 export const MAX_TUBES = 48;
+export const MAX_SMOKE = 16;         // o.smoke tubes (alpha-over batch)
 export const MAX_DISCS = 64;
 export const MAX_RIB = 1024;         // ribbon instances (2 per bolt segment: glow + core)
 export const MAX_BOLT_SEG = 56;
@@ -45,7 +48,8 @@ export const MAX_ORBS = 128;
 export const MAX_SHARDS = 96;
 export const MAX_ROCKS = 4;
 const BOLTS = 20;
-const STRIDE = 16;                   // 4 vec4 per instance (disc, ribbon)
+const STRIDE = 16;                   // 4 vec4 per instance (ribbon)
+const DISC_STRIDE = 20;              // 5 vec4
 const TUBE_STRIDE = 24;              // 6 vec4
 const SOLID_STRIDE = 24;             // 6 vec4 (orb, shard, rock)
 const TUBE_SEG = 24;
@@ -120,6 +124,9 @@ void main(){
   if (v <= .02) discard;
   gl_FragColor = outCol(vC, v, 5.);
 }`;
+// o.smoke tubes: same shape / bands, drawn OVER the scene (premultiplied alpha, coverage = stepped v, max .85): dust / smoke / sand can be
+// darker than what is behind them (additive cannot); the scene alpha (water mask) is left alone by the blend factors
+const TUBE_FRAG_S = TUBE_FRAG.replace('gl_FragColor = outCol(vC, v, 5.);', 'float q = min(floor(v * 5. + .5) / 5., 1.) * .85; if (q <= 0.) discard; gl_FragColor = vec4(vC * q, q);');
 
 const DISC_VERT = /* glsl */ `
 attribute vec2 corner;
@@ -127,12 +134,15 @@ attribute vec4 aP;         // centre (three coords), radius
 attribute vec4 aR;         // rin / spoke amount, n (dashes, spokes, cells), seed, mode
 attribute vec4 aC;         // rgb (HDR), alpha gain
 attribute vec4 aS;         // p0..p3 (mode specific)
+attribute vec4 aU;         // x: depth pull toward the camera (world units)
 varying vec2 vL; varying vec3 vW, vC; varying float vK; varying vec4 vS, vR;
 void main(){
   vL = corner * 2. - 1.;
   vec3 wp = aP.xyz + vec3(vL.x, 0., vL.y) * aP.w;
   vW = wp; vC = aC.rgb; vK = aC.w; vS = aS; vR = aR;
-  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.);
+  vec4 cr = projectionMatrix * viewMatrix * vec4(wp, 1.);
+  if (aU.x > 0.) { vec4 cp = projectionMatrix * viewMatrix * vec4(wp + normalize(cameraPosition - wp) * aU.x, 1.); cr.z = cp.z / cp.w * cr.w; }
+  gl_Position = cr;
 }`;
 // modes (vR.w):  p0..p3 = vS.xyzw
 //  0 RING     band from rin..1:  p1 = gradient power (0 = flat), p2 = bright rim boost
@@ -368,6 +378,11 @@ function makeBatch(geo, names, max, stride = STRIDE) {
   return { data, buf, n: 0, max, stride };
 }
 function material(vs, fs, uniforms, opaque) {
+  if (opaque === 'over') return new THREE.ShaderMaterial({
+    vertexShader: vs, fragmentShader: fs, uniforms: { ...uniforms }, transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+  });
   return new THREE.ShaderMaterial({
     vertexShader: vs, fragmentShader: fs, uniforms: { ...uniforms },
     transparent: !opaque, depthTest: true, depthWrite: !!opaque, side: THREE.DoubleSide,
@@ -436,8 +451,11 @@ export function createGeo3d({ scene, uniforms, particles }) {
   const tI1 = new THREE.BufferAttribute(new Uint16Array(tIdx1), 1), tI0 = new THREE.BufferAttribute(new Uint16Array(tIdx0), 1);
   tg.setIndex(tI1);
   const T = makeBatch(tg, ['aP', 'aR', 'aC', 'aS', 'aQ', 'aU'], MAX_TUBES, TUBE_STRIDE);
+  const tg2 = new THREE.InstancedBufferGeometry();
+  tg2.setAttribute('position', tg.getAttribute('position')); tg2.setAttribute('aRing', tg.getAttribute('aRing')); tg2.setIndex(tI1);
+  const T2 = makeBatch(tg2, ['aP', 'aR', 'aC', 'aS', 'aQ', 'aU'], MAX_SMOKE, TUBE_STRIDE);
   // disc
-  const dg = QUAD(); const D = makeBatch(dg, ['aP', 'aR', 'aC', 'aS'], MAX_DISCS);
+  const dg = QUAD(); const D = makeBatch(dg, ['aP', 'aR', 'aC', 'aS', 'aU'], MAX_DISCS, DISC_STRIDE);
   // ribbon
   const rg = QUAD(); const Rb = makeBatch(rg, ['aA', 'aB', 'aC', 'aM'], MAX_RIB);
   // solids
@@ -450,12 +468,13 @@ export function createGeo3d({ scene, uniforms, particles }) {
   const meshes = [
     [tg, TUBE_VERT, TUBE_FRAG, 'fx3d_tube', 16.5], [dg, DISC_VERT, DISC_FRAG, 'fx3d_disc', 16.2], [rg, RIB_VERT, RIB_FRAG, 'fx3d_bolt', 17],
     [ico.g, SOLID_VERT, SOLID_FRAG, 'fx3d_orb', 16.4], [sg, SOLID_VERT, SOLID_FRAG, 'fx3d_shard', 16.3], [ico2.g, SOLID_VERT, ROCK_FRAG, 'fx3d_rock', 16.1, true],
+    [tg2, TUBE_VERT, TUBE_FRAG_S, 'fx3d_smoke', 16.45, 'over'],
   ].map(([g, vs, fs, name, ro, opaque]) => {
     const m = new THREE.Mesh(g, material(vs, fs, uniforms, opaque)); m.frustumCulled = false; m.renderOrder = ro; m.name = name; m.visible = false;
     if (scene) scene.add(m);
     return m;
   });
-  const batches = [T, D, Rb, O, S, K];
+  const batches = [T, D, Rb, O, S, K, T2];
 
   // quality: particle density preset -> lod (0 low, 1 medium, 2 high / ultra)
   let lod = 2;
@@ -464,7 +483,7 @@ export function createGeo3d({ scene, uniforms, particles }) {
     const l = v < 0.45 ? 0 : v < 0.8 ? 1 : 2;
     if (l === lod) return;
     lod = l;
-    tg.setIndex(l ? tI1 : tI0); ico.g.setIndex(l ? ico.idx1 : ico.idx0); ico2.g.setIndex(l ? ico2.idx1 : ico2.idx0);
+    tg.setIndex(l ? tI1 : tI0); tg2.setIndex(l ? tI1 : tI0); ico.g.setIndex(l ? ico.idx1 : ico.idx0); ico2.g.setIndex(l ? ico2.idx1 : ico2.idx0);
   }
 
   /** Column / cone / beam / ring band / arc. (x,y,z) = base centre in world coords, h = height along the axis, r0/r1 = base/top radius,
@@ -473,11 +492,13 @@ export function createGeo3d({ scene, uniforms, particles }) {
    *      flare (1 = ground flare at the base), top (fade start 0..1),
    *      axis [x,y,z] (world, unit; default up), sweep (rad, default TAU = closed), start (rad, world yaw of the arc start), edge (arc end fade, fraction of the sweep, default .2),
    *      foot (world z of the ground) + footPull (default 20): every vertex takes the depth of its own ground point pulled toward the camera,
-   *      so a band / arc round a voxel unit at body height is hidden behind him on the far side and drawn over him on the near side} */
+   *      so a band / arc round a voxel unit at body height is hidden behind him on the far side and drawn over him on the near side,
+   *      smoke (true: drawn over the scene with alpha instead of added, col = plain LDR colour, a = coverage gain; dust / smoke funnels)} */
   function tube(x, y, z, h, r0, r1, col, a, o) {
-    if (T.n >= T.max || a <= 0 || (window.__gm & 1)) return false;
     o = o || DEF;
-    const d = T.data, i = T.n++ * TUBE_STRIDE;
+    const B = o.smoke ? T2 : T;
+    if (B.n >= B.max || a <= 0 || (window.__gm & 1)) return false;
+    const d = B.data, i = B.n++ * TUBE_STRIDE;
     d[i] = x; d[i + 1] = z; d[i + 2] = -y; d[i + 3] = h;
     d[i + 4] = r0; d[i + 5] = r1; d[i + 6] = o.flare ? 1 : 0; d[i + 7] = o.pow == null ? 2 : o.pow;
     d[i + 8] = col[0]; d[i + 9] = col[1]; d[i + 10] = col[2]; d[i + 11] = a;
@@ -526,11 +547,13 @@ export function createGeo3d({ scene, uniforms, particles }) {
     return ok;
   }
   /** Flat ground quad. (x,y,z) = centre (z = ground height, lifted a hair), R = outer radius. mode 0 RING, 1 TARGET, 2 SHOCK, 3 FILL (see DISC_FRAG).
-   *  o: {rin, n, seed, p0, p1, p2, p3} */
+   *  o: {rin, n, seed, p0, p1, p2, p3, pull (depth pull toward the camera, world units: a wide disc on uneven ground stays visible where the
+   *  terrain rises above its plane; pair it with z = the mid ground height under the disc)} */
   function disc(x, y, z, R, mode, col, a, o) {
     if (D.n >= D.max || a <= 0) return false;
     o = o || DEF;
-    const d = D.data, i = D.n++ * STRIDE;
+    const d = D.data, i = D.n++ * DISC_STRIDE;
+    d[i + 16] = o.pull || 0; d[i + 17] = 0; d[i + 18] = 0; d[i + 19] = 0;
     d[i] = x; d[i + 1] = z + 4; d[i + 2] = -y; d[i + 3] = R;
     d[i + 4] = o.rin || 0; d[i + 5] = o.n == null ? 8 : o.n; d[i + 6] = o.seed || 0; d[i + 7] = mode;
     d[i + 8] = col[0]; d[i + 9] = col[1]; d[i + 10] = col[2]; d[i + 11] = a;
@@ -567,9 +590,17 @@ export function createGeo3d({ scene, uniforms, particles }) {
     }
   }
 
-  const peak = { tubes: 0, discs: 0, ribbons: 0, orbs: 0, shards: 0, rocks: 0, bolts: 0 };
+  /** Ground under a circle (centre + 12 rim / mid points sampled with zAt(x, y)): {z: mid height, pull: half the spread + 10}, ready for
+   *  G.disc(x, y, s.z, R, ..., {pull: s.pull}). Call once per cast (wide static discs), returns a new object. */
+  function groundSpan(zAt, x, y, R) {
+    let lo = zAt(x, y), hi = lo;
+    for (let i = 0; i < 12; i++) { const a = i * TAU / 6, rr = i < 6 ? R : R * 0.55, h = zAt(x + Math.cos(a + (i < 6 ? 0 : 0.5)) * rr, y + Math.sin(a + (i < 6 ? 0 : 0.5)) * rr); if (h < lo) lo = h; if (h > hi) hi = h; }
+    return { z: (lo + hi) / 2, pull: (hi - lo) / 2 + 10 };
+  }
+
+  const peak = { tubes: 0, smoke: 0, discs: 0, ribbons: 0, orbs: 0, shards: 0, rocks: 0, bolts: 0 };
   return {
-    tube, disc, bolt, newBolt, free, genBolt, orb, shard, rock, meshes, GLOW, ICE, MOLTEN,
+    tube, disc, bolt, newBolt, free, genBolt, orb, shard, rock, groundSpan, meshes, GLOW, ICE, MOLTEN,
     /** 0 low, 1 medium, 2 high / ultra (from the particle density preset) */
     get lod() { return lod; },
     begin() { setLod(); for (let i = 0; i < batches.length; i++) batches[i].n = 0; },
@@ -580,12 +611,12 @@ export function createGeo3d({ scene, uniforms, particles }) {
         if (b.n) { b.buf.clearUpdateRanges(); b.buf.addUpdateRange(0, b.n * b.stride); b.buf.needsUpdate = true; }
       }
       peak.tubes = Math.max(peak.tubes, T.n); peak.discs = Math.max(peak.discs, D.n); peak.ribbons = Math.max(peak.ribbons, Rb.n);
-      peak.orbs = Math.max(peak.orbs, O.n); peak.shards = Math.max(peak.shards, S.n); peak.rocks = Math.max(peak.rocks, K.n); peak.bolts = Math.max(peak.bolts, BOLTS - bfree.length);
+      peak.smoke = Math.max(peak.smoke, T2.n); peak.orbs = Math.max(peak.orbs, O.n); peak.shards = Math.max(peak.shards, S.n); peak.rocks = Math.max(peak.rocks, K.n); peak.bolts = Math.max(peak.bolts, BOLTS - bfree.length);
     },
     /** budget high-water marks since the last resetPeak() (debug / capture logging: window.__fxGeo.peak) */
     get peak() { return peak; },
     resetPeak() { for (const k in peak) peak[k] = 0; },
-    get stats() { return { tubes: T.n, discs: D.n, ribbons: Rb.n, orbs: O.n, shards: S.n, rocks: K.n }; },
+    get stats() { return { tubes: T.n, smoke: T2.n, discs: D.n, ribbons: Rb.n, orbs: O.n, shards: S.n, rocks: K.n }; },
     dispose() { for (const m of meshes) { m.geometry.dispose(); m.material.dispose(); if (scene) scene.remove(m); } },
   };
 }

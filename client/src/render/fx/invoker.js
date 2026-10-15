@@ -15,13 +15,17 @@ const INV = {
   E: [0.9, 0.38, 0.07], Ec: [2.3, 1.25, 0.35], Ed: [0.5, 0.2, 0.04],   // exort / fire
   teal: [0.28, 0.6, 0.55], tealD: [0.11, 0.24, 0.22],                   // ghost walk ring [112,200,187] / sphere [144,110,233]
   zap: [0.62, 0.17, 0.32], zapC: [1.9, 0.8, 1.35],                      // emp lightning ropes [228,70,122]
-  dust: [0.39, 0.42, 0.49], dustLt: [0.62, 0.7, 0.87],                  // tornado funnel [99,107,124] [123,112,124], trail glow [158,179,222]
-  body: [0.32, 0.46, 0.7], edge: [0.78, 0.5, 0.2],                       // deafening blast body [65,93,130]/[89,128,179], edge -> [234,167,80]
-  altV: [0.62, 0.36, 0.66], altO: [0.85, 0.48, 0.2], altLt: [0.9, 0.45, 0.4],   // alacrity trails [214,136,222] + [241,145,74]
+  dust: [0.52, 0.47, 0.4], dustD: [0.3, 0.27, 0.24], dustLt: [0.62, 0.7, 0.87],   // tornado funnel [178,173,160] / [99,107,124], trail glow [158,179,222]
+  blast: [0.3, 0.44, 0.64], body: [0.42, 0.6, 0.98], edge: [1.25, 0.62, 0.12],                     // deafening blast body [65,93,130]/[89,128,179] (alpha over; body = additive echo / light), edge [255,120,0]
+  altV: [0.84, 0.53, 0.87], altO: [0.95, 0.57, 0.29], altLt: [0.9, 0.45, 0.4],  // alacrity trails [214,136,222] + [241,145,74]
+  crys: [0.81, 0.94, 1.0], crysL: [0.89, 0.99, 1.0],                     // ice wall crystal CFEFFF / E2FCFF
   heat: [0.9, 0.45, 0.18], heatD: [0.3, 0.12, 0.05],                    // cold snap trail_pull / heat [105,52,23] [123,88,67]
-  gold: [0.55, 0.42, 0.14],
+  gold: [0.6, 0.34, 0.1],
 };
-const ELEMB = { Q: [0.17, 0.57, 1.2], W: [0.68, 0.35, 0.78], E: [1.2, 0.51, 0.1] };   // invoke column bands (element x1.35, < bloom)
+// single-hue pixel palettes (no ramp: the shared arcane / fire ramps run through near-white / peach at the hot end)
+const VIO = { hot: [1.3, 0.62, 1.5], mid: [0.85, 0.4, 1.0], low: [0.45, 0.2, 0.55], dim: [0.18, 0.07, 0.22], lt: [0.66, 0.36, 1], ramp: null };
+const EMB = { hot: [1.3, 0.45, 0.08], mid: [1.0, 0.4, 0.08], low: [0.5, 0.16, 0.03], dim: [0.2, 0.06, 0.01], lt: [1, 0.55, 0.18], ramp: null };
+const FROST = { hot: [0.7, 1.15, 1.5], mid: [0.4, 0.8, 1.2], low: [0.15, 0.4, 0.8], dim: [0.06, 0.16, 0.35], lt: [0.35, 0.72, 1], ramp: null };
 const ELEM = { Q: INV.Q, W: INV.W, E: INV.E }, ELEMC = { Q: INV.Qc, W: INV.Wc, E: INV.Ec };
 
 export function register(c, R) {
@@ -72,13 +76,13 @@ export function register(c, R) {
     const ch3 = [0, 1, 2].map((i) => (orbs[i] || 'Q').toUpperCase());
     const tg = { n: 12, seed: Math.random() * 50, p0: 0, p1: 0.18, p2: 0.8 };
     const oSh = { p2: 0.45, foot: 0, footPull: 20 }, oCo = { p2: 1, foot: 0, footPull: 20 };
-    const col = [0, 1, 2].map(() => ({ swirl: 1, pow: 1.3, flare: 1, top: 0.6, phase: 0, foot: 0, footPull: 20 })), cco = { swirl: 0.4, pow: 0.8, top: 0.5, phase: 0, foot: 0, footPull: 20 };
+    const col = [0, 1, 2].map(() => ({ sweep: TAU / 3 - 0.25, start: 0, edge: 0.3, swirl: 1, pow: 0.1, flare: 1, top: 0.6, phase: 0, foot: 0, footPull: 20 }));
     const sh = { n: 18, seed: Math.random() * 40, p0: 0, p1: 0.18, p2: 0.3 };
     c.run(0.85, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
       const t = r.t, z0 = u.z || 0;
       const a = Math.min(1, t / 0.08) * Math.max(0, Math.min(1, (0.85 - t) / 0.3));
-      tg.p0 = c.T * 4; G.disc(u.x, u.y, z0, 100, 1, INV.gold, a, tg);
+      tg.p0 = c.T * 4; G.disc(u.x, u.y, z0, 100, 1, INV.gold, a * 0.75, tg);
       if (t < 0.4) {
         const k = t / 0.4, e = k * k, b = bodyAt(u, c.chest(u) - z0 + 8 + 16 * e), bx = b.x, by = b.y, bz = b.z;
         oSh.foot = oCo.foot = z0; oSh.footPull = oCo.footPull = b.pull;
@@ -92,22 +96,20 @@ export function register(c, R) {
       } else {
         const k = Math.min(1, (t - 0.4) / 0.45), up = 1 - Math.pow(1 - Math.min(1, k * 3), 3), fade = 1 - k * k;
         for (let i = 0; i < 3; i++) {
-          const o = col[i]; o.phase = c.T * 9 + i * (TAU / 3); o.foot = z0;
-          G.tube(u.x, u.y, z0, 260 * up, 34, 22, ELEMB[ch3[i]] || ELEMB.Q, fade, o);
+          const o = col[i]; o.start = c.T * 5 + i * (TAU / 3); o.phase = c.T * 9; o.foot = z0;
+          G.tube(u.x, u.y, z0, 260 * up, 44, 36, ELEM[ch3[i]] || INV.Q, fade * 0.6, o);
         }
-        cco.phase = c.T * 6; cco.foot = z0; G.tube(u.x, u.y, z0, 200 * up, 7, 4, ELEMC[ch3[2]] || INV.Qc, fade * 0.7, cco);
-        if (t < 0.75) { const f = (t - 0.4) / 0.35; sh.p0 = 0.15 + 0.85 * (1 - (1 - f) * (1 - f)); G.disc(u.x, u.y, z0, 130, 2, INV.gold, 1 - f, sh); }
+        if (t < 0.75) { const f = (t - 0.4) / 0.35; sh.p0 = 0.15 + 0.85 * (1 - (1 - f) * (1 - f)); G.disc(u.x, u.y, z0, 130, 2, INV.gold, (1 - f) * 0.75, sh); }
       }
     });
     c.later(0.4, () => {
       const u = c.unit(id) || su, zz = c.chest(u), cx = u.x, cy = u.y;
       for (let i = 0; i < 3; i++) {
         const pal = ELEM_PAL[ch3[i]] || PAL.ice;
-        c.pillar(cx + rnd(-10, 10), cy + rnd(-10, 10), u.z || 0, pal, { count: 12, radius: 18, up: [300, 700] });
-        c.sparks(cx, cy, zz, pal, { count: 6, speed: [80, 240] });
+        c.pillar(cx + rnd(-10, 10), cy + rnd(-10, 10), u.z || 0, pal, { count: 5, radius: 40, up: [300, 700] });
       }
       const dom = ch3[2];
-      c.glow(cx, cy, zz, (ELEM_PAL[dom] || PAL.ice).lt, 300, 1.0, 0.5, { elem: dom });
+      c.glow(cx, cy, zz, (ELEM_PAL[dom] || PAL.ice).lt, 300, 0.45, 0.5, { elem: dom });
     });
   }
 
@@ -127,12 +129,11 @@ export function register(c, R) {
         b.roll(c.T, 0.05, s.x, s.y, c.chest(s), v.x, v.y, c.chest(v), { depth: 4, branches: 2, branchLen: 0.12 });
         G.bolt(b, INV.Q, 3, INV.Qc, 1, 1 - r.k * r.k);
       }, () => G.free(b));
-      c.glow((su.x + x) / 2, (su.y + y) / 2, c.chest(t), pal.lt, 300, 0.8, 0.3, { mode: 'fade' });
+      c.glow((su.x + x) / 2, (su.y + y) / 2, c.chest(t), pal.lt, 300, 0.5, 0.3, { mode: 'fade' });
     }
-    c.flash(x, y, c.chest(t), pal, 50, 0.2);
-    c.shards(x, y, z + 70, pal, { count: 12 });
-    c.pillar(x, y, z, pal, { count: 36, radius: 26, up: [400, 1000] });
-    c.glow(x, y, z + 80, pal.lt, 300, 1.0, Math.min(dur, 3), { follow: id, dz: 70, elem: 'Q', mode: 'flat' });
+    c.shards(x, y, z + 50, FROST, { count: 5 });
+    c.pillar(x, y, z, FROST, { count: 14, radius: 40, up: [400, 1000] });
+    c.glow(x, y, z + 80, pal.lt, 260, 0.45, Math.min(dur, 3), { follow: id, dz: 70, elem: 'Q', mode: 'flat' });
     // ICE shards: punch up round the feet leaning out, hold, sink back
     const NS = lo ? 5 : 8, sa = new Float32Array(NS), sr = new Float32Array(NS), sL = new Float32Array(NS), sp = new Float32Array(NS), sd = new Float32Array(NS);
     for (let i = 0; i < NS; i++) { sa[i] = (i + rnd(-0.3, 0.3)) / NS * TAU; sr[i] = rnd(18, 34); sL[i] = rnd(46, 78); sp[i] = rnd(0.45, 0.85); sd[i] = rnd(0, 0.06); }
@@ -170,15 +171,15 @@ export function register(c, R) {
   R.spell('invoker_ghost_walk', (ev, su) => {
     if (!su) return;
     const id = su.id, pal = PAL.ice, dur = ev.dur || 6, rad = ev.r || 400, G = c.G;
-    c.blob(su.x, su.y, c.chest(su), PAL.arc, { count: 12, speed: [40, 160] });
-    c.glow(su.x, su.y, c.chest(su), PAL.arc.lt, 260, 0.9, 0.4, { elem: 'W' });
-    const sph = { p2: 0.2, lump: 0.08, seed: 0, foot: 0, footPull: 20 }, rg = { rin: 0.84, p1: 1.6, p2: 0.8 };
+    c.sparks(su.x, su.y, c.chest(su), VIO, { count: 4, speed: [40, 160] });
+    c.glow(su.x, su.y, c.chest(su), PAL.arc.lt, 260, 0.4, 0.4, { elem: 'W' });
+    const sph = { p2: 0.35, lump: 0.08, seed: 0, foot: 0, footPull: 20 }, rg = { rin: 0.88, p1: 1.6, p2: 0.8 }, GW_RING = [0.26, 0.4, 0.9];   // teal-blue: added over grass a greener teal reads lime
     const fr = { p0: 0, p1: 1.2, p2: 0.6, p3: 0.4, rin: 0.6, n: 7, seed: Math.random() * 20 }, aura = { rin: 0.965, p1: 0, p2: 0.5 };
     c.run(0.42, (r) => {
       const u = c.unit(id) || su, k = r.k, z0 = u.z || 0, b = bodyAt(u, c.chest(u) - z0), R0 = 110 * Math.pow(1 - k, 1.5) + 6;
       sph.foot = z0; sph.footPull = b.pull + R0 * 0.6; sph.seed = (c.T * 20) | 0;
-      G.orb(b.x, b.y, b.z, R0, INV.W, (1 - k) * 0.9, G.GLOW, sph);
-      G.disc(u.x, u.y, z0, 200 * (1 - 0.4 * k), 0, INV.teal, 1 - k, rg);
+      G.orb(b.x, b.y, b.z, R0, INV.W, 1 - k * k, G.GLOW, sph);
+      G.disc(u.x, u.y, z0, 200 * (1 - 0.4 * k), 0, GW_RING, (1 - k) * 0.6, rg);
     });
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
@@ -198,7 +199,7 @@ export function register(c, R) {
   // [file: particles/units/heroes/hero_invoker/invoker_ice_wall.vpcf_c] a row of up to 48 metaball ice blobs (<= 42 apart, render r 25-55)
   // hugging the ground along the wall, 15 icicle models every 58 units erupting 64-256 up (v +400, drag .7, scale x3.2-4, random yaw + roll)
   // over 0.3 s, glow flares r 160-240, 16 snow decals. Here: ICE orbs (lumpy, squashed) + leaning ICE shards that punch up out of the ground.
-  const ICE_BLOB = [0.12, 0.26, 0.46], ICE_SPIKE = [0.19, 0.4, 0.68];
+  const ICE_BLOB = INV.crys.map((v) => v * 0.42), ICE_SPIKE = INV.crysL.map((v) => v * 0.62);
   R.spell('invoker_ice_wall', (ev) => {
     const x0 = ev.x, y0 = ev.y, x1 = ev.x2, y1 = ev.y2; if (x0 == null || x1 == null) return;
     const G = c.G, lo = G.lod === 0;
@@ -223,16 +224,15 @@ export function register(c, R) {
     const ob = { sx: 1.25, sy: 0.7, sz: 1, yaw: 0, lump: 0.28, seed: 0, p1: 0.12 }, os = { lump: 0.1, seed: 0, p1: 0.3 };
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = c.zAt(mx, my);
     // eruption
-    c.flash(mx, my, mz + 60, pal, 70, 0.25);
-    P.burst(c.pix(pal, { x: x0, y: y0, z: c.zAt(x0, y0) + 6, x2: x1, y2: y1, z2: c.zAt(x1, y1) + 6, shape: 'line', count: Math.round(len / 3), life: [0.6, 1.2], speed: [0, 60], up: [200, 600], gravity: -520, drag: 1.2, linger: [0.4, 1.2] }));
-    for (let i = 0; i < 3; i++) { const k = (i + 0.5) / 3; c.glow(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, mz + 80, pal.lt, 220, 0.6, dur, { mode: 'flat', elem: 'Q' }); }
-    for (let i = 0; i < 4; i++) { const k = (i + 0.5) / 4; c.decal(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 'decal_frost', len / 4 / 100, dur, { tint: COLD, emit: 1.0, fadeOut: 0.25, roll: yawW }); }
+    P.burst(c.pix(FROST, { x: x0, y: y0, z: c.zAt(x0, y0) + 6, x2: x1, y2: y1, z2: c.zAt(x1, y1) + 6, shape: 'line', count: Math.round(len / 8), life: [0.5, 1.0], speed: [0, 60], up: [200, 500], gravity: -620, drag: 1.2, linger: [0.3, 0.8] }));
+    c.glow(mx, my, mz + 80, pal.lt, Math.min(500, len * 0.6), 0.3, dur, { mode: 'flat', elem: 'Q' });
+    for (let i = 0; i < 4; i++) { const k = (i + 0.5) / 4; c.decal(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 'decal_frost', len / 4 / 100, dur, { tint: COLD, emit: 0.35, fadeOut: 0.25, roll: yawW }); }
     c.run(dur, (r, dt) => {
       const t = r.t, out = Math.max(0, Math.min(1, (dur - t) / 0.6));   // last 0.6 s: everything sinks back into the ground
       // cold mist drifting off the whole width (not a bright centre line)
-      for (let n = c.n(len * 0.25 * dt); n > 0; n--) {
+      for (let n = c.n(len * 0.04 * dt); n > 0; n--) {
         const k = Math.random(), off = rnd(-1.3, 1.3) * hw, px = x0 + (x1 - x0) * k + nx * off, py = y0 + (y1 - y0) * k + ny * off;
-        P.spawn(c.pix(pal, { x: px, y: py, z: c.zAt(px, py) + rnd(4, 60), col0: pal.mid, life: [0.6, 1.2], up: [6, 30], speed: [0, 8], settle: false }));
+        P.spawn(c.pix(FROST, { x: px, y: py, z: c.zAt(px, py) + rnd(4, 60), col0: FROST.low, px: 1, life: [0.6, 1.2], up: [6, 30], speed: [0, 8], settle: false }));
       }
       for (let i = 0; i < NB; i++) {
         const g = Math.min(1, Math.max(0, (t - Math.abs((i + 0.5) / NB - 0.5) * 0.2) / 0.15));
@@ -256,57 +256,57 @@ export function register(c, R) {
   // between the charge and the ground, a deferred light [79,19,85]..[103,33,110]; explode: ring ropes r 256-300 racing out, bloom rings,
   // radial electricity, a glow [242,207,245] (near white: kept low here). Here: ground RING + turning TARGET disc, a growing GLOW sphere
   // with an HDR core, pooled bolts crackling sphere -> ground; the pop = SHOCK disc + a low rope band racing out + radial bolts.
+  const EMP_V = [0.62, 0.3, 0.7], EMP_O = [0.8, 0.4, 0.95];
   R.spell('invoker_emp', (ev, su) => {
     const x = ev.x, y = ev.y; if (x == null) return;
-    const rad = ev.r || 675, dur = ev.dur || 2.9, z = c.zAt(x, y), pal = PAL.arc, G = c.G, lo = G.lod === 0;
-    const tg = { n: 16, seed: Math.random() * 50, p0: 0, p1: 0.12, p2: 0 }, rg = { rin: 0.93, p1: 1.4, p2: 0.8 };
-    const sph = { p2: 0.3, lump: 0.12, seed: 0 }, cor = { p2: 1, lump: 0.2, seed: 0 };
+    const rad = ev.r || 675, dur = ev.dur || 2.9, z = c.zAt(x, y), pal = VIO, G = c.G, lo = G.lod === 0;
+    const gs = G.groundSpan(c.zAt, x, y, rad), gz = gs.z;                      // the wide discs sit at the mid ground height, depth pulled over the bumps
+    const tg = { n: 16, seed: Math.random() * 50, p0: 0, p1: 0.12, p2: 0, pull: gs.pull }, rg = { rin: 0.93, p1: 1.4, p2: 0.8, pull: gs.pull };
+    const sph = { p2: 0.7, lump: 0.12, seed: 0 }, cor = { p2: 1, lump: 0.2, seed: 0 };
     const bolts = []; for (let i = 0; i < (lo ? 1 : 3); i++) { const b = G.newBolt(); if (b) bolts.push(b); }
     const lt = c.glow(x, y, z + 70, pal.lt, rad * 0.8, 0.5, dur, { mode: 'flat', elem: 'W' });
     const HZ = 90;
     c.run(dur, (r, dt) => {
       const k = r.k, a = Math.min(1, r.t / 0.15), w = elemMul('W', c.T, 3);
-      lt.int = 0.5 + 0.9 * k;
-      G.disc(x, y, z, rad, 0, INV.W, a * (0.6 + 0.12 * Math.sin(c.T * 14)), rg);
-      tg.p0 = -c.T * 0.6; tg.p1 = 0.08 + 0.2 * k; G.disc(x, y, z, rad * 0.66, 1, INV.Wd, a, tg);
-      const R0 = 8 + 40 * k;
+      lt.int = 0.4 + 0.5 * k;
+      G.disc(x, y, gz, rad, 0, EMP_V, a * (0.6 + 0.12 * Math.sin(c.T * 14)), rg);
+      tg.p0 = -c.T * 0.6; tg.p1 = 0.08 + 0.2 * k; G.disc(x, y, gz, rad * 0.66, 1, INV.Wd, a, tg);
+      const R0 = 30 + 60 * Math.sqrt(k);                                     // a clear violet orb ~90 at the pop
       sph.seed = (c.T * 20) | 0; cor.seed = sph.seed + 3;
-      G.orb(x, y, z + HZ, R0, INV.W, a * (w > 1 ? 1 : 0.75), G.GLOW, sph);
-      G.orb(x, y, z + HZ, R0 * 0.38, INV.Wc, a, G.GLOW, cor);
+      G.orb(x, y, z + HZ, R0, EMP_O, a * (w > 1 ? 1 : 0.8), G.GLOW, sph);
+      G.orb(x, y, z + HZ, R0 * 0.3, INV.Wc, a * 0.8, G.GLOW, cor);
       for (let i = 0; i < bolts.length; i++) {
         if (i > k * bolts.length * 1.3) break;                                   // more arcs as the fuse burns
         const b = bolts[i];
-        if (c.T - b.last >= 0.07) { const an = rnd(0, TAU), d = rnd(R0, rad * 0.45); b.roll(c.T, 0.07, x, y, z + HZ, x + Math.cos(an) * d, y + Math.sin(an) * d, z + 4, { depth: 3, branches: 1 }); }
+        if (c.T - b.last >= 0.07) { const an = rnd(0, TAU), d = rnd(R0, rad * 0.45), ex = x + Math.cos(an) * d, ey = y + Math.sin(an) * d; b.roll(c.T, 0.07, x, y, z + HZ, ex, ey, c.zAt(ex, ey) + 4, { depth: 3, branches: 1 }); }
         G.bolt(b, INV.zap, 3, INV.zapC, 1, 0.9);
       }
       // violet motes on the rim fall inward and tick up faster as the fuse burns down
       const n = c.n((60 + 160 * k) * dt);
       for (let i = 0; i < n; i++) {
         const an = Math.random() * TAU, rr = rad * rnd(0.82, 1.0);
-        P.spawn(c.pix(pal, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: z + 6, life: [0.4, 0.8], vel: [-Math.cos(an) * rad * 0.7, -Math.sin(an) * rad * 0.7, 0], speed: 0, up: [60, 220], drag: 1.2, settle: false }));
+        P.spawn(c.pix(pal, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: gz + 6, life: [0.4, 0.8], vel: [-Math.cos(an) * rad * 0.7, -Math.sin(an) * rad * 0.7, 0], speed: 0, up: [60, 220], drag: 1.2, settle: false }));
       }
     }, () => { for (const b of bolts) G.free(b); });
     c.later(dur, () => {
-      const wave = { n: 28, seed: Math.random() * 30, p0: 0, p1: 0.12, p2: 0.35 }, ringO = { pow: 0.8, top: 0.9, swirl: 0.4, phase: 0 }, pop = { p2: 0.15, lump: 0.15, seed: 3 };
+      const wave = { n: 28, seed: Math.random() * 30, p0: 0, p1: 0.12, p2: 0.35, pull: gs.pull }, ringO = { pow: 0.8, top: 0.9, swirl: 0.4, phase: 0 }, pop = { p2: 0.15, lump: 0.15, seed: 3 };
       const xb = []; for (let i = 0; i < (lo ? 3 : 6); i++) { const b = G.newBolt(); if (b) xb.push(b); }
       c.run(0.6, (r) => {
         const t = r.t, f = Math.min(1, t / 0.45), e = 1 - Math.pow(1 - f, 3);
         if (t < 0.45) {
-          wave.p0 = 0.08 + 0.92 * e; G.disc(x, y, z, rad, 2, INV.W, 1 - f * 0.8, wave);
-          ringO.phase = c.T * 10; G.tube(x, y, z, 44 * (1 - 0.6 * e), 60 + (rad - 60) * e, 60 + (rad * 1.02 - 60) * e, INV.W, 1 - f * f, ringO);
+          wave.p0 = 0.08 + 0.92 * e; G.disc(x, y, gz, rad, 2, EMP_V, 1 - f * 0.8, wave);
+          ringO.phase = c.T * 10; G.tube(x, y, gz - gs.pull + 10, 44 + 2 * gs.pull * (1 - 0.6 * e), 60 + (rad - 60) * e, 60 + (rad * 1.02 - 60) * e, INV.W, 1 - f * f, ringO);
         }
-        if (t < 0.25) { const q = t / 0.25; G.orb(x, y, z + HZ, 48 + 110 * q, INV.W, (1 - q) * 0.8, G.GLOW, pop); }
+        if (t < 0.25) { const q = t / 0.25; G.orb(x, y, z + HZ, 90 + 90 * q, INV.W, (1 - q) * 0.8, G.GLOW, pop); }
         if (t < 0.22) for (const b of xb) {
-          if (c.T - b.last >= 0.06) { const an = rnd(0, TAU), d = rnd(0.3, 0.95) * rad; b.roll(c.T, 0.06, x, y, z + HZ, x + Math.cos(an) * d, y + Math.sin(an) * d, z + 4, { depth: 4, branches: 2 }); }
+          if (c.T - b.last >= 0.06) { const an = rnd(0, TAU), d = rnd(0.3, 0.95) * rad, ex = x + Math.cos(an) * d, ey = y + Math.sin(an) * d; b.roll(c.T, 0.06, x, y, z + HZ, ex, ey, c.zAt(ex, ey) + 4, { depth: 4, branches: 2 }); }
           G.bolt(b, INV.zap, 3, INV.zapC, 1, 1 - t / 0.22);
         }
       }, () => { for (const b of xb) G.free(b); });
-      c.flash(x, y, z + 90, pal, 90, 0.2);
-      c.ring(x, y, z, pal, { R: rad, life: [0.5, 0.8] });
-      c.pillar(x, y, z, pal, { count: 60, radius: rad * 0.1, up: [600, 1800] });
-      c.sparks(x, y, z + 40, pal, { count: 30, speed: [200, 700] });
-      c.glow(x, y, z + 100, pal.lt, rad * 1.2, 1.4, 0.6);
-      c.decal(x, y, 'decal_scorch', rad / 110, 3, { tint: [0.9, 0.3, 1.8], emit: 0.8, fadeOut: 0.7 });
+      c.ring(x, y, gz, pal, { R: rad, life: [0.5, 0.8] });
+      c.pillar(x, y, z, pal, { count: 24, radius: rad * 0.1, up: [600, 1800] });
+      c.sparks(x, y, z + HZ, pal, { count: 12, speed: [200, 700] });
+      c.glow(x, y, z + 100, pal.lt, rad * 1.2, 1.0, 0.5);
     });
   });
 
@@ -320,20 +320,20 @@ export function register(c, R) {
     c.ring(su.x, su.y, su.z || 0, PAL.steel, { R: 100, count: 60 });
     c.swirl(su.id, 0.5, PAL.arc, { r: 30, rate: 30, speed: 8 });
   });
-  const TOR = { swirl: 0.9, pow: 1.3, top: 0.75, phase: 0, flare: 1, foot: 0, footPull: 20 }, TOR2 = { swirl: 1, pow: 2.2, top: 0.6, phase: 0, foot: 0, footPull: 20 };
+  const TOR = { swirl: 0.5, pow: 0.35, top: 0.8, phase: 0, foot: 0, footPull: 30, smoke: true }, TOR2 = { swirl: 0.8, pow: 0.6, top: 0.7, phase: 0, foot: 0, footPull: 30, smoke: true };
   const TOR_PX = [[0.95, 1, 1.25], [0.75, 0.62, 0.9], [0.55, 0.58, 0.68]], TOR_PX1 = [0.22, 0.22, 0.28];
   const funnel = (cc, p, dt) => {
     const G = cc.G, z0 = cc.zAt(p.x, p.y);
     TOR.phase = cc.T * 14; TOR2.phase = -cc.T * 9 + 1; TOR.foot = TOR2.foot = z0;
-    G.tube(p.x, p.y, z0, 340, 22, 120, INV.dust, 0.9, TOR);
-    if (G.lod) G.tube(p.x, p.y, z0, 280, 10, 66, INV.dustLt, 0.6, TOR2);
+    G.tube(p.x, p.y, z0, 420, 40, 200, INV.dust, 1.7, TOR);               // r 200 funnel (vpcf radius): grey-brown banded smoke shell (alpha over)
+    G.tube(p.x, p.y, z0, 360, 24, 130, INV.dustD, 1.4, TOR2);
     const n = cc.n(260 * dt);
     for (let i = 0; i < n; i++) {
-      const h = Math.random() * 320, a = cc.T * 9 + h * 0.025 + rnd(0, TAU), rr = 18 + h * 0.32 + rnd(-6, 6);
+      const h = Math.random() * 400, a = cc.T * 9 + h * 0.025 + rnd(0, TAU), rr = 36 + h * 0.4 + rnd(-8, 8);
       P.spawn(cc.pix(PAL.steel, { x: p.x + Math.cos(a) * rr, y: p.y + Math.sin(a) * rr, z: z0 + h, ramp: null, col0: pick(TOR_PX), col1: TOR_PX1, px: 1, life: [0.25, 0.5], vel: [-Math.sin(a) * rr * 6, Math.cos(a) * rr * 6, 0], speed: 0, up: [40, 120], drag: 1.4, settle: false }));
     }
     const m = cc.n(12 * dt);
-    for (let i = 0; i < m; i++) { const a = rnd(0, TAU); P.spawn({ x: p.x + Math.cos(a) * 50, y: p.y + Math.sin(a) * 50, z: z0 + 6, life: [0.5, 0.9], size0: [20, 34], size1: [40, 60], col0: PAL.earth.low, col1: PAL.earth.dim, a0: 0.5, a1: 0, mode: 'glow', vel: [Math.cos(a) * 60, Math.sin(a) * 60, 0], speed: 0, up: 20, flat: true, drag: 1.5 }); }
+    for (let i = 0; i < m; i++) { const a = rnd(0, TAU); P.spawn({ x: p.x + Math.cos(a) * 70, y: p.y + Math.sin(a) * 70, z: z0 + 6, life: [0.5, 0.9], size0: [24, 40], size1: [50, 80], col0: PAL.earth.low, col1: PAL.earth.dim, a0: 0.6, a1: 0, mode: 'glow', vel: [Math.cos(a) * 60, Math.sin(a) * 60, 0], speed: 0, up: 20, flat: true, drag: 1.5 }); }
   };
   // a caught unit spins in a small steel / ice cyclone for the lift: crisp motes circling up past it, a cold halo, a ground ring
   function liftFx(ev, t) {
@@ -363,23 +363,22 @@ export function register(c, R) {
   R.spell('invoker_alacrity', (ev, su, tu) => {
     const t = tu || su; if (!t) return;
     const id = t.id, dur = Math.min(ev.dur || 9, 12), pal = PAL.fire, z = t.z || 0, G = c.G;
-    c.flash(t.x, t.y, c.chest(t), pal, 50, 0.2);
-    c.ring(t.x, t.y, z, pal, { R: 130 });
-    c.embers(t.x, t.y, z + 60, pal, { count: 12 });
-    c.pillar(t.x, t.y, z, PAL.arc, { count: 30, radius: 28, up: [400, 1000] });
-    c.glow(t.x, t.y, c.chest(t), INV.altLt, 280, 0.8, dur, { follow: id, dz: 90, elem: 'E', mode: 'flat' });
-    const arcs = [{ sweep: 2.4, start: 0, edge: 0.32, pow: 0.9, top: 1, foot: 0, footPull: 20 }, { sweep: 2.0, start: Math.PI, edge: 0.32, pow: 0.9, top: 1, foot: 0, footPull: 20 }];
-    const H = [34, 76], RA = [36, 32], COL = [INV.altV, INV.altO], DIR = [1, -1];
+    c.ring(t.x, t.y, z, EMB, { R: 130 });
+    c.embers(t.x, t.y, z + 60, EMB, { count: 5 });
+    c.pillar(t.x, t.y, z, VIO, { count: 12, radius: 40, up: [400, 1000] });
+    c.glow(t.x, t.y, c.chest(t), INV.altLt, 240, 0.35, dur, { follow: id, dz: 90, elem: 'E', mode: 'flat' });
+    const arcs = [{ sweep: 3.8, start: 0, edge: 0.25, pow: 0.1, top: 0.9, foot: 0, footPull: 20, smoke: true }, { sweep: 3.4, start: Math.PI, edge: 0.25, pow: 0.1, top: 0.9, foot: 0, footPull: 20, smoke: true }];   // alpha over: true violet / orange on any ground
+    const H = [30, 78], RA = [44, 38], COL = [INV.altV, INV.altO], DIR = [1, -1];
     c.run(dur, (r, dt) => {
       const u = c.unit(id); if (!u) return false;
       const z0 = u.z || 0, a = Math.min(1, r.t / 0.2, (dur - r.t) / 0.4), sp = 3 + 10 * Math.max(0, 1 - r.t / 0.7);
       for (let j = 0; j < 2; j++) {
         const o = arcs[j], b = bodyAt(u, H[j]);
         o.start += DIR[j] * sp * dt; o.foot = z0; o.footPull = b.pull;
-        G.tube(b.x, b.y, b.z - 6, 12, RA[j], RA[j] + 4, COL[j], a * 0.95, o);
+        G.tube(b.x, b.y, b.z - 12, 24, RA[j], RA[j] + 24, COL[j], a * 2, o);   // flared band: reads as a ribbon from the top-down game camera
       }
       const n = c.n(40 * dt);
-      for (let i = 0; i < n; i++) P.spawn(c.pix(i & 1 ? pal : PAL.arc, { x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: z0 + rnd(0, 120), life: [0.3, 0.6], px: 1, speed: 0, up: [50, 110], settle: false }));
+      for (let i = 0; i < n; i++) P.spawn(c.pix(i & 1 ? EMB : VIO, { x: u.x + rnd(-18, 18), y: u.y + rnd(-12, 12), z: z0 + rnd(0, 120), life: [0.3, 0.6], px: 1, speed: 0, up: [50, 110], settle: false }));
     });
   });
 
@@ -390,13 +389,15 @@ export function register(c, R) {
     // 3D geometry colours: shells stay below the 1.4 bloom threshold, the core is HDR
     const GOLD = [0.48, 0.34, 0.08], AMB = [0.32, 0.16, 0.03], CORE = [1.05, 0.88, 0.45], HOT = [0.9, 0.68, 0.26];   // toned down (director: too bright)
     const tgt = { n: 10, seed: Math.random() * 50, p0: 0, p1: 0.25, p2: 1.2 }, wave = { n: 24, seed: Math.random() * 40, p0: 0, p1: 0.2, p2: 0.4 }, wave2 = { n: 16, seed: 7.3, p0: 0, p1: 0.16, p2: 0.2 };
-    const glowD = { p0: 0, p1: 1.4, p2: 0.55, p3: 0.5, n: 0 }, shell = { swirl: 0.75, pow: 1.6, flare: 0, top: 0.8, phase: 0, front: 0 }, halo = { swirl: 0.2, pow: 2.6, top: 0.7 }, core = { swirl: 0.3, pow: 0.7, flare: 1, top: 0.6, front: 0, phase: 0 };
+    const gs = G.groundSpan(c.zAt, x, y, rad * 2), gz = gs.z;
+    wave.pull = wave2.pull = tgt.pull = gs.pull;
+    const glowD = { p0: 0, p1: 1.4, p2: 0.55, p3: 0.5, n: 0, pull: gs.pull }, shell = { swirl: 0.75, pow: 1.6, flare: 0, top: 0.8, phase: 0, front: 0 }, halo = { swirl: 0.2, pow: 2.6, top: 0.7 }, core = { swirl: 0.3, pow: 0.7, flare: 1, top: 0.6, front: 0, phase: 0 };
     const lt = c.glow(x, y, z + 40, pal.lt, rad * 3, 0.3, dur, { mode: 'flat', elem: 'E' });
     // telegraph: golden targeting circle (rotating dashed rings, sun rays) tightening in with a pixel-noisy fill
     c.run(dur + 0.12, (r, dt) => {
       const k = Math.min(1, r.t / dur), a = Math.min(1, r.t / 0.12) * (r.t > dur ? Math.max(0, 1 - (r.t - dur) / 0.12) : 1);
       tgt.p0 = c.T * 1.1; tgt.p1 = 0.35 + 0.6 * k; tgt.p2 = 0.6 + k;
-      G.disc(x, y, z, rad, 1, GOLD, a * (0.75 + 0.25 * Math.sin(c.T * 12)), tgt);
+      G.disc(x, y, gz, rad, 1, GOLD, a * (0.75 + 0.25 * Math.sin(c.T * 12)), tgt);
       lt.int = 0.3 + 1.4 * k;
       const n = c.n((60 + 160 * k) * dt);
       for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rr = rad * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: z + 4, life: [0.5, 1.0], speed: 0, up: [120, 300 + 500 * k], gravity: -520 })); }
@@ -410,17 +411,16 @@ export function register(c, R) {
         G.tube(x, y, z, 1700, rad * 0.98 * shrink, rad * 0.9 * shrink, AMB, fade * 0.45, halo);
         G.tube(x, y, z, 1700, rad * 0.2 * shrink, rad * 0.18 * shrink, CORE, fade, core);
         const f1 = 1 - Math.pow(1 - Math.min(1, t / 0.5), 3);
-        if (t < 0.5) { wave.p0 = 0.12 + 0.88 * f1; G.disc(x, y, z, rad * 2.0, 2, GOLD, 1 - f1 * 0.7, wave); }
-        if (t < 0.32) { const f2 = 1 - Math.pow(1 - t / 0.32, 3); wave2.p0 = 0.1 + 0.9 * f2; G.disc(x, y, z, rad * 1.25, 2, HOT, 1 - f2 * 0.6, wave2); }
-        G.disc(x, y, z, rad * 1.1, 3, AMB, Math.min(1, (1 - k) * 1.6), glowD);
+        if (t < 0.5) { wave.p0 = 0.12 + 0.88 * f1; G.disc(x, y, gz, rad * 2.0, 2, GOLD, 1 - f1 * 0.7, wave); }
+        if (t < 0.32) { const f2 = 1 - Math.pow(1 - t / 0.32, 3); wave2.p0 = 0.1 + 0.9 * f2; G.disc(x, y, gz, rad * 1.25, 2, HOT, 1 - f2 * 0.6, wave2); }
+        G.disc(x, y, gz, rad * 1.1, 3, AMB, Math.min(1, (1 - k) * 1.6), glowD);
         // pixel motes spiralling up the shell
-        const n = c.n(50 * dt) * (t < 0.7 ? 1 : 0);
-        for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rw = rad * (0.2 + 0.45 * Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rw, y: y + Math.sin(an) * rw, z: z + Math.random() * 60, life: [0.4, 0.9], px: [1.2, 2.6], speed: 0, vel: [-Math.sin(an) * rw * 3, Math.cos(an) * rw * 3, 0], up: [900, 1900], drag: 0.4, settle: false })); }
+        const n = c.n(30 * dt) * (t < 0.7 ? 1 : 0);
+        for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rw = rad * (0.2 + 0.45 * Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rw, y: y + Math.sin(an) * rw, z: z + Math.random() * 60, life: [0.4, 0.9], px: [1, 2], speed: 0, vel: [-Math.sin(an) * rw * 3, Math.cos(an) * rw * 3, 0], up: [900, 1900], drag: 0.4, settle: false })); }
       });
-      P.burst(c.pix(pal, { x, y, z: z + 6, count: 60, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2.4] }));
-      c.flash(x, y, z + 80, pal, rad * 0.3, 0.14);
+      P.burst(c.pix(pal, { x, y, z: z + 6, count: 36, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2] }));
       c.ring(x, y, z, pal, { R: rad * 1.8, life: [0.4, 0.7] });
-      c.embers(x, y, z + 40, pal, { count: 20, speed: [200, 650] });
+      c.embers(x, y, z + 40, pal, { count: 10, speed: [200, 650] });
       c.smoke(x, y, z + 20, { count: 8 }, PAL.smoke);
       c.glow(x, y, z + 120, pal.lt, rad * 4.5, 1.4, 0.9, { elem: 'E' });   // lights + shadows the surroundings
       c.decal(x, y, 'decal_scorch', rad / 80, 6, { tint: [1.2, 0.8, 0.35], emit: 0.8, fadeOut: 0.6 });
@@ -432,10 +432,9 @@ export function register(c, R) {
   // core) erupts where each spirit forms, with a ground shock ring, embers and smoke.
   R.spell('invoker_forge_spirit', (ev, su) => {
     if (!su) return;
-    const n = ev.n || 2, rr = ev.r || 80, pal = PAL.fire, f = su.facing || 0, G = c.G;
-    c.flash(su.x, su.y, c.chest(su), pal, 50, 0.2);
-    c.ring(su.x, su.y, su.z || 0, pal, { R: rr + 70 });
-    const FCORE = [1.5, 0.75, 0.2];
+    const n = ev.n || 2, rr = Math.max(150, (ev.r || 80) + 70), pal = EMB, f = su.facing || 0, G = c.G;   // columns clear of his body
+    c.ring(su.x, su.y, su.z || 0, pal, { R: rr + 60 });
+    const FCORE = [1.2, 0.55, 0.12];
     for (let i = 0; i < n; i++) {
       const a = f + TAU * i / n, x = su.x + Math.cos(a) * rr, y = su.y + Math.sin(a) * rr, z = c.zAt(x, y);
       const fo = { swirl: 0.8, pow: 1.2, flare: 1, top: 0.55, phase: 0, foot: z, footPull: 20 }, co = { swirl: 0.5, pow: 0.7, top: 0.5, phase: 0, foot: z, footPull: 20 };
@@ -443,14 +442,14 @@ export function register(c, R) {
       c.run(0.7, (r) => {
         const t = r.t, e = 1 - Math.pow(1 - Math.min(1, t / 0.14), 3), fade = 1 - r.k * r.k;
         fo.phase = c.T * 8 + i; co.phase = c.T * 11;
-        G.tube(x, y, z, 230 * e, 32, 14, ELEMB.E, fade, fo);
-        G.tube(x, y, z, 150 * e, 9, 4, FCORE, fade, co);
+        G.tube(x, y, z, 230 * e, 32, 14, INV.E, fade, fo);
+        G.tube(x, y, z, 120 * e, 7, 3, FCORE, fade * 0.6, co);
         if (t < 0.4) { const q = t / 0.4; sh.p0 = 0.15 + 0.85 * (1 - (1 - q) * (1 - q)); G.disc(x, y, z, 110, 2, INV.E, 1 - q, sh); }
       });
-      c.pillar(x, y, z, pal, { count: G.lod ? 14 : 8, radius: 22, up: [400, 1000] });
-      c.embers(x, y, z + 30, pal, { count: 8 });
-      c.glow(x, y, z + 60, pal.lt, 260, 0.7, 0.7, { elem: 'E' });
-      c.smoke(x, y, z + 20, { count: 6 });
+      c.pillar(x, y, z, pal, { count: G.lod ? 6 : 3, radius: 26, up: [400, 1000] });
+      c.embers(x, y, z + 30, pal, { count: 3 });
+      c.glow(x, y, z + 60, pal.lt, 220, 0.35, 0.6, { elem: 'E' });
+      c.smoke(x, y, z + 20, { count: 4 });
     }
   });
 
@@ -495,9 +494,9 @@ export function register(c, R) {
     });
     // impact, roll, crumble
     c.later(land, () => {
-      c.glow(x, y, z0 + 90, pal.lt, 800, 1.5, 0.6, { elem: 'E' });
-      P.burst(c.pix(pal, { x, y, z: z0 + 20, count: c.G.lod ? 220 : 90, shape: 'ring', radius: 84, speed: [150, 500], up: [250, 600], gravity: -650, drag: 0.6, px: [0.8, 2.4], linger: [0.6, 1.6] }));
-      c.dust(x, y, z0, { count: 26, speed: [224, 500], life: [1.2, 1.8] });
+      c.glow(x, y, z0 + 90, pal.lt, 700, 1.1, 0.6, { elem: 'E' });
+      P.burst(c.pix(pal, { x, y, z: z0 + 20, count: c.G.lod ? 120 : 50, shape: 'ring', radius: 84, speed: [60, 220], up: [200, 420], gravity: -900, drag: 2.2, px: [0.8, 2], linger: [0.3, 0.7] }));
+      c.dust(x, y, z0, { count: 18, speed: [100, 260], life: [1.0, 1.5] });
       c.smoke(x, y, z0 + 30, { count: 10, radius: rad * 0.3, size0: [50, 80], size1: [110, 150] });
       c.decal(x, y, 'decal_scorch', rad / 90, 7, { tint: [1.2, 0.7, 0.3], emit: 0.8, fadeOut: 0.6 });
       const ringO = { pow: 0.7, top: 0.9 }, beamO = { pow: 2, top: 0.4, swirl: 0.3, phase: 0 }, shock = { n: 20, seed: Math.random() * 30, p0: 0, p1: 0.22, p2: 0.3 };
@@ -544,15 +543,14 @@ export function register(c, R) {
     if (su) {
       blastDims.set(su.id, { r0: ev.r0 || 175, r1: ev.r || 225 });
       const z = c.chest(su);
-      c.flash(su.x, su.y, z, PAL.ice, 50, 0.2);
-      for (const [pl, o] of [[PAL.ice, 0], [PAL.arc, 1], [PAL.fire, 2]]) c.ring(su.x, su.y, su.z || 0, pl, { R: 100 + o * 30, life: [0.3 + o * 0.08, 0.5 + o * 0.08] });
-      c.glow(su.x, su.y, z, PAL.ice.lt, 340, 1.0, 0.5);
+      for (const o of [0, 1]) c.ring(su.x, su.y, su.z || 0, FROST, { R: 100 + o * 40, life: [0.3 + o * 0.1, 0.5 + o * 0.1] });   // blue-dominant cast
+      c.glow(su.x, su.y, z, PAL.ice.lt, 300, 0.5, 0.4);
     }
   });
   const BLAST_PALS = [PAL.ice, PAL.arc, PAL.fire];
   const SW = 2.2, SIN_HALF = Math.sin(SW / 2);
-  const BL = { sweep: SW, start: 0, edge: 0.28, swirl: 0.5, pow: 1.1, top: 1, phase: 0, foot: 0, footPull: 20 };
-  const BLE = { sweep: SW, start: 0, edge: 0.3, swirl: 0, pow: 0.6, top: 1, foot: 0, footPull: 20 }, BLB = { sweep: SW, start: 0, edge: 0.3, swirl: 0.4, pow: 1.4, top: 1, phase: 0, foot: 0, footPull: 20 };
+  const BL = { sweep: SW, start: 0, edge: 0.28, swirl: 0.35, pow: 0.1, top: 0.9, phase: 0, foot: 0, footPull: 20, smoke: true };   // solid blue body (alpha over)
+  const BLE = { sweep: SW, start: 0, edge: 0.3, swirl: 0, pow: 0.1, top: 0.9, foot: 0, footPull: 20 }, BLB = { sweep: SW, start: 0, edge: 0.3, swirl: 0.4, pow: 1.4, top: 0.9, phase: 0, foot: 0, footPull: 20 };
   R.proj('invoker_deafening_blast', {
     frames: null, sp: 1100, z: 70, pal: PAL.arc,
     light: { col: INV.body.map((v) => v * 1.9), radius: 380, int: 0.9 },
@@ -564,17 +562,17 @@ export function register(c, R) {
       // the 3D wave: arc centre behind the front so the arc's chord spans the width
       const Rc = w / SIN_HALF, gz = cc.zAt(p.x, p.y), cx = p.x - fx * Rc, cy = p.y - fy * Rc, st = Math.atan2(fy, fx) - SW / 2;
       BL.start = BLE.start = BLB.start = st; BL.foot = BLE.foot = BLB.foot = gz; BL.phase = cc.T * 12; BLB.phase = cc.T * 7;
-      G.tube(cx, cy, gz + 6, 84, Rc, Rc + 6, INV.body, 0.95, BL);
-      G.tube(cx, cy, gz + 4, 26, Rc + 12, Rc + 14, INV.edge, 0.85, BLE);
-      if (G.lod) G.tube(cx - fx * 70, cy - fy * 70, gz + 6, 60, Rc, Rc + 4, INV.body, 0.45, BLB);
+      G.tube(cx, cy, gz + 4, 130, Rc, Rc + 8, INV.blast, 2, BL);
+      G.tube(cx, cy, gz + 2, 44, Rc + 12, Rc + 15, INV.edge, 1, BLE);
+      if (G.lod) G.tube(cx - fx * 70, cy - fy * 70, gz + 4, 90, Rc, Rc + 4, INV.body, 0.6, BLB);
       const n = cc.n(220 * dt);
       for (let i = 0; i < n; i++) {
         const s = rnd(-1, 1), back = s * s * w * 0.5;
-        const pl = BLAST_PALS[(Math.random() * 3) | 0];
+        const pl = Math.random() < 0.75 ? FROST : BLAST_PALS[(Math.random() * 3) | 0];
         P.spawn(cc.pix(pl, { x: p.x + px * s * w - fx * back, y: p.y + py * s * w - fy * back, z: gz + rnd(10, 90), life: [0.25, 0.5], px: 1,
           vel: [fx * 90, fy * 90, 0], speed: 0, up: [0, 30], drag: 1.6, settle: false }));
       }
     },
-    hit(cc, p) { for (const pl of BLAST_PALS) cc.ring(p.x, p.y, cc.zAt(p.x, p.y), pl, { R: 140 }); cc.flash(p.x, p.y, p.z, PAL.ice, 40, 0.15); },
+    hit(cc, p) { cc.ring(p.x, p.y, cc.zAt(p.x, p.y), FROST, { R: 140 }); },
   });
 }
