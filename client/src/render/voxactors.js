@@ -8,7 +8,8 @@
 // Team tint: voxels of `team` mats (aFace bit 3) take the instance team colour at their own ramp luminance. Death: the model breaks into its
 // voxels (centre rebuilt from position + aFace corner bits, random from aHash): they burst out, fall, bounce once and dissolve (DIE_*).
 // Heroes (models with a rig, voxmesh.js segments in aHash bits 5-7) ragdoll first: ragdoll.js simulates a verlet skeleton on the CPU for RAG_T seconds and
-// uploads one rotation + translation per body segment to the uRag texture (row = ragdoll slot, iMs.z); the shader moves each voxel with its segment,
+// uploads one rotation + translation per body segment to the uRag texture (row = ragdoll slot, iMs.z); the shader moves each voxel with its segment
+// (the live spell gusts push / pull the body for the whole ragdoll, same field and WIND_K scale as the debris),
 // then the dissolve below starts from the settled pose.
 // Picks, HP bars and decals use the voxel footprint of the drawn pose frame (frame.pf, a sprite-like box; see actors.js / index.js).
 // Lazy: a model's frames are meshed on its first add() (or prepare()); Lina ~150 ms, synchronous. The Mesh objects exist from the start
@@ -16,7 +17,7 @@
 import * as THREE from 'three';
 import { ART_UNITS_PER_PX } from '../../../shared/constants.js';
 import { COMMON_GLSL } from './shaderlib.js';
-import { WIND_GLSL } from './wind.js';
+import { WIND_GLSL, windAt } from './wind.js';
 import { DEPTH_FRAG } from './shadow.js';
 import { instancedGeo, flushInstances, DEPTH_GLSL } from './mesh3d.js';
 import { buildVoxFrames } from './voxmesh.js';
@@ -206,7 +207,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
   const models = {}, all = [], empty = new THREE.BufferGeometry();
   const ragData = new Float32Array(12 * 4 * RAG_SLOTS), ragTex = new THREE.DataTexture(ragData, 12, RAG_SLOTS, THREE.RGBAFormat, THREE.FloatType);
   ragTex.minFilter = ragTex.magFilter = THREE.NearestFilter; ragTex.needsUpdate = true;
-  const ragU = { value: ragTex }, rags = new Map(), ragSlot = new Array(RAG_SLOTS).fill(null), segBuf = new Float32Array(48);
+  const ragU = { value: ragTex }, rags = new Map(), ragSlot = new Array(RAG_SLOTS).fill(null), segBuf = new Float32Array(48), W0 = [0, 0];
   if (voxEnabled) for (const name in VOX_UNITS) {
     const h = VOX_UNITS[name], m = models[name] = { h, anims: {}, built: false, vu: 1, radius: 0, qU: { value: 1 } };
     const un = { ...uniforms, uPull: { value: 12 }, uOutW: outU, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU, uRag: ragU };
@@ -261,7 +262,8 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
     const k = m.h.unit * (o.scale || 1), a = (o.facing || 0) + Math.PI / 2, c = Math.cos(a), s = Math.sin(a), rest = {};
     for (const n in J) { const j = J[n]; rest[n] = [(j[0] * c + j[2] * s) * k, j[1] * k, (-j[0] * s + j[2] * c) * k]; }   // rotY of the shader
     const px = x, pz = -y, L = launchOf(o.launch, o.fall);
-    const rd = createRagdoll(rest, { ...L, scale: k, ground: (ox, oz) => ground(px + ox, pz + oz) - z });
+    const wind = (ox, oz) => { const n = uniforms.uWN ? uniforms.uWN.value : 0; if (!(n > 0) || !(uniforms.uWind.value > 0)) return W0; const g = windAt(uniforms.uWA.value, uniforms.uWB.value, uniforms.uWC.value, n, px + ox, pz + oz), kw = WIND_K * uniforms.uWind.value; g[0] *= kw; g[1] *= kw; return g; };   // the debris' gust field, live for the whole ragdoll
+    const rd = createRagdoll(rest, { ...L, scale: k, ground: (ox, oz) => ground(px + ox, pz + oz) - z, wind });
     const r = { key, slot, rd, age: 0, done: false };
     ragSlot[slot] = key; rags.set(key, r);
     if (o.age > 0) rd.advance(Math.min(o.age, RAG_T));

@@ -54,23 +54,35 @@ export function voxCentre(p, f, q) {
 const hash5 = (x, y, z) => { let h = (x * 73856093) ^ (y * 19349663) ^ (z * 83492791); h = Math.imul(h ^ (h >>> 13), 0x5bd1e995); return (h ^ (h >>> 15)) & 31; };
 
 // Ragdoll segments of a biped: each voxel goes to the nearest bone capsule by distance / radius (radius ~ the limb's thickness, so a skirt or a ponytail
-// lands on the torso / head, not on the thigh beside it). Ids are the aHash bits 5-7 and the ragdoll's body order.
+// lands on the torso / head, not on the thigh beside it). Radii are per joint (lerped along each bone): the head capsule is thin at the neck so it does
+// not swallow the shoulders, the foot end is wide and runs on to a toe point so whole boots go with the leg. A voxel inside a limb capsule (d <= 1)
+// belongs to that limb even when a fat torso / head capsule scores lower. Ids are the aHash bits 5-7 and the ragdoll's body order.
 export const SEG = { head: 0, torso: 1, armR: 2, armL: 3, legR: 4, legL: 5 };
-const BONES = [   // [segment, radius (voxels), joint chain]
-  [0, 9.6, ['neck', 'head']], [1, 7.5, ['hips', 'neck']],
-  [2, 2.4, ['shoulderR', 'elbowR', 'handR']], [3, 2.4, ['shoulderL', 'elbowL', 'handL']],
-  [4, 2.4, ['hipR', 'kneeR', 'ankleR', 'footR']], [5, 2.4, ['hipL', 'kneeL', 'ankleL', 'footL']],
+const TOE = 3.5;   // voxels: the toe point ahead of the foot joint (bipeds face -y)
+const BONES = [   // [segment, joint chain, radius (voxels) per joint, first bone index that claims what is inside it (boots)]
+  [0, ['neck', 'head'], [9.6, 9.6]], [1, ['hips', 'neck'], [7.5, 7.5]],
+  [2, ['shoulderR', 'elbowR', 'handR'], [2.4, 2.4, 2.4]], [3, ['shoulderL', 'elbowL', 'handL'], [2.4, 2.4, 2.4]],
+  [4, ['hipR', 'kneeR', 'ankleR', 'footR', 'toeR'], [2.4, 2.4, 2.4, 3.2, 3], 2], [5, ['hipL', 'kneeL', 'ankleL', 'footL', 'toeL'], [2.4, 2.4, 2.4, 3.2, 3], 2],
 ];
-/** Segment (SEG id) of the voxel point p (voxel coords, cell centre) for a biped's joints J (shared/vox/rig.js solve()). */
+const jointOf = (J, n) => J[n] || (n[0] === 't' && J['foot' + n[3]] ? [J['foot' + n[3]][0], J['foot' + n[3]][1] - TOE, J['foot' + n[3]][2]] : null);
+/** Segment (SEG id) of the voxel point p (voxel coords, cell centre) for a biped's joints J (shared/vox/rig.js solve()). The head only takes voxels
+ *  above the neck plane (perpendicular to hips -> neck), so the big chibi head capsule leaves the shoulders, sleeves and the hair down the back to the torso. */
 export function segmentOf(J, p) {
-  let best = 0, bd = Infinity;
-  for (const [id, r, chain] of BONES) for (let i = 0; i + 1 < chain.length; i++) {
-    const a = J[chain[i]], b = J[chain[i + 1]], ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-    const t = l2 > 1e-9 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / l2)) : 0;
-    const d = Math.hypot(p[0] - a[0] - ab[0] * t, p[1] - a[1] - ab[1] * t, p[2] - a[2] - ab[2] * t) / r;
-    if (d < bd) { bd = d; best = id; }
+  const up = [J.neck[0] - J.hips[0], J.neck[1] - J.hips[1], J.neck[2] - J.hips[2]], ul = Math.hypot(up[0], up[1], up[2]) || 1;
+  const above = ((p[0] - J.neck[0]) * up[0] + (p[1] - J.neck[1]) * up[1] + (p[2] - J.neck[2]) * up[2]) / ul > -0.5;
+  let best = 1, bd = Infinity, own = -1, od = 1;
+  for (const [id, chain, rad, claim] of BONES) {
+    if (id === 0 && !above) continue;
+    for (let i = 0; i + 1 < chain.length; i++) {
+      const a = jointOf(J, chain[i]), b = jointOf(J, chain[i + 1]); if (!a || !b) continue;
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+      const t = l2 > 1e-9 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / l2)) : 0;
+      const d = Math.hypot(p[0] - a[0] - ab[0] * t, p[1] - a[1] - ab[1] * t, p[2] - a[2] - ab[2] * t) / (rad[i] + (rad[i + 1] - rad[i]) * t);
+      if (d < bd) { bd = d; best = id; }
+      if (claim != null && i >= claim && d <= od) { od = d; own = id; }
+    }
   }
-  return best;
+  return own >= 0 ? own : best;
 }
 
 /**

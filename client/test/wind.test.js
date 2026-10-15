@@ -1,7 +1,7 @@
 // Spell wind: gust derivation from ability data, the fixed gust array (cap / eviction / decay) and the displacement shapes. Pure, no WebGL.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_GUSTS, KIND, REARM, createWind, spellGust, abilityStats, envelope, windAt, launchAt, WIND_GLSL } from '../src/render/wind.js';
+import { MAX_GUSTS, KIND, REARM, createWind, spellGust, abilityStats, envelope, windAt, launchAt, WIND_GLSL, OVERRIDES, dmgStrength, BOOST } from '../src/render/wind.js';
 import { EV } from '../../shared/protocol.js';
 import { DATA } from '../../shared/data.js';
 
@@ -234,4 +234,34 @@ test('launchAt: burst = away from the centre, pull = toward it, line = along the
   // a queued detonation replaces the charging pull; a dormant gust counts at full strength
   const gs = [G({ pull: 1, key: 'emp' }), G({ key: 'emp#then', age: -2 })];
   assert.ok(launchAt(gs, 300, 0).dx > 0.95, 'push, not the pull');
+});
+
+test('pulls follow the push rules: a damaging pull takes its strength from the same damage curve, only no-damage utility pulls keep an explicit one', () => {
+  const PUDGE = { x: 0, y: 0 }, V = { x: 900, y: 0 };
+  for (const lv of [1, 4]) {
+    const hit = pk(sp('pudge_meat_hook', { sub: 'hit', t: 'v', lv, x: 900, y: 0, x2: 0, y2: 0 }), PUDGE, V), st = abilityStats('pudge_meat_hook', lv);
+    assert.ok(st.damage > 0 && Math.abs(hit.strength - Math.min(1, dmgStrength(st.damage))) < 1e-9, 'hook hit: damage curve, lv ' + lv);
+    const dis = pk(sp('pudge_dismember', { t: 'v', lv, x: 150, y: 0, r: 120 }), PUDGE, { x: 150, y: 0 }), ds = abilityStats('pudge_dismember', lv);
+    assert.ok(ds.damage > 0 && Math.abs(dis.strength - Math.min(1, dmgStrength(ds.damage) * BOOST)) < 1e-9, 'dismember (ult): damage curve x BOOST, lv ' + lv);
+    // the same damage as a push spell gives the same strength (sign aside)
+    const push = pk(sp('pudge_meat_hook', { lv, x: 900, y: 0, x2: 1300, y2: 0, r: 70 }), PUDGE, null);
+    assert.equal(push.strength, hit.strength, 'hook cast (push) and hit (pull) match');
+  }
+  assert.ok(pk(sp('pudge_meat_hook', { sub: 'hit', t: 'v', lv: 4, x: 900, y: 0, x2: 0, y2: 0 }), PUDGE, V).strength > pk(sp('pudge_meat_hook', { sub: 'hit', t: 'v', lv: 1, x: 900, y: 0, x2: 0, y2: 0 }), PUDGE, V).strength, 'stronger hook, stronger pull');
+  for (const [k, ov] of Object.entries(OVERRIDES)) {
+    const o = ov.subs ? Object.values(ov.subs)[0] : ov; if (!o.pull) continue;
+    const dmg = abilityStats(k, 3).damage;
+    if (dmg > 0) assert.equal(o.strength, undefined, k + ' deals damage: no explicit strength');
+    else assert.ok(o.strength > 0, k + ' is a utility pull: explicit strength');
+  }
+});
+
+test('launchAt: a pull gust (any shape) launches toward the caster / centre, mirror of the push', () => {
+  const G = (o) => ({ x: 0, y: 0, dx: 1, dy: 0, len: 0, radius: 600, strength: 0.8, kind: KIND.BURST, pull: 0, life: 4, age: 0, key: 'k', src: 'a', ...o });
+  const push = launchAt([G()], 300, 0), pull = launchAt([G({ pull: 1 })], 300, 0);
+  assert.ok(Math.abs(push.dx + pull.dx) < 0.05 && pull.mag > 0.5 * push.mag, 'burst: mirrored (same strength scale, the ripple phase aside)');
+  const line = launchAt([G({ kind: KIND.LINE, pull: 1, dx: -1, dy: 0, len: 450, x: 450, radius: 300 })], 600, 0);   // hook hit: victim side -> Pudge at 0
+  assert.ok(line.dx < -0.8, 'line pull: toward the caster');
+  const sw = launchAt([G({ kind: KIND.SWIRL, pull: 1, radius: 420 })], 150, 0), swp = launchAt([G({ kind: KIND.SWIRL, radius: 420 })], 150, 0);
+  assert.ok(sw.dx < 0 && swp.dx > 0, 'swirl pull spirals in, push spirals out');
 });
