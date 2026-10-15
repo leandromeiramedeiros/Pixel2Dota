@@ -263,7 +263,7 @@ float bayer4(vec2 p){
   float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
   return (v + .5) / 16.;
 }
-vec3 horCol(){ return mix(vec3(.62, .68, .68), vec3(.07, .09, .17), uNight); }
+vec3 horCol(){ return mix(vec3(.50, .66, .88), vec3(.07, .09, .17), uNight); }
 float viewZ(float d){ return uPAB.y / (d * 2. - 1. + uPAB.x); }
 `;
 // rgb = light added, a = what the scene keeps: ground pixels a = transmittance >= 0, sky pixels a = -1 - transmittance (FINAL adds the sky over the raw scene there)
@@ -276,14 +276,14 @@ void main(){
   vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
   vec3 vd = q.xyz / q.w; vd /= -vd.z;
   float dist = sky ? 1e5 : viewZ(d0) * length(vd);
-  vec3 hor = horCol(), zen = mix(vec3(.25, .42, .60), vec3(.02, .03, .09), uNight);
+  vec3 hor = horCol(), zen = mix(vec3(.15, .37, .80), vec3(.02, .03, .09), uNight);
   vec3 wd = normalize(mat3(uCamWorld) * vd);
   vec3 body = mix(vec3(1., .86, .6), vec3(.74, .82, 1.), uNight);   // sun / moon colour
   vec3 add; float keep;
   if (sky) {   // gradient, sun / moon disc + glow, night stars, day clouds
     float el = clamp(wd.y, 0., 1.);
     vec3 s = mix(hor, zen, pow(el, .55));
-    s += vec3(.07, .04, -.02) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
+    s += vec3(.05, .03, 0.) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
     float ang = acos(clamp(dot(wd, uSun), -1., 1.)), rad = mix(.028, .02, uNight);
     float glow = exp(-ang / (rad * 3.5)) * .42 + exp(-ang / (rad * 12.)) * .16;
     s += body * glow * mix(1.3, .55, uNight);
@@ -291,7 +291,7 @@ void main(){
     if (uNight > .02) s += starField(wd, uPxAng, uTime) * smoothstep(.35, 1., uNight) * smoothstep(0., .08, wd.y) * (1. - clamp(glow * 3., 0., 1.));
     if (uAtmos > .5 && uNight < .98 && wd.y > .03) {
       float cj = uAtmos > 1.5 ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
-      vec4 cl = cloudLayer(uCamPos, wd, uSun, body, mix(vec3(.5, .56, .68), vec3(.04), uNight), cj, uTime, uAtmos);
+      vec4 cl = cloudLayer(uCamPos, wd, uSun, body, mix(vec3(.42, .54, .78), vec3(.04), uNight), cj, uTime, uAtmos);
       float fade = smoothstep(.03, .14, wd.y) * (1. - uNight);
       s = mix(s, s * cl.a + cl.rgb, fade);
     }
