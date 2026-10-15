@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Vox } from '../../shared/vox/vox.js';
 import { VOX } from '../../shared/vox/index.js';
-import { meshVox, buildVoxFrames, faceNormal, voxCentre, emitGain, F_TEAM, F_CORNER, TIER_K } from '../src/render/voxmesh.js';
+import { meshVox, buildVoxFrames, faceNormal, voxCentre, emitGain, F_TEAM, F_CORNER, TIER_K, segmentOf, SEG } from '../src/render/voxmesh.js';
 
 // every registered model (shared/vox/index.js); VOX_ONLY=<short> narrows it (tools/vox/check.mjs)
 const MODELS = Object.entries(VOX).filter(([n]) => !process.env.VOX_ONLY || n === process.env.VOX_ONLY)
@@ -134,4 +134,17 @@ test('voxmesh: ragdoll segments (aHash bits 5-7) follow the rig joints', () => {
   assert.ok(avg(2)[0] < 0 && avg(3)[0] > 0 && avg(4)[0] < 0 && avg(5)[0] > 0, 'R (-x) / L (+x) sides');
   // joints: head above neck above hips, feet at the ground
   assert.ok(J.head[1] > J.neck[1] && J.neck[1] > J.hips[1] && J.footR[1] < 2, 'joint heights');
+});
+
+test('voxmesh: ragdoll segments of Lina: whole boots ride the legs, the head does not take the shoulders / sleeves / face sits on the head', () => {
+  const m = VOX.lina.mod, p = m.ANIMS.stunned[0], J = m.rigOf(p), v = m.build(p), by = {};
+  for (let z = 0; z < v.Z; z++) for (let y = 0; y < v.Y; y++) for (let x = 0; x < v.X; x++) {
+    const id = v.get(x, y, z); if (!id) continue;
+    const n = v.mats[id].name, s = segmentOf(J, [x + 0.5, y + 0.5, z + 0.5]); (by[n] ||= [0, 0, 0, 0, 0, 0])[s]++;
+  }
+  const tot = (n) => by[n].reduce((a, b) => a + b, 0);
+  assert.ok(by.boot[SEG.legR] + by.boot[SEG.legL] >= 0.95 * tot('boot'), 'boots on the legs ' + by.boot);
+  assert.equal(by.sleeve[SEG.head], 0, 'no sleeve voxel on the head ' + by.sleeve);
+  for (const n of ['mouth', 'blush', 'lash']) assert.equal(by[n][SEG.head], tot(n), n + ' on the head');
+  assert.ok(by.skin[SEG.armR] > 15 && by.skin[SEG.armL] > 15, 'arm skin on the arms ' + by.skin);
 });

@@ -1,6 +1,6 @@
 // createRenderer({ canvas, sheets }) -> contract: this file (docs/ARCHITECTURE.md "Render systems" for the rules).
 import * as THREE from 'three';
-import { launchAt } from './wind.js';
+import { launchAt, strikeLaunch, strongerLaunch } from './wind.js';
 import { getMap, heightAt } from '../../../shared/map.js';
 import { ART_UNITS_PER_PX, CAMERA, MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
 import { ST, EV } from '../../../shared/protocol.js';
@@ -65,19 +65,18 @@ export function createRenderer({ canvas, sheets }) {
   const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
   const vox = createVoxActors({ scene, uniforms, ground: (x, z) => heightAt(x, -z) });   // voxel units (voxactors.js VOX_UNITS)
   const wind = createWind();   // spell gusts (wind.js) -> uWA/uWB/uWC/uWN each frame
-  const lastHit = new Map();   // target id -> { s: attacker id, t: ms }: the knock a hero ragdoll takes when no gust applies
+  const lastHit = new Map();   // target id -> { s: attacker id, t: ms, d: damage, c: crit }: the finishing strike a hero ragdoll takes (wind.js strikeLaunch)
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
   for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), ...vox.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
   const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d, vox, yaw: () => rig.yaw, launch: launchOf });
 
-  /** Ragdoll launch of a dying unit: the live gusts at its feet (wind.js launchAt), else a small knock away from whoever hit it last, else null (plain collapse). */
+  /** Ragdoll launch of a dying unit: the stronger of the live gusts at its feet (wind.js launchAt) and the finishing strike (killing-hit damage through the
+   *  same damage curve, away from the attacker), else null (plain collapse). */
   function launchOf(u) {
-    const l = settings.wind > 0 ? launchAt(wind.gusts, u.x, u.y) : null; if (l) return l;
+    const l = settings.wind > 0 ? launchAt(wind.gusts, u.x, u.y) : null;
     const h = lastHit.get(u.id), a = h && performance.now() - h.t < 3000 ? unitMap.get(h.s) : null;
-    if (!a) return null;
-    const dx = u.x - a.x, dy = u.y - a.y, m = Math.hypot(dx, dy) || 1;
-    return { dx: dx / m, dy: dy / m, mag: 0.3 };
+    return strongerLaunch(l, a ? strikeLaunch(h.d, h.c, u.x, u.y, a.x, a.y) : null);
   }
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
   let rtSettledH = 0;
@@ -401,7 +400,7 @@ export function createRenderer({ canvas, sheets }) {
       if (!events) return;
       for (const ev of events) {
         builtinFx(ev);
-        if (ev.e === EV.HIT && ev.s != null && ev.t != null) lastHit.set(ev.t, { s: ev.s, t: performance.now() });
+        if (ev.e === EV.HIT && ev.s != null && ev.t != null) lastHit.set(ev.t, { s: ev.s, t: performance.now(), d: ev.d || 0, c: !!ev.c });
         if (ev.e === EV.SPELL && settings.wind > 0) wind.report(ev, (id) => unitMap.get(id), undefined, (x, y) => { const c = unitMap.get(ev.s); return (c && c.team === myTeam) || fog.isVisible(x, y); });   // spell casts kick up gusts (own team's always, enemy only when seen); basic attacks do not
         if (fxMod) safeFx(ev); else if (fxLoader) { if (fxQueue.length < 256) fxQueue.push(ev); }
       }

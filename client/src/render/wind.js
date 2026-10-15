@@ -64,12 +64,13 @@ export function abilityStats(key, level, abilities = DATA.abilities) {
  *  BURST at the same centre after ev.dur) / subs ({ <ev.sub>: override } = the only sub-events that gust). */
 export const OVERRIDES = {
   // pulls: the wind drags the plants the way the spell drags the units
-  pudge_meat_hook: { subs: { hit: { kind: KIND.LINE, pull: true, strength: 0.6 } } },   // the cast (no sub) pushes along the throw; the hit (victim -> Pudge) pulls back
-  pudge_dismember: { kind: KIND.SWIRL, pull: true, radius: 420, strength: 0.55 },
+  // a pull that deals damage takes its strength from that damage (the push curve, dmgStrength); explicit strengths only for no-damage utility pulls
+  pudge_meat_hook: { subs: { hit: { kind: KIND.LINE, pull: true } } },   // the cast (no sub) pushes along the throw; the hit (victim -> Pudge) pulls back
+  pudge_dismember: { kind: KIND.SWIRL, pull: true, radius: 420 },
   lion_mana_drain: { kind: KIND.LINE, pull: true, strength: 0.3 },
   rubick_spell_steal: { kind: KIND.LINE, pull: true, strength: 0.3 },
   axe_berserkers_call: { kind: KIND.BURST, pull: true, radius: 480, strength: 0.7, at: 'src' },
-  invoker_emp: { kind: KIND.BURST, pull: true, radius: 820, strength: 0.6, at: 'xy', then: { radius: 1000, strength: 1 } },   // the charge (ev.dur) pulls in, the detonation pushes out
+  invoker_emp: { kind: KIND.BURST, pull: true, radius: 820, strength: 0.6, at: 'xy', then: { radius: 1000, strength: 1 } },   // mana burn, no damage data: utility strengths. The charge (ev.dur) pulls in, the detonation pushes out
   crystal_maiden_freezing_field: { kind: KIND.BURST, radius: 1000, strength: 1 },
   invoker_chaos_meteor: { kind: KIND.BURST, radius: 560, strength: 0.9, at: 'xy' },
   zuus_thundergods_wrath: { kind: KIND.BURST, radius: 1300, strength: 1, at: 'src' },
@@ -79,6 +80,9 @@ export const OVERRIDES = {
 };
 
 const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+/** The one damage -> strength curve (0..1): spell gusts (pushes and damaging pulls) and the finishing strike of a ragdoll (strikeLaunch). 100 dmg ~ 0.38, 300 ~ 0.74, 500+ = 1. */
+export const dmgStrength = (d) => Math.pow(clamp((+d || 0) / 500, 0, 1), 0.6);
+export const BOOST = 1.25;   // ults (gust strength, then clamped to 1) and crits (strike strength) hit this much harder
 
 /**
  * Gust descriptor for a spell event, or null (no gust). ev = EV.SPELL event, src / tgt = units {x, y} (or null),
@@ -98,8 +102,8 @@ export function spellGust(ev, src, tgt, abilities = DATA.abilities) {
   const hasEnd = ex != null && ey != null;
   const radius = ev.r && !hasEnd ? Math.max(ev.r, st.radius) : st.radius;
   // ---- strength: damage -> 0..1 (100 dmg ~ 0.38, 300 ~ 0.74, 500+ = 1); ults +25 %; area-only utility spells get a light breeze
-  let strength = st.damage > 0 ? Math.pow(clamp(st.damage / 500, 0, 1), 0.6) : radius > 0 ? 0.14 + Math.min(0.2, radius / 4000) : 0.1;
-  if (st.ult) strength *= 1.25;
+  let strength = st.damage > 0 ? dmgStrength(st.damage) : radius > 0 ? 0.14 + Math.min(0.2, radius / 4000) : 0.1;
+  if (st.ult) strength *= BOOST;
   strength = clamp(ov.strength != null ? ov.strength : strength, 0, 1);
   if (strength < 0.06) return null;
   // ---- shape. A pull line runs from the pulled point (ev.x,y / target) to the caster; a push line from the caster (or ev.x,y) to (x2,y2).
@@ -248,7 +252,7 @@ export function windAt(A, B, C, n, px, pz) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// ragdoll launch: what the live gusts would do to a body at (x, y) in game coords (a dying hero), as a direction + 0..1.4 strength.
+// ragdoll launch: what the live gusts would do to a body at (x, y) in game coords (a dying hero), as a direction + strength (ragdoll.js caps it at LAUNCH_MAX).
 export const LAUNCH_MIN = 0.12;     // below this the gusts say nothing: the caller falls back to a knock from the killer / a plain collapse
 /** Sum of the active gusts at the point, each sampled as if its wave had arrived (age >= 1 s: ring already past, line mid-way) and weighted by what
  *  is left of its strength (linear in age; a dormant `then` gust counts in full). A pull whose detonation is queued (`key#then`) is dropped: it is
@@ -263,8 +267,17 @@ export function launchAt(gusts, x, y) {
     const w = gustField(A, B, C, 0, x, -y); ox += w[0]; oz += w[1];
   }
   const m = Math.hypot(ox, oz); if (m < LAUNCH_MIN) return null;
-  return { dx: ox / m, dy: -oz / m, mag: Math.min(1.4, m) };
+  return { dx: ox / m, dy: -oz / m, mag: m };
 }
+/** The finishing strike as a launch: away from the attacker (game coords a -> u), strength = dmgStrength(killing-hit damage), crits x BOOST. Null when
+ *  there is no damage or no direction (the attacker on top of the victim falls back to the victim's own fall). */
+export function strikeLaunch(d, crit, ux, uy, ax, ay) {
+  const mag = dmgStrength(d) * (crit ? BOOST : 1), dx = ux - ax, dy = uy - ay, m = Math.hypot(dx, dy);
+  if (!(mag > 0) || !(m > 1e-6)) return null;
+  return { dx: dx / m, dy: dy / m, mag };
+}
+/** The stronger of two launches (wind at the feet vs the strike): its direction and strength; either may be null. */
+export const strongerLaunch = (a, b) => (!a ? b || null : !b ? a : b.mag > a.mag ? b : a);
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // GLSL (kept in step with gustField above). Insert after the uniform block of a vertex shader; call gustAt(foot.xz) -> world push (units 1 = full).
