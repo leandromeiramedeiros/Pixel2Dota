@@ -32,6 +32,9 @@ export const DENY_HP_PCT = 0.5;
 // match flow
 export const PREGAME = 30;            // clock starts at -PREGAME; first wave + horn at 0:00
 export const WAVE_EVERY = 30, SIEGE_EVERY = 5, WAVE_MELEE = 3, WAVE_RANGED = 1;
+// Wave growth (engine behaviour, NOT in the game files; remembered Dota rule, exact minutes uncertain): +1 creep of that type per wave
+// from each listed game minute on. Siege growth applies to siege waves only.
+export const WAVE_GROW = { melee: [15, 30, 45], ranged: [30], siege: [35] };
 export const DAY_LEN = 300;           // 5 min day, 5 min night, starts day
 export const TREE_REGROW = 300;
 

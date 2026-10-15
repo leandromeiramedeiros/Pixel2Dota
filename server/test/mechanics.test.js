@@ -3,7 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World } from '../src/sim/world.js';
 import { makeCreep } from '../src/sim/units.js';
-import { TEAM } from '../../shared/protocol.js';
+import { spawnWave } from '../src/sim/creeps.js';
+import { KIND, TEAM } from '../../shared/protocol.js';
+import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, WAVE_GROW } from '../../shared/constants.js';
+import { DATA } from '../../shared/data.js';
 
 const DT = 1 / 30;
 const run = (w, sec) => { for (let i = 0, n = Math.round(sec / DT); i < n; i++) w.step(DT); };
@@ -74,6 +77,41 @@ test('units turn while moving: curve at moderate angles, turn in place only when
   assert.ok(Math.hypot(h.x - X0, h.y - Y0) < 0.01, 'turned in place');
   run(w, 0.5);
   assert.ok(Math.hypot(h.x - X0, h.y - Y0) > step * 5, 'then walks');
+});
+
+// ---------------------------------------------------------------------------------------------------------------- waves
+const laneCreeps = (w, team, lane, wave) => [...w.units.values()].filter((u) => u.kind === KIND.CREEP && u.team === team && u._lane === lane && u._wave === wave && !u._dead);
+const count = (list, type, grade) => list.filter((u) => u._type === type && (grade === undefined || u._grade === grade)).length;
+
+test('barracks: own rax down keeps spawning, enemy rax down -> super creeps in that lane, all six down -> mega', () => {
+  const w = new World({ seed: 1, pregame: 0 });
+  const rax = (team, lane, kind) => w.rax.find((r) => r.team === team && r._lane === lane && r._rax === kind);
+  w.killUnit(rax(TEAM.DIRE, 'mid', 'melee'), null);
+  spawnWave(w, 1);
+  const rm = laneCreeps(w, TEAM.RADIANT, 'mid', 1), dm = laneCreeps(w, TEAM.DIRE, 'mid', 1), rt = laneCreeps(w, TEAM.RADIANT, 'top', 1);
+  assert.equal(count(rm, 'melee', 'upgraded'), WAVE_MELEE, 'radiant mid melee are super');
+  assert.equal(count(rm, 'ranged', ''), WAVE_RANGED, 'radiant mid ranged stay normal (dire ranged rax alive)');
+  assert.equal(count(dm, 'melee', ''), WAVE_MELEE, 'dire mid still spawns its melee creeps');
+  assert.equal(count(rt, 'melee', ''), WAVE_MELEE, 'other lanes unaffected');
+  const sup = rm.find((u) => u._type === 'melee'), d = DATA.units.goodguys_melee_upgraded;
+  assert.equal(sup.maxHp, d.hp); assert.equal(sup.dmgMax, d.dmgMax);
+  assert.equal(sup.key, DATA.units.goodguys_melee.key, 'wire key stays the base creep model');
+  for (const r of w.rax) if (r.team === TEAM.DIRE && !r._dead) w.killUnit(r, null);
+  spawnWave(w, SIEGE_EVERY);
+  const all = laneCreeps(w, TEAM.RADIANT, 'bot', SIEGE_EVERY);
+  assert.ok(all.length > 0 && all.every((u) => u._grade === 'upgraded_mega'), 'mega creeps once all six enemy rax are down');
+  assert.equal(count(all, 'siege'), 1);
+  assert.ok(laneCreeps(w, TEAM.DIRE, 'bot', SIEGE_EVERY).every((u) => u._grade === ''), 'dire creeps unchanged');
+});
+
+test('waves grow with the game clock', () => {
+  const w = new World({ seed: 1, pregame: 0 });
+  const n = (min, wave) => { w.time = min * 60; spawnWave(w, wave); return laneCreeps(w, TEAM.RADIANT, 'mid', wave); };
+  const a = n(0, 1), b = n(15, 2), c = n(30, 3), e = n(45, SIEGE_EVERY * 10);
+  assert.equal(count(a, 'melee'), WAVE_MELEE);
+  assert.equal(count(b, 'melee'), WAVE_MELEE + 1);
+  assert.equal(count(c, 'melee'), WAVE_MELEE + 2); assert.equal(count(c, 'ranged'), WAVE_RANGED + WAVE_GROW.ranged.filter((m) => m <= 30).length);
+  assert.equal(count(e, 'melee'), WAVE_MELEE + 3); assert.equal(count(e, 'siege'), 1 + WAVE_GROW.siege.filter((m) => m <= 45).length);
 });
 
 // ---------------------------------------------------------------------------------------------------------------- tower aggro

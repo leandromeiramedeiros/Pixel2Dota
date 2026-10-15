@@ -1,6 +1,6 @@
 // Lane creeps: wave spawning, lane following, aggro/leash; summon default AI. Pure.
 import { KIND, TEAM, ST } from '../../../shared/protocol.js';
-import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
+import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, WAVE_GROW, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
 import { LANES } from '../../../shared/data/lanes.js';
 import { makeCreep } from './units.js';
 import { acquire, attackable, inAttackRange, aggroOnAlly } from './combat.js';
@@ -102,12 +102,18 @@ function spawnPoint(w, team, lane) {
 /** Spawn wave number `no` (1-based). Dota spawner: one loose block per lane on the lane line, melee row in front, ranged then siege behind,
  *  everyone already facing down the lane. Each creep keeps its lateral slot (_lo) while walking so the wave does not funnel into one file. */
 export function spawnWave(w, no) {
-  const groups = {};
-  for (const r of w.rax) {
-    if (r._dead) continue;
-    const g = groups[r.team + r._lane] || (groups[r.team + r._lane] = { team: r.team, lane: r._lane, melee: 0, ranged: 0, siege: 0 });
-    if (r._rax === 'melee') { g.melee += WAVE_MELEE; if (no % SIEGE_EVERY === 0) g.siege++; }
-    else g.ranged += WAVE_RANGED;
+  const groups = {}, min = Math.max(0, w.time) / 60;
+  const grow = (type) => WAVE_GROW[type].reduce((n, m) => n + (min >= m - 1e-6 ? 1 : 0), 0);
+  for (const team of [TEAM.RADIANT, TEAM.DIRE]) {
+    // Every lane keeps spawning whatever happens to its own barracks; the ENEMY barracks of that lane decide the grade:
+    // melee rax down -> super melee (+ super siege, assumed), ranged rax down -> super ranged, all enemy rax down -> mega creeps.
+    const er = w.rax.filter((r) => r.team !== team), mega = er.length > 0 && er.every((r) => r._dead);
+    for (const lane of LANE_NAMES) {
+      if (!w.rax.some((r) => r.team === team && r._lane === lane)) continue;   // no spawner on this lane (test maps)
+      const down = (kind) => er.some((r) => r._lane === lane && r._rax === kind && r._dead);
+      const gm = mega ? 'upgraded_mega' : down('melee') ? 'upgraded' : '', gr = mega ? 'upgraded_mega' : down('range') ? 'upgraded' : '';
+      groups[team + lane] = { team, lane, melee: WAVE_MELEE + grow('melee'), ranged: WAVE_RANGED + grow('ranged'), siege: no % SIEGE_EVERY === 0 ? 1 + grow('siege') : 0, grade: { melee: gm, ranged: gr, siege: gm } };
+    }
   }
   for (const g of Object.values(groups)) {
     const path = lanePath(w, g.team, g.lane), sp = spawnPoint(w, g.team, g.lane);
@@ -116,7 +122,7 @@ export function spawnWave(w, no) {
       for (let i = 0; i < n; i++) {
         const lo = (i - (n - 1) / 2) * ROW, back = row * ROW;
         const q = w.nav.nearestWalkable(sp.x - sp.ux * back - sp.uy * lo, sp.y - sp.uy * back + sp.ux * lo, {});
-        const u = makeCreep(w, g.team, type, q.x, q.y, g.lane);
+        const u = makeCreep(w, g.team, type, q.x, q.y, g.lane, g.grade[type]);
         u._lp = path; u._li = sp.i; u._lo = lo; u._mvLi = -1; u._wave = no;
         u.facing = Math.atan2(sp.uy, sp.ux);
         u._scanT = (u._nid % 6);

@@ -48,11 +48,13 @@ const visNight = (day) => Math.round(Math.min(day, Math.max(600, day * 0.6)));
 
 export function creepKeys(team) { const s = team === TEAM.RADIANT ? 'goodguys' : 'badguys'; return { melee: s + '_melee', ranged: s + '_ranged', siege: s + '_siege' }; }
 
-export function makeCreep(w, team, type, x, y, lane) {
-  const d = w.data.units[creepKeys(team)[type]];
+/** Lane creep. grade: '' | 'upgraded' (super: the enemy barracks of that type in this lane is down) | 'upgraded_mega' (all enemy barracks down).
+ *  Stats/bounty come from the graded unit; the wire `key` stays the base creep key (the client has one model per type). */
+export function makeCreep(w, team, type, x, y, lane, grade) {
+  const k0 = creepKeys(team)[type], d = w.data.units[grade ? k0 + '_' + grade : k0] || w.data.units[k0];
   const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: d.turnRate || 0.5 };
-  const u = common(w, { kind: KIND.CREEP, key: d.key, team, x, y, base, lane, radius: d.hull || 16, projKey: type === 'siege' ? 'siege' : type === 'ranged' ? 'creep_ranged' : '', visDay: d.vision, visNight: d.vision });
-  u._type = type; u._acq = d.acq || 500;
+  const u = common(w, { kind: KIND.CREEP, key: w.data.units[k0].key, team, x, y, base, lane, radius: d.hull || 16, projKey: type === 'siege' ? 'siege' : type === 'ranged' ? 'creep_ranged' : '', visDay: d.vision, visNight: d.vision });
+  u._type = type; u._grade = grade || ''; u._acq = d.acq || 500;
   return u;
 }
 
