@@ -61,8 +61,10 @@ export default {
       if (t) {
         w.damage(u, t, dmg, 'mag', { ability: key });
         if (!t._dead) {
+          // DATA ENEMIES_NO: the ministun is blocked on a debuff-immune target (damage still lands). The file sets no dispel: stuns are strong-only.
           w.addModifier(t, { key: key + '_stun', src: u, dur: stun, status: ST.STUN, debuff: true, purge: 'strong' });
-          w.addModifier(t, { key: key + '_reveal', src: u, dur: sight, status: ST.REVEALED, debuff: true, hidden: true, purge: 'none' });
+          // the reveal is vision, not a debuff: it lands on debuff-immune heroes too (like the true-sight reveal above)
+          w.addModifier(t, { key: key + '_reveal', src: u, dur: sight, status: ST.REVEALED, debuff: true, hidden: true, purge: 'none', pierce: true });
         }
       }
       staticField(w, u);
@@ -87,7 +89,7 @@ export default {
         evSpell(w, key, u.id, { t: v.id, x: Math.round(v.x), y: Math.round(v.y), sub: 'strike' });
         w.addVision({ owner: u, x: v.x, y: v.y, r: w.night ? w.val(key, 'sight_radius_night', lv) : w.val(key, 'sight_radius_day', lv), dur: sight });   // each struck spot stays visible
         w.damage(u, v, dmg, 'mag', { ability: key });
-        if (!v._dead) w.addModifier(v, { key: key + '_reveal', src: u, dur: sight, status: ST.REVEALED, debuff: true, hidden: true, purge: 'none' });
+        if (!v._dead) w.addModifier(v, { key: key + '_reveal', src: u, dur: sight, status: ST.REVEALED, debuff: true, hidden: true, purge: 'none', pierce: true });   // vision: lands on debuff immune too
       }
     },
   },

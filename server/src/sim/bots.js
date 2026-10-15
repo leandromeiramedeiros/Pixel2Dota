@@ -291,7 +291,12 @@ function tryCasts(w, pid, p, u, st, foes, hpPct) {
     const range = lvl(d.castRange, ab.level);
     let tgt = null, bd = Infinity;
     const reach = b.indexOf('NO_TARGET') >= 0 ? 450 : (range || 700) + 60;
-    for (const f of foes) { const dd = dist(f, u); if (dd < reach && dd < bd && !(f._st & ST.INVULN)) { bd = dd; tgt = f; } }
+    // DATA ENEMIES_NO: a debuff-immune foe only takes reduced damage (no disable), so it is not worth a spell: aim at another foe or hold it
+    const skipImmune = d.immunity === 'ENEMIES_NO';
+    for (const f of foes) {
+      if (skipImmune && (f._st & ST.MAGIC_IMMUNE)) continue;
+      const dd = dist(f, u); if (dd < reach && dd < bd && !(f._st & ST.INVULN)) { bd = dd; tgt = f; }
+    }
     if (d.ult && ab.key !== 'rubick_spell_steal' && tgt && tgt.hp > tgt.maxHp * 0.65) continue;
     if (ab.key === 'rubick_spell_steal') {   // only with something stealable, and not again within 4 s
       const lc = tgt && tgt._lastCast;
@@ -320,6 +325,8 @@ function invokerCombo(w, pid, u, st, foes) {
   const q = u.abilities[0].level, wx = u.abilities[1].level, e = u.abilities[2].level;
   const near = foes.some((f) => dist(f, u) < 900);
   if (!near || u.mana < 120) return false;
+  const nearVulnerable = foes.some((f) => dist(f, u) < 900 && !(f._st & ST.MAGIC_IMMUNE));
+  const worth = (k) => nearVulnerable || (w.data.abilities[k] && w.data.abilities[k].immunity === 'ENEMIES_YES');   // only Sun Strike vs debuff immune
   const inv = u._inv;
   const spellCd = (k) => {
     for (const s of [3, 4]) if (u.abilities[s] && u.abilities[s].key === k) return u.abilities[s].cd;
@@ -329,7 +336,7 @@ function invokerCombo(w, pid, u, st, foes) {
   if (q >= 1) wants.push('invoker_cold_snap');
   if (e >= 1) wants.push('invoker_sun_strike');
   if (wx >= 1 && q >= 1) wants.push('invoker_tornado');
-  const want = wants.find((k) => spellCd(k) <= 0 && !u.abilities.some((a, i) => (i === 3 || i === 4) && a.key === k));
+  const want = wants.find((k) => worth(k) && spellCd(k) <= 0 && !u.abilities.some((a, i) => (i === 3 || i === 4) && a.key === k));
   if (!want) return false;
   const recipe = RECIPE[want], orbs = (u.orbs || '');
   const sorted = (s) => s.split('').sort().join('');

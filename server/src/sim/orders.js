@@ -208,10 +208,20 @@ function unitTargetOk(w, u, t, d, h, itemSpec) {
     const isH = t.kind === KIND.HERO, isB = t._building;
     if (!((isH && ty.indexOf('HERO') >= 0) || (isB && ty.indexOf('BUILDING') >= 0) || (!isH && !isB && (ty.indexOf('BASIC') >= 0 || ty.indexOf('CREEP') >= 0)))) return false;
   }
-  // debuff-immune enemies: only abilities whose DATA SpellImmunityType is ENEMIES_YES (or a handler pierce override) can target them
-  if (t.team !== u.team && (t._st & ST.MAGIC_IMMUNE) && !(h && h.pierce) && !(d && d.immunity === 'ENEMIES_YES') && !(itemSpec && itemSpec.pierce)) return false;
+  if (immuneBlocked(u, t, d, h, itemSpec)) return false;
   if (t.team !== u.team && (t._st & ST.INVIS) && !(t._st & ST.REVEALED)) return false;
   return true;
+}
+
+/**
+ * Debuff immunity vs a unit-target cast (DATA SpellImmunityType): an enemy can be targeted only by ENEMIES_YES (or a handler / item
+ * pierce override); an ally only unless ALLIES_NO. Checked when the order starts AND again when the cast point ends (Dota: a target
+ * turning debuff immune mid cast point cancels the cast, nothing is spent).
+ */
+function immuneBlocked(u, t, d, h, itemSpec) {
+  if (!(t._st & ST.MAGIC_IMMUNE)) return false;
+  if (t.team === u.team) return !!(d && d.immunity === 'ALLIES_NO') && t !== u;
+  return !(h && h.pierce) && !(d && d.immunity === 'ENEMIES_YES') && !(itemSpec && itemSpec.pierce);
 }
 
 function notify(w, u, text) { const p = u.owner && w.players.get(u.owner); if (p) evMsg(w, text, p.sid); }
@@ -280,6 +290,7 @@ function doCast(w, u, o, dt) {
   const tg = o._tgt;
   if (tg.unit) {
     if (tg.unit._dead) { shift(u); return; }
+    if (spec.mode === 'unit' && immuneBlocked(u, tg.unit, spec.d, spec.h, spec.itemSpec)) { shift(u); return; }   // went debuff immune during the cast point
     tg.x = tg.unit.x; tg.y = tg.unit.y;
   }
   const r = spec.ready();

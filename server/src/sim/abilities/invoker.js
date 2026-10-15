@@ -25,6 +25,8 @@ for (const [combo, spell] of Object.entries({
 
 // Not in the baked data: Deafening Blast knockback speed (trainer: distance = knockback_duration * 150), Forged Spirit unit stats and
 // Melting Strike (forged_spirit_melting_strike is not baked).
+// Debuff immunity (DATA immunity, see status.addModifier / combat.damage): ENEMIES_NO spells still deal their damage to a debuff-immune
+// unit (reduced by its magic resistance) but apply no debuff, lift, knockback or mana burn; Sun Strike (ENEMIES_YES) pierces fully.
 const KNOCK_SPEED = 150;
 const SPIRIT = { ms: 320, bat: 1.35, atkPoint: 0.2, projSpeed: 1000, radius: 16, vision: 1200, ring: 80 };   // npc_dota_invoker_forged_spirit KV (MovementSpeed, AttackRate, AttackAnimationPoint)
 const MELT = { maxArmor: 12, dur: 5 };
@@ -238,7 +240,7 @@ const spells = {
       w.after(delay, (w2) => {
         let total = 0;
         for (const v of w2.unitsInRadius(x, y, r, foes(u))) {
-          if (v._st & ST.INVULN) continue;   // debuff-immune units are burned too (no debuff involved)
+          if (v._st & (ST.INVULN | ST.MAGIC_IMMUNE)) continue;   // DATA ENEMIES_NO: no mana burn (and so no damage) on debuff-immune units
           const b = Math.min(burn, v.mana);
           if (b <= 0) continue;
           v.mana -= b; total += b;
@@ -323,7 +325,8 @@ const spells = {
         // Melting Strike: each hit strips armor (stacks, refreshed), shared by all of this caster's spirits
         s._onAttack = (w2, a2, t) => {
           if (t._building) return;
-          w2.addModifier(t, { key: 'invoker_melting_strike', src: u, dur: MELT.dur, armor: -per, stack: 'stack', maxStacks, debuff: true });
+          // hero file forged_spirit_melting_strike: ENEMIES_NO (blocked on debuff immune: default), SPELL_DISPELLABLE_NO (not baked: the key is ours)
+          w2.addModifier(t, { key: 'invoker_melting_strike', src: u, dur: MELT.dur, armor: -per, stack: 'stack', maxStacks, debuff: true, purge: 'none' });
         };
       }
       return { n, dur, r: SPIRIT.ring };

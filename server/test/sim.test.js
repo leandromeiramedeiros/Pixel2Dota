@@ -158,7 +158,7 @@ test('sven storm bolt stuns and damages', () => {
   assert.ok(Math.abs(hp0 - b.hp - dmgExp) < 2, `damage ${hp0 - b.hp} expected ${dmgExp}`);
   assert.ok(a.abilities[0].cd > 0 && a.abilities[0].cd <= cdMax + 0.1);
   assert.ok(a.mana < mana0 - 100 + 5);
-  const st = w.getModifier(b, 'stun');
+  const st = w.getModifier(b, 'sven_storm_bolt');
   assert.ok(st && st.left <= 1.01 && st.left > 0.9);
   // wears off
   run(w, 1.2);
