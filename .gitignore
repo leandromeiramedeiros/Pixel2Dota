@@ -4,3 +4,4 @@ tools/.cache/
 *.log
 .DS_Store
 tools/art/out/
+.claude/worktrees/
