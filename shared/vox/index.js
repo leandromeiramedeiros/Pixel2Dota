@@ -4,6 +4,7 @@
 // A model module exports META { rig, grid, cx, cy }, build(pose) -> Vox, ANIMS (docs/VOXEL.md). Optional: PORTRAIT { pose, center, scale, fov, sig, face }.
 import * as axe from './heroes/axe.js';
 import * as crystal_maiden from './heroes/crystal_maiden.js';
+import * as drow_ranger from './heroes/drow_ranger.js';
 import * as invoker from './heroes/invoker.js';
 import * as invoker_forged_spirit from './creeps/invoker_forged_spirit.js';
 import * as juggernaut from './heroes/juggernaut.js';
@@ -20,6 +21,7 @@ import * as zuus from './heroes/zuus.js';
 export const VOX = {   // alphabetical (parallel branches merge clean)
   axe: { kind: 'hero', unit: 'npc_dota_hero_axe', mod: axe },
   crystal_maiden: { kind: 'hero', unit: 'npc_dota_hero_crystal_maiden', mod: crystal_maiden },
+  drow_ranger: { kind: 'hero', unit: 'npc_dota_hero_drow_ranger', mod: drow_ranger },
   invoker: { kind: 'hero', unit: 'npc_dota_hero_invoker', mod: invoker },
   invoker_forged_spirit: { kind: 'creep', unit: 'npc_dota_invoker_forged_spirit', mod: invoker_forged_spirit },
   juggernaut: { kind: 'hero', unit: 'npc_dota_hero_juggernaut', mod: juggernaut },
