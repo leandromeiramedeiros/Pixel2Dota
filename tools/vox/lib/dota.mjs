@@ -144,8 +144,8 @@ export function sequences(vmdl, isStatic = false) {
   if (isStatic) return [];   // world props: static, no anims wanted (skips the ASEQ read)
   const f = path.join(modelDir(vmdl), 'seq.json');
   if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
-  let txt = '';
-  try { txt = run(['-i', VPK(), '-f', vmdl + '_c', '-b', 'ASEQ']).toString('utf8'); } catch { /* no ASEQ block: static model */ }
+  let txt = '', failed = false;
+  try { txt = run(['-i', VPK(), '-f', vmdl + '_c', '-b', 'ASEQ']).toString('utf8'); } catch { failed = true; /* no ASEQ block (static model) or a failed read */ }
   const seqs = [], i0 = txt.indexOf('m_localS1SeqDescArray');
   if (i0 >= 0) for (const ch of txt.slice(i0).split(/\n\t\t\{\n\t\t\tm_sName = "/).slice(1)) {
     const name = ch.slice(0, ch.indexOf('"')), at = ch.indexOf('m_activityArray'), loop = /m_bLooping = true/.test(ch);
@@ -153,6 +153,7 @@ export function sequences(vmdl, isStatic = false) {
     for (const m of (at >= 0 ? ch.slice(at) : '').matchAll(/m_name = "([^"]+)"[\s\S]*?m_nWeight = (\d+)/g)) { if (m[1].startsWith('ACT_')) { acts.push(m[1]); weight = +m[2]; } else mods.push(m[1]); }
     seqs.push({ name, loop, acts, mods, weight });
   }
+  if (failed && !seqs.length) return seqs;   // never cache a failed read (a cold first run left heroes with no anims for good)
   fs.mkdirSync(modelDir(vmdl), { recursive: true });
   fs.writeFileSync(f, JSON.stringify(seqs));
   return seqs;

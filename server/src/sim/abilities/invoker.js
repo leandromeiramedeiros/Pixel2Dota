@@ -8,7 +8,7 @@
 // i.e. orb level L (1..8) reads entry L-1 (that is what the game files and the trainer do). server/src/sim/API.md "Invoker / Rubick slot rules" says
 // `level = orbLevel + 1` (one entry higher); flip ORB_SHIFT to 1 to follow that text literally. Everything funnels through V().
 import { ST, EV, ABF } from '../../../../shared/protocol.js';
-import { evMsg } from '../events.js';
+import { evMsg, evSpell } from '../events.js';
 
 const ORB_SHIFT = 0;
 const ORB_IDX = { Q: 0, W: 1, E: 2 };
@@ -26,7 +26,7 @@ for (const [combo, spell] of Object.entries({
 // Not in the baked data: Deafening Blast knockback speed (trainer: distance = knockback_duration * 150), Forged Spirit unit stats and
 // Melting Strike (forged_spirit_melting_strike is not baked).
 const KNOCK_SPEED = 150;
-const SPIRIT = { ms: 650, bat: 1.5, atkPoint: 0.4, projSpeed: 1000, radius: 16, vision: 1200, ring: 80 };
+const SPIRIT = { ms: 320, bat: 1.35, atkPoint: 0.2, projSpeed: 1000, radius: 16, vision: 1200, ring: 80 };   // npc_dota_invoker_forged_spirit KV (MovementSpeed, AttackRate, AttackAnimationPoint)
 const MELT = { maxArmor: 12, dur: 5 };
 const VISION_FALLBACK = { r: 400, dur: 4 };   // Sun Strike vision if the baked data ever loses vision_distance / vision_duration (Dota: 400 / 4 s)
 
@@ -268,6 +268,7 @@ const spells = {
               w3.damage(u, t, dmg, 'mag', { ability: key });
             },
           });
+          evSpell(w2, key, u.id, { sub: 'lift', t: v.id, x: Math.round(v.x), y: Math.round(v.y), dur: lift });   // the cyclone on the caught unit (client fx)
         },
       });
       w.addVision({ owner: u, x: u.x, y: u.y, r: V(w, u, key, 'vision_distance'), projectile: tp, linger: V(w, u, key, 'end_vision_duration') });

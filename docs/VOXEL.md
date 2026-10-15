@@ -131,7 +131,7 @@ One director gate per batch, with in-game shots.
 | 0. Foundation | Compact mesher, lazy build, registry, footprint, kit, tiers, team tint, death, CI checks | done |
 | 1. Lane creeps | Melee, ranged, siege: Radiant and Dire are separate models after the Dota 2 ones (no team tint); `max` >= 64 per frame | melee Radiant + Dire drafted, awaiting the director gate |
 | 2. Buildings | Tower, barracks, fort, fountain, shop, lantern, filler; `lean: false`; rubble on destroy | |
-| 3. Heroes | The 12 after Lina | |
+| 3. Heroes | The 12 after Lina | Invoker + Forged Spirit drafted, awaiting the director gate |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |
 | 5. Trees + clutter | Trees, 15 clutter variants | Drafted, awaiting the director gate. Trees: `shared/vox/world/trees.js` (side = `tileSide`, Dota name = silhouette family); `trees3d.js` greedy instanced, LOD1 + coarse shadow casters, cut = voxel dissolve onto the stump. Clutter + rocks: 13 variants, Radiant / Dire shapes (`shared/vox/world/{clutter,rocks}.js`), greedy-meshed, half-res LOD past 900 from the eye (tufts / ferns stay cubes) |
 | 5b. Cliffs | Stepped stone aprons and wall slabs on the 8.4 cell grid (`shared/vox/world/cliffs.js`, emitted by `terrainGeo`), Radiant / Dire wall tint, merged flat tops; visual only (heights, pathing unchanged) | drafted, awaiting the director gate |

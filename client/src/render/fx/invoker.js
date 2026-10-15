@@ -163,7 +163,8 @@ export function register(c, R) {
   });
 
   // ---------------------------------------------------------------------------------------------------------------- tornado: PROJ funnel + cast
-  R.spell('invoker_tornado', (ev, su) => {
+  R.spell('invoker_tornado', (ev, su, tu) => {
+    if (ev.sub === 'lift') return liftFx(ev, tu);
     if (!su) return;
     c.flash(su.x, su.y, c.chest(su), PAL.steel, 60, 0.2);
     c.ring(su.x, su.y, su.z || 0, PAL.ice, { R: 120 });
@@ -179,6 +180,22 @@ export function register(c, R) {
     const m = cc.n(14 * dt);
     for (let i = 0; i < m; i++) { const a = rnd(0, TAU); P.spawn({ x: p.x + Math.cos(a) * 50, y: p.y + Math.sin(a) * 50, z: z0 + 6, life: [0.5, 0.9], size0: [20, 34], size1: [40, 60], col0: PAL.earth.low, col1: PAL.earth.dim, a0: 0.6, a1: 0, mode: 'glow', vel: [Math.cos(a) * 60, Math.sin(a) * 60, 0], speed: 0, up: 20, flat: true, drag: 1.5 }); }
   };
+  // a caught unit spins in a small steel / ice cyclone for the lift: crisp motes circling up past it, a cold halo, a ground ring
+  function liftFx(ev, t) {
+    if (!t) return;
+    const tid = t.id, dur = Math.max(0.4, Math.min(ev.dur || 1.5, 4));
+    c.ringDecal(t.x, t.y, 70, dur, [0.6, 1.2, 1.6], { emit: 0.6, fadeIn: 0.15, fadeOut: 0.2 });
+    c.run(dur, (r, dt) => {
+      const u = c.unit(tid); if (!u || u.hp <= 0) return false;
+      if (!c.vis(u.x, u.y)) return;
+      const z0 = u.z || c.zAt(u.x, u.y);
+      for (let n = c.n(180 * dt); n > 0; n--) {
+        const h = rnd(0, 150), a = c.T * 10 + h * 0.04 + rnd(0, TAU), rr = 16 + h * 0.18 + rnd(-4, 4), pl = Math.random() < 0.5 ? PAL.steel : PAL.ice;
+        P.spawn(c.pix(pl, { x: u.x + Math.cos(a) * rr, y: u.y + Math.sin(a) * rr, z: z0 + h, life: [0.25, 0.45], vel: [-Math.sin(a) * rr * 7, Math.cos(a) * rr * 7, 0], speed: 0, up: [40, 120], drag: 1.2, settle: false }));
+      }
+      c.lightNow(u.x, u.y, z0 + 70, PAL.ice.lt, 220, 0.45 + 0.15 * Math.sin(c.T * 12), 0);
+    });
+  }
   R.proj('invoker_tornado', {
     frames: null, sp: 1000, z: 0, trail: funnel, light: { col: PAL.ice.lt, radius: 360, int: 1.0, elem: 'W' }, pal: PAL.ice,
     hit(cc, p) { cc.ring(p.x, p.y, cc.zAt(p.x, p.y), PAL.steel, { R: 160 }); cc.sparks(p.x, p.y, cc.zAt(p.x, p.y) + 80, PAL.ice, { count: 24 }); cc.glow(p.x, p.y, cc.zAt(p.x, p.y) + 80, PAL.ice.lt, 360, 1.4, 0.4); },

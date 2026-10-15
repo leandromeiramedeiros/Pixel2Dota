@@ -185,9 +185,10 @@ test('tornado: lifts (invulnerable stun) then damages', () => {
   make(w, inv, 'WWQ');
   const hp0 = foe.hp;
   cast(w, { slot: 3, x: 1500, y: 0 });
-  let lifted = false;
-  for (let i = 0; i < 90 && !lifted; i++) { w.step(DT); lifted = !!w.getModifier(foe, 'invoker_tornado_lift'); }
+  let lifted = false, ev = null;
+  for (let i = 0; i < 90 && !lifted; i++) { w.step(DT); lifted = !!w.getModifier(foe, 'invoker_tornado_lift'); ev ??= w._ev.find((e) => e.e === EV.SPELL && e.k === 'invoker_tornado' && e.sub === 'lift'); }
   assert.ok(lifted, 'lifted');
+  assert.ok(ev && ev.t === foe.id && ev.dur === w.val('invoker_tornado', 'lift_duration', 4), 'lift event for the caught unit (client cyclone)');
   w.step(DT);
   assert.ok((foe._st & ST.STUN) && (foe._st & ST.INVULN));
   assert.equal(foe.hp, hp0);
@@ -238,6 +239,8 @@ test('forge spirit: summons, melt armor, recast replaces, expire', () => {
   const spirits = () => [...w.units.values()].filter((u) => u.key === 'invoker_forged_spirit' && !u._dead);
   cast(w, { slot: 3 });
   assert.equal(spirits().length, 3);
+  w.step(DT);
+  assert.equal(spirits()[0].ms, 320, 'spirit move speed = npc_dota_invoker_forged_spirit MovementSpeed');
   put(w, foe, 150, 0);
   const a0 = foe.armor;
   run(w, 5);

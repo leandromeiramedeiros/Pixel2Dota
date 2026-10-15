@@ -96,18 +96,19 @@ export const torso = (v, T, o, section) => vol(v, T, o.c[0] - o.r, o.c[1] - o.r,
  * Flared skirt / tabard / gown: radius r0 - dr * t over z0..z1 (t from zr over h), y squash sy, outer shell `shell` thick.
  * hem: [[zTop, cosThreshold | null], ...] trim bands on the shell (cos(angle * scallops) > threshold = scallop), checked in order.
  * Optional (open gowns, split skirts): hollow (true: only the shell, legs stay visible; a number: carve only in front of that dy; (dx, dy, pz) => carve?; a solid core
- * means fewer faces), open (half angle in degrees of a front split, front = -y),
+ * means fewer faces), open (half angle in degrees of a front split, front = -y; or pz => degrees: a coat closed below, open over the chest),
  * edge (degrees of trim along the split), lean (+y shift per voxel below z1: tails trailing back), floor(phi) -> lowest z at phi (radians from the
  * front, 0..PI: pointed tails, back notch), hemH (trim height above the floor), inner (material of the inside layer, seen through the split).
  */
 export function skirt(v, T, o, cloth, trim) {
-  const [cx, cy] = o.c, R = o.r0 + (o.dr < 0 ? 0 : o.dr * Math.max(0, (o.zr - o.z0) / o.h)) + 1, lean = o.lean || 0, open = (o.open || 0) * Math.PI / 180;
+  const [cx, cy] = o.c, R = o.r0 + (o.dr < 0 ? 0 : o.dr * Math.max(0, (o.zr - o.z0) / o.h)) + 1, lean = o.lean || 0, D = Math.PI / 180;
+  const openAt = typeof o.open === 'function' ? pz => o.open(pz) * D : () => (o.open || 0) * D;
   const edge = (o.edge || 0) * Math.PI / 180, ly = lean * (o.z1 - o.z0);
   vol(v, T, cx - R, cy - R, o.z0, cx + R, cy + R + ly, o.z1, (px, py, pz) => {
     const t = (pz - o.zr) / o.h, r = o.r0 - o.dr * t, dx = px - cx, dy = (py - cy - lean * (o.z1 - pz)) / o.sy;
     const d = Math.hypot(dx, dy); if (d > r) return;
     const shell = d > r - o.shell, ang = Math.atan2(dy, dx), phi = Math.acos(Math.max(-1, Math.min(1, -dy / (d || 1))));
-    if (phi < open) return;
+    const open = openAt(pz); if (phi < open) return;
     const fl = o.floor ? o.floor(phi) : -Infinity; if (pz < fl) return;
     if (o.hollow && !shell) { if (o.hollow === true || (typeof o.hollow === 'function' ? o.hollow(dx, dy, pz) : dy < o.hollow)) return; return o.inner || cloth; }
     if (trim && (pz < fl + (o.hemH ?? 1) || phi < open + edge)) return trim;
@@ -117,6 +118,27 @@ export function skirt(v, T, o, cloth, trim) {
       if (pz < zt && shell && Math.cos(ang * o.scallops) > thr) return trim;
     }
     return cloth;
+  });
+}
+
+/**
+ * Standing collar / ruff / frill / crest fan: a flared shell around the neck axis (rest space, posed by T) from z0 (radius r0) to z1 (radius r1,
+ * r = r0 + (r1 - r0) * f^flare, f = height fraction: flare < 1 opens fast like a funnel), y squash sy, thickness th, lean (+y per voxel of height:
+ * flares back). Open at the front: half angle open0 at z0 -> open1 at z1 (degrees from -y). Top edge cut into `spikes` points per side, `spike`
+ * deep (phase 0 = a point at the back centre); dip lowers the top toward the back centre (a fan higher at the sides). m(px, py, pz, f, inner):
+ * inner = the inside half of the shell (a lighter lining).
+ * fill(dx, dy, pz) -> true makes the inside solid there (behind a head: fewer faces, the cavity never shows).
+ */
+export function collar(v, T, o, m) {
+  const [cx, cy] = o.c, H = o.z1 - o.z0, R = Math.max(o.r0, o.r1) + 1, lean = o.lean || 0, sy = o.sy ?? 1, th = o.th ?? 1.2, fl = o.flare ?? 1;
+  const D = Math.PI / 180, o0 = (o.open0 ?? 0) * D, o1 = (o.open1 ?? o.open0 ?? 0) * D, n = o.spikes || 0, sp = o.spike || 0, ph = o.phase ?? 0;
+  vol(v, T, cx - R, cy - R, o.z0, cx + R, cy + R + Math.max(0, lean * H), o.z1, (px, py, pz) => {
+    const f = Math.max(0, (pz - o.z0) / H), r = o.r0 + (o.r1 - o.r0) * f ** fl, dx = px - cx, dy = (py - cy - lean * (pz - o.z0)) / sy, d = Math.hypot(dx, dy);
+    if (d > r || (d < r - th && !(o.fill && o.fill(dx, dy, pz)))) return;
+    const phi = Math.acos(Math.max(-1, Math.min(1, -dy / (d || 1)))), open = o0 + (o1 - o0) * f; if (phi < open) return;
+    const top = o.z1 - (o.dip || 0) * Math.max(0, dy / (d || 1)); if (pz > top) return;
+    if (n && sp) { const u = (Math.PI - phi) / (Math.PI - open) * n + 0.5 + ph, tri = Math.abs((u % 1) - 0.5) * 2; if (pz > top - sp * tri) return; }
+    return typeof m === 'function' ? m(px, py, pz, f, d < r - th / 2) : m;
   });
 }
 
