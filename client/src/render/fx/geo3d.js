@@ -1,23 +1,39 @@
-// 3D spell geometry for the fx module ("VFX in 3D WITH particles"): three instanced, pooled, immediate-mode batches that draw INTO the same
-// low-res scene target as terrain / sprites / particles, so everything pixelates together.
-//   tube    open cylinder / cone shaft (light columns, falling shards, beams): fresnel body, spiral energy bands, descending front
+// 3D spell geometry for the fx module ("VFX in 3D WITH particles"): instanced, pooled, immediate-mode batches that draw INTO the same
+// low-res scene target as terrain / sprites / particles, so everything pixelates together. The primitive set (decided once, every spell
+// builds from it; no per-spell meshes):
+//   tube    open cylinder / cone / ring band, any axis, optional arc (sweep < TAU): light columns, funnels, expanding rope rings, crescent
+//           wave fronts, trailing fire cones. Fresnel body, spiral energy bands, descending front, soft arc ends
 //   disc    flat ground quad shaded in the fragment: ring, targeting circle, shockwave, frost/glow fill   (modes 0..3, see DISC)
 //   bolt    camera-facing ribbon strips (lightning): main path + forks, segments re-randomised by the caller every few frames
-// Immediate mode like quads.js: call G.tube / G.disc / G.bolt every frame from a c.run callback; G.begin() / G.end() bracket the frame
-// (fx/index.js). Nothing is allocated per frame: pass shared option bags (made once per cast) and colour arrays (made once).
-// Look: additive, Bayer-dithered quantised intensity (no smooth fades), alpha channel left alone (scene alpha = water mask, see beams.js),
+//   orb     flat-shaded low-poly icosphere, oriented + non-uniformly scaled: energy spheres (GLOW), ice blobs / chunks (ICE)
+//   shard   flat-shaded hexagonal bipyramid (long crystal), oriented + scaled: icicles, ice spikes (ICE) or glowing slivers (GLOW)
+//   rock    the orb mesh drawn OPAQUE (lit dark body + HDR lava cracks): the only non-additive primitive (additive cannot make dark);
+//           writes depth, never the alpha channel
+// Immediate mode like quads.js: call G.* every frame from a c.run callback; G.begin() / G.end() bracket the frame (fx/index.js).
+// Nothing is allocated per frame: pass shared option bags (made once per cast) and colour arrays (made once).
+// Look: additive, stepped quantised intensity (no smooth fades), alpha channel left alone (scene alpha = water mask, see beams.js),
 // depth-tested, fog-of-war aware. Shells stay below the 1.4 bloom threshold, HDR cores (colour > 1.4) bloom.
+// Quality: G.lod follows the particle density preset (quality.js particles: low .3 -> 0, medium .6 -> 1, high/ultra 1 -> 2). lod 0 swaps
+// tubes to 12 sides and orbs / rocks to the bare icosahedron (20 faces); recipes read G.lod to drop counts / outer shells.
 // Coordinates are WORLD (x east, y north, z up); the batches convert to three (x, z, -y).
 import * as THREE from 'three';
 import { COMMON_GLSL, UNIFORMS_GLSL } from '../shaderlib.js';
 
-export const MAX_TUBES = 24;
+export const MAX_TUBES = 48;
 export const MAX_DISCS = 64;
-export const MAX_RIB = 480;          // ribbon instances (2 per bolt segment: glow + core)
+export const MAX_RIB = 1024;         // ribbon instances (2 per bolt segment: glow + core)
 export const MAX_BOLT_SEG = 56;
-const STRIDE = 16;                   // 4 vec4 per instance in every batch
+export const MAX_ORBS = 64;
+export const MAX_SHARDS = 96;
+export const MAX_ROCKS = 4;
+const BOLTS = 20;
+const STRIDE = 16;                   // 4 vec4 per instance (disc, ribbon)
+const TUBE_STRIDE = 24;              // 6 vec4
+const SOLID_STRIDE = 20;             // 5 vec4 (orb, shard, rock)
 const TUBE_SEG = 24;
 const TAU = Math.PI * 2;
+/** solid shading modes */
+export const GLOW = 0, ICE = 1, MOLTEN = 2;
 
 // ------------------------------------------------------------------------------------------------------------------------------ shaders
 const HASH = /* glsl */ `float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`;
@@ -30,19 +46,26 @@ vec4 outCol(vec3 col, float v, float n){            // stepped intensity bands (
 }`;
 
 const TUBE_VERT = /* glsl */ `
-attribute vec3 aRing;      // cos, sin, t along the axis (0 = base, 1 = top)
+attribute vec2 aRing;      // u around (0..1 of the sweep), t along the axis (0 = base, 1 = top)
 attribute vec4 aP;         // base (three coords), height
 attribute vec4 aR;         // r0, r1, seed, fresnel power
 attribute vec4 aC;         // rgb (HDR), alpha gain
 attribute vec4 aS;         // front (0..1: fragment hidden below it, a descending head), swirl amount, phase, top-fade start
-varying vec3 vN, vW, vC; varying float vT, vH, vA, vK; varying vec4 vS, vR;
+attribute vec4 aQ;         // axis (three coords, unit), sweep (rad, TAU = closed)
+attribute vec4 aU;         // start angle (world yaw for a vertical axis), arc end fade (fraction of the sweep), -, -
+varying vec3 vN, vW, vC; varying float vT, vH, vA, vK, vU; varying vec4 vS, vR, vQ;
 void main(){
-  float t = aRing.z;
+  float t = aRing.y;
   float rad = mix(aR.x, aR.y, t);
-  vec3 wp = aP.xyz + vec3(aRing.x * rad, aP.w * t, aRing.y * rad);
-  vN = normalize(vec3(aRing.x, 0., aRing.y));
-  vW = wp; vC = aC.rgb; vK = aC.w; vT = t; vH = aP.w; vS = aS; vR = aR;
-  vA = atan(aRing.y, aRing.x);
+  vec3 A = aQ.xyz;
+  vec3 e1 = abs(A.y) > .999 ? vec3(1., 0., 0.) : normalize(cross(A, vec3(0., 1., 0.)));
+  vec3 e2 = cross(A, e1);                                                       // vertical axis: e1 cos + e2 sin = world yaw (x, -z)
+  float ang = aU.x + aRing.x * aQ.w;
+  vec3 dir = e1 * cos(ang) + e2 * sin(ang);
+  vec3 wp = aP.xyz + A * (aP.w * t) + dir * rad;
+  vN = dir;
+  vW = wp; vC = aC.rgb; vK = aC.w; vT = t; vH = aP.w; vS = aS; vR = aR; vU = aRing.x; vQ = vec4(aQ.w, aU.y, 0., 0.);
+  vA = ang;
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.);
 }`;
 const TUBE_FRAG = /* glsl */ `
@@ -50,13 +73,14 @@ precision highp float;
 ${COMMON_GLSL}
 ${FOGK}
 ${OUT}
-varying vec3 vN, vW, vC; varying float vT, vH, vA, vK; varying vec4 vS, vR;
+varying vec3 vN, vW, vC; varying float vT, vH, vA, vK, vU; varying vec4 vS, vR, vQ;
 void main(){
   if (vT < vS.x) discard;
   vec3 V = normalize(uCamPos - vW);
   float ndv = abs(dot(vN, V));
   float v = pow(ndv, vR.w);                                                     // thick through the middle, dithers away at the silhouette
   v *= 1. - smoothstep(vS.w, 1., vT);                                           // gone before the sky end
+  if (vQ.x < 6.28) { float e = max(vQ.y, .001); v *= smoothstep(0., e, vU) * smoothstep(0., e, 1. - vU); }   // soft arc ends
   float hw = vT * vH;                                                           // world height above the base
   v *= 1. + .7 * exp(-hw / 60.) * step(0.5, vR.z);                             // seed>0.5 = ground flare at the base
   float st = .5 + .5 * sin(vA * 3. + hw * .02 - vS.z);                          // spiral energy bands climbing the column
@@ -177,6 +201,65 @@ void main(){
   }
 }`;
 
+// solids (orb / shard / rock): same instance layout, flat facets from screen derivatives
+const SOLID_VERT = /* glsl */ `
+attribute vec4 aP;         // centre / base (three coords), size (radius; shard: length)
+attribute vec4 aQ;         // orientation quaternion (three space)
+attribute vec4 aS;         // local stretch x, y (long axis), z; lump amount (vertex noise, fraction of size)
+attribute vec4 aC;         // rgb (HDR), alpha gain
+attribute vec4 aM;         // mode (0 GLOW, 1 ICE, 2 MOLTEN), seed, p1, p2
+varying vec3 vW, vL, vC; varying float vK; varying vec4 vM;
+vec3 qrot(vec4 q, vec3 v){ return v + 2. * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
+float h31(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+void main(){
+  vec3 lp = position * (1. + aS.w * (h31(position * 3.1 + aM.y) - .5));       // shared vertices move together: lumpy, never cracked
+  vec3 wp = aP.xyz + qrot(aQ, lp * aS.xyz * aP.w);
+  vW = wp; vL = position; vC = aC.rgb; vK = aC.w; vM = aM;
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.);
+}`;
+const FACET = /* glsl */ `
+vec3 facetN(vec3 w){ vec3 n = normalize(cross(dFdx(w), dFdy(w))); return dot(n, uCamPos - w) < 0. ? -n : n; }`;
+// additive: GLOW = fresnel energy shell (p2 = centre fill 0..1), ICE = facets catch the key light + rim + a few glinting faces (p1 = glint share)
+const SOLID_FRAG = /* glsl */ `
+precision highp float;
+${COMMON_GLSL}
+${FOGK}
+${OUT}
+${HASH}
+${FACET}
+varying vec3 vW, vL, vC; varying float vK; varying vec4 vM;
+void main(){
+  vec3 n = facetN(vW);
+  float ndv = clamp(dot(n, normalize(uCamPos - vW)), 0., 1.);
+  float fh = hash21(vec2(dot(n, vec3(12.3, 45.6, 78.9)), vM.y));               // per-facet constant
+  float v;
+  if (vM.x < .5) v = mix(vM.w, 1., pow(1. - ndv, 1.6)) * (.8 + .4 * fh);
+  else v = .22 + .45 * max(dot(n, uKeyDir), 0.) + .6 * pow(1. - ndv, 3.) + .5 * step(1. - vM.z, fh);
+  v *= vK * fogK(vW);
+  if (v <= .02) discard;
+  gl_FragColor = outCol(vC, v, 5.);
+}`;
+// opaque rock: lit dark body + stepped HDR lava cracks (vC = lava colour, p1 = heat 0..1, p2 = crack scroll)
+const ROCK_FRAG = /* glsl */ `
+precision highp float;
+${COMMON_GLSL}
+${FOGK}
+${FACET}
+varying vec3 vW, vL, vC; varying float vK; varying vec4 vM;
+void main(){
+  vec3 n = facetN(vW);
+  float ndv = clamp(dot(n, normalize(uCamPos - vW)), 0., 1.);
+  vec3 body = vec3(.11, .075, .06) * (uAmb + uKeyCol * max(dot(n, uKeyDir), 0.));
+  vec3 p = vL * 2.6 + vM.y;
+  float s = sin(p.x * 3.1 + vM.w) * sin(p.y * 2.7 - vM.w * .7) * sin(p.z * 3.3 + 1.7);
+  float crack = 1. - smoothstep(.05, .1 + .16 * vM.z, abs(s));
+  float e = crack * (.35 + .65 * vM.z) + vM.z * .55 * pow(1. - ndv, 2.);
+  e = floor(e * 4. + .5) / 4.;
+  vec3 col = body + vC * e;
+  col *= mix(.25, 1., fogK(vW)) * vK;
+  gl_FragColor = vec4(col, 1.);
+}`;
+
 // ------------------------------------------------------------------------------------------------------------------------------ bolts (CPU)
 let _s = 1;
 const rr = () => { _s = (_s + 0x6D2B79F5) | 0; let t = Math.imul(_s ^ (_s >>> 15), 1 | _s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -237,21 +320,51 @@ export function genBolt(out, x0, y0, z0, x1, y1, z1, o, seed) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------ batches
-function makeBatch(geo, names, max) {
-  const data = new Float32Array(max * STRIDE);
-  const buf = new THREE.InstancedInterleavedBuffer(data, STRIDE, 1); buf.setUsage(THREE.DynamicDrawUsage);
+function makeBatch(geo, names, max, stride = STRIDE) {
+  const data = new Float32Array(max * stride);
+  const buf = new THREE.InstancedInterleavedBuffer(data, stride, 1); buf.setUsage(THREE.DynamicDrawUsage);
   names.forEach((nm, i) => geo.setAttribute(nm, new THREE.InterleavedBufferAttribute(buf, 4, i * 4)));
   geo.instanceCount = 0;
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e7);
-  return { data, buf, n: 0, max };
+  return { data, buf, n: 0, max, stride };
 }
-function material(vs, fs, uniforms) {
+function material(vs, fs, uniforms, opaque) {
   return new THREE.ShaderMaterial({
     vertexShader: vs, fragmentShader: fs, uniforms: { ...uniforms },
-    transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide,
-    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+    transparent: !opaque, depthTest: true, depthWrite: !!opaque, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: opaque ? THREE.ZeroFactor : THREE.OneFactor,
     blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,       // scene alpha is the water mask: never write it
   });
+}
+/** Icosphere (subdivided once). The first 12 vertices are the icosahedron, so lod 0 swaps to idx0 (20 faces) with the same vertices. */
+function icoGeo() {
+  const t = (1 + Math.sqrt(5)) / 2;
+  const v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map((p) => { const l = Math.hypot(...p); return p.map((x) => x / l); });
+  const f0 = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const mid = new Map();
+  const m = (a, b) => { const k = a < b ? a + '_' + b : b + '_' + a; if (mid.has(k)) return mid.get(k); const p = [0, 1, 2].map((i) => v[a][i] + v[b][i]); const l = Math.hypot(...p); v.push(p.map((x) => x / l)); mid.set(k, v.length - 1); return v.length - 1; };
+  const f1 = [];
+  for (const [a, b, c] of f0) { const ab = m(a, b), bc = m(b, c), ca = m(c, a); f1.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]); }
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v.flat()), 3));
+  const idx1 = new THREE.BufferAttribute(new Uint16Array(f1.flat()), 1), idx0 = new THREE.BufferAttribute(new Uint16Array(f0.flat()), 1);
+  g.setIndex(idx1);
+  return { g, idx0, idx1 };
+}
+/** Hexagonal bipyramid from its base point (y = 0) to the tip (y = 1): a long crystal. Radius 1 at the shoulder (stretch x/z = width). */
+function shardGeo() {
+  const v = [[0, 0, 0]], idx = [];
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; v.push([Math.cos(a) * 0.8, 0.18, Math.sin(a) * 0.8]); }
+  for (let i = 0; i < 6; i++) { const a = (i / 6 + 1 / 12) * TAU; v.push([Math.cos(a), 0.62, Math.sin(a)]); }
+  v.push([0, 1, 0]);
+  for (let i = 0; i < 6; i++) {
+    const j = (i + 1) % 6, l0 = 1 + i, l1 = 1 + j, u0 = 7 + i, u1 = 7 + j;
+    idx.push(0, l1, l0, l0, l1, u0, l1, u1, u0, u0, u1, 13);
+  }
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v.flat()), 3));
+  g.setIndex(idx);
+  return g;
 }
 const QUAD = () => {
   const g = new THREE.InstancedBufferGeometry();
@@ -262,39 +375,106 @@ const QUAD = () => {
 };
 
 const DEF = {};
-export function createGeo3d({ scene, uniforms }) {
-  // tube
+// orientation scratch (no allocation): quaternion of yaw (world z) * pitch (tilt of the long axis toward the yaw direction) * roll (about the long axis)
+const _q = [0, 0, 0, 1];
+function quat(yaw, pitch, roll) {
+  const ys = Math.sin(yaw / 2), yc = Math.cos(yaw / 2), ps = Math.sin(-pitch / 2), pc = Math.cos(-pitch / 2), rs2 = Math.sin(roll / 2), rc = Math.cos(roll / 2);
+  // a = yaw (about three Y) * pitch (about three Z)
+  const ax = ys * ps, ay = ys * pc, az = yc * ps, aw = yc * pc;
+  // a * roll (about three Y)
+  _q[0] = ax * rc - az * rs2; _q[1] = aw * rs2 + ay * rc; _q[2] = az * rc + ax * rs2; _q[3] = aw * rc - ay * rs2;
+  return _q;
+}
+export function createGeo3d({ scene, uniforms, particles }) {
+  // tube: (TUBE_SEG + 1) columns, no wrap index, so an arc (sweep < TAU) never closes with a chord; lod 0 uses every other column
   const tg = new THREE.InstancedBufferGeometry();
-  const ring = [], idx = [];
-  for (let i = 0; i < TUBE_SEG; i++) { const a = (i / TUBE_SEG) * TAU; ring.push(Math.cos(a), Math.sin(a), 0, Math.cos(a), Math.sin(a), 1); }
-  for (let i = 0; i < TUBE_SEG; i++) { const j = (i + 1) % TUBE_SEG, a0 = i * 2, a1 = i * 2 + 1, b0 = j * 2, b1 = j * 2 + 1; idx.push(a0, b0, a1, b0, b1, a1); }
-  tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ring.length), 3));
-  tg.setAttribute('aRing', new THREE.BufferAttribute(new Float32Array(ring), 3));
-  tg.setIndex(idx);
-  const T = makeBatch(tg, ['aP', 'aR', 'aC', 'aS'], MAX_TUBES);
+  const ring = [], tIdx1 = [], tIdx0 = [];
+  for (let i = 0; i <= TUBE_SEG; i++) { const u = i / TUBE_SEG; ring.push(u, 0, u, 1); }
+  for (let i = 0; i < TUBE_SEG; i++) { const a0 = i * 2, a1 = a0 + 1, b0 = a0 + 2, b1 = a0 + 3; tIdx1.push(a0, b0, a1, b0, b1, a1); }
+  for (let i = 0; i < TUBE_SEG; i += 2) { const a0 = i * 2, a1 = a0 + 1, b0 = a0 + 4, b1 = a0 + 5; tIdx0.push(a0, b0, a1, b0, b1, a1); }
+  tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array((ring.length / 2) * 3), 3));
+  tg.setAttribute('aRing', new THREE.BufferAttribute(new Float32Array(ring), 2));
+  const tI1 = new THREE.BufferAttribute(new Uint16Array(tIdx1), 1), tI0 = new THREE.BufferAttribute(new Uint16Array(tIdx0), 1);
+  tg.setIndex(tI1);
+  const T = makeBatch(tg, ['aP', 'aR', 'aC', 'aS', 'aQ', 'aU'], MAX_TUBES, TUBE_STRIDE);
   // disc
   const dg = QUAD(); const D = makeBatch(dg, ['aP', 'aR', 'aC', 'aS'], MAX_DISCS);
   // ribbon
   const rg = QUAD(); const Rb = makeBatch(rg, ['aA', 'aB', 'aC', 'aM'], MAX_RIB);
+  // solids
+  const SOL = ['aP', 'aQ', 'aS', 'aC', 'aM'];
+  const ico = icoGeo(), ico2 = icoGeo();
+  const O = makeBatch(ico.g, SOL, MAX_ORBS, SOLID_STRIDE);
+  const sg = shardGeo(); const S = makeBatch(sg, SOL, MAX_SHARDS, SOLID_STRIDE);
+  const K = makeBatch(ico2.g, SOL, MAX_ROCKS, SOLID_STRIDE);
 
-  const meshes = [[tg, TUBE_VERT, TUBE_FRAG, 'fx3d_tube', 16.5], [dg, DISC_VERT, DISC_FRAG, 'fx3d_disc', 16.2], [rg, RIB_VERT, RIB_FRAG, 'fx3d_bolt', 17]].map(([g, vs, fs, name, ro]) => {
-    const m = new THREE.Mesh(g, material(vs, fs, uniforms)); m.frustumCulled = false; m.renderOrder = ro; m.name = name; m.visible = false;
+  const meshes = [
+    [tg, TUBE_VERT, TUBE_FRAG, 'fx3d_tube', 16.5], [dg, DISC_VERT, DISC_FRAG, 'fx3d_disc', 16.2], [rg, RIB_VERT, RIB_FRAG, 'fx3d_bolt', 17],
+    [ico.g, SOLID_VERT, SOLID_FRAG, 'fx3d_orb', 16.4], [sg, SOLID_VERT, SOLID_FRAG, 'fx3d_shard', 16.3], [ico2.g, SOLID_VERT, ROCK_FRAG, 'fx3d_rock', 16.1, true],
+  ].map(([g, vs, fs, name, ro, opaque]) => {
+    const m = new THREE.Mesh(g, material(vs, fs, uniforms, opaque)); m.frustumCulled = false; m.renderOrder = ro; m.name = name; m.visible = false;
     if (scene) scene.add(m);
     return m;
   });
+  const batches = [T, D, Rb, O, S, K];
 
-  /** Column / cone / beam. (x,y,z) = base centre in world coords, h = height, r0/r1 = base/top radius, col = [r,g,b] HDR, a = alpha gain (dithers).
-   *  o: {front (0..1, hides everything below it: a column dropping from the sky), swirl (0..1 spiral bands), phase (spiral scroll), pow (fresnel power, 2 = soft shell, 0.6 = solid core),
-   *      flare (1 = ground flare at the base), top (fade start 0..1)} */
+  // quality: particle density preset -> lod (0 low, 1 medium, 2 high / ultra)
+  let lod = 2;
+  function setLod() {
+    const v = particles && particles.scale ? particles.scale.v : 1;
+    const l = v < 0.45 ? 0 : v < 0.8 ? 1 : 2;
+    if (l === lod) return;
+    lod = l;
+    tg.setIndex(l ? tI1 : tI0); ico.g.setIndex(l ? ico.idx1 : ico.idx0); ico2.g.setIndex(l ? ico2.idx1 : ico2.idx0);
+  }
+
+  /** Column / cone / beam / ring band / arc. (x,y,z) = base centre in world coords, h = height along the axis, r0/r1 = base/top radius,
+   *  col = [r,g,b] HDR, a = alpha gain (dithers).
+   *  o: {front (0..1, hides everything below it: a column dropping from the sky), swirl (0..1 spiral bands), phase (spiral scroll), pow (fresnel power, 2 = soft shell, 0.6 = solid core, 0 = flat),
+   *      flare (1 = ground flare at the base), top (fade start 0..1),
+   *      axis [x,y,z] (world, unit; default up), sweep (rad, default TAU = closed), start (rad, world yaw of the arc start), edge (arc end fade, fraction of the sweep, default .2)} */
   function tube(x, y, z, h, r0, r1, col, a, o) {
     if (T.n >= T.max || a <= 0) return false;
     o = o || DEF;
-    const d = T.data, i = T.n++ * STRIDE;
+    const d = T.data, i = T.n++ * TUBE_STRIDE;
     d[i] = x; d[i + 1] = z; d[i + 2] = -y; d[i + 3] = h;
     d[i + 4] = r0; d[i + 5] = r1; d[i + 6] = o.flare ? 1 : 0; d[i + 7] = o.pow == null ? 2 : o.pow;
     d[i + 8] = col[0]; d[i + 9] = col[1]; d[i + 10] = col[2]; d[i + 11] = a;
     d[i + 12] = o.front || 0; d[i + 13] = o.swirl || 0; d[i + 14] = o.phase || 0; d[i + 15] = o.top == null ? 0.85 : o.top;
+    const ax = o.axis;
+    if (ax) { d[i + 16] = ax[0]; d[i + 17] = ax[2]; d[i + 18] = -ax[1]; } else { d[i + 16] = 0; d[i + 17] = 1; d[i + 18] = 0; }
+    d[i + 19] = o.sweep || TAU; d[i + 20] = o.start || 0; d[i + 21] = o.edge == null ? 0.2 : o.edge; d[i + 22] = 0; d[i + 23] = 0;
     return true;
+  }
+  function solid(B, x, y, z, size, sx, sy, sz, yaw, pitch, roll, col, a, mode, o) {
+    if (B.n >= B.max || a <= 0 || size <= 0) return false;
+    o = o || DEF;
+    const q = quat(yaw || 0, pitch || 0, roll || 0), d = B.data, i = B.n++ * SOLID_STRIDE;
+    d[i] = x; d[i + 1] = z; d[i + 2] = -y; d[i + 3] = size;
+    d[i + 4] = q[0]; d[i + 5] = q[1]; d[i + 6] = q[2]; d[i + 7] = q[3];
+    d[i + 8] = sx; d[i + 9] = sy; d[i + 10] = sz; d[i + 11] = o.lump || 0;
+    d[i + 12] = col[0]; d[i + 13] = col[1]; d[i + 14] = col[2]; d[i + 15] = a;
+    d[i + 16] = mode; d[i + 17] = o.seed || 0; d[i + 18] = o.p1 || 0; d[i + 19] = o.p2 || 0;
+    return true;
+  }
+  /** Low-poly sphere / ellipsoid at its centre (x,y,z), radius R. mode GLOW (fresnel shell, o.p2 = centre fill) or ICE (lit facets, o.p1 = glint share).
+   *  o: {sx, sy (long / vertical axis), sz (stretch, default 1), yaw, pitch, roll, lump (vertex noise, fraction of R), seed, p1, p2} */
+  function orb(x, y, z, R, col, a, mode, o) {
+    o = o || DEF;
+    return solid(O, x, y, z, R, o.sx || 1, o.sy || 1, o.sz || 1, o.yaw, o.pitch, o.roll, col, a, mode || 0, o);
+  }
+  /** Long crystal from its base point (x,y,z) to the tip, length L, shoulder radius w. yaw = world heading of the lean, pitch = lean from vertical
+   *  (0 upright, PI/2 lying along yaw), roll = spin about its own axis. mode ICE / GLOW, o: {lump, seed, p1, p2} */
+  function shard(x, y, z, L, w, yaw, pitch, roll, col, a, mode, o) {
+    return solid(S, x, y, z, L, w / L, 1, w / L, yaw, pitch, roll, col, a, mode == null ? 1 : mode, o);
+  }
+  /** Opaque lava rock at its centre: radius R, lava = HDR crack colour, heat 0..1 (crack width / glow), spin = crack scroll phase. o: {sx, sy, sz, yaw, pitch, roll, lump, seed} */
+  function rock(x, y, z, R, lava, heat, spin, a, o) {
+    o = o || DEF;
+    if (K.n >= K.max) return false;
+    const ok = solid(K, x, y, z, R, o.sx || 1, o.sy || 1, o.sz || 1, o.yaw, o.pitch, o.roll, lava, a == null ? 1 : a, 2, o);
+    if (ok) { const i = (K.n - 1) * SOLID_STRIDE; K.data[i + 18] = heat; K.data[i + 19] = spin || 0; }
+    return ok;
   }
   /** Flat ground quad. (x,y,z) = centre (z = ground height, lifted a hair), R = outer radius. mode 0 RING, 1 TARGET, 2 SHOCK, 3 FILL (see DISC_FRAG).
    *  o: {rin, n, seed, p0, p1, p2, p3} */
@@ -317,7 +497,7 @@ export function createGeo3d({ scene, uniforms }) {
       if (T0 - this.last < period && this.n) return false;
       this.last = T0; this.n = genBolt(this.seg, x0, y0, z0, x1, y1, z1, o, (this.ctr++) * 7919 + this.id * 104729); return true;
     }, id: 0 });
-  for (let i = 0; i < 10; i++) { const b = mkBolt(); b.id = i + 1; bfree.push(b); }
+  for (let i = 0; i < BOLTS; i++) { const b = mkBolt(); b.id = i + 1; bfree.push(b); }
   /** Acquire a pooled bolt (null if exhausted). Release with G.free(b) when the spell ends. */
   function newBolt() { const b = bfree.pop() || null; if (b) { b.used = true; b.n = 0; b.last = -1e9; } return b; }
   function free(b) { if (b && b.used) { b.used = false; bfree.push(b); } }
@@ -338,18 +518,19 @@ export function createGeo3d({ scene, uniforms }) {
     }
   }
 
-  const batches = [T, D, Rb];
   return {
-    tube, disc, bolt, newBolt, free, genBolt, meshes,
-    begin() { T.n = 0; D.n = 0; Rb.n = 0; },
+    tube, disc, bolt, newBolt, free, genBolt, orb, shard, rock, meshes, GLOW, ICE,
+    /** 0 low, 1 medium, 2 high / ultra (from the particle density preset) */
+    get lod() { return lod; },
+    begin() { setLod(); for (let i = 0; i < batches.length; i++) batches[i].n = 0; },
     end() {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < batches.length; i++) {
         const b = batches[i], m = meshes[i];
         m.geometry.instanceCount = b.n; m.visible = b.n > 0;
-        if (b.n) { b.buf.clearUpdateRanges(); b.buf.addUpdateRange(0, b.n * STRIDE); b.buf.needsUpdate = true; }
+        if (b.n) { b.buf.clearUpdateRanges(); b.buf.addUpdateRange(0, b.n * b.stride); b.buf.needsUpdate = true; }
       }
     },
-    get stats() { return { tubes: T.n, discs: D.n, ribbons: Rb.n }; },
+    get stats() { return { tubes: T.n, discs: D.n, ribbons: Rb.n, orbs: O.n, shards: S.n, rocks: K.n }; },
     dispose() { for (const m of meshes) { m.geometry.dispose(); m.material.dispose(); if (scene) scene.remove(m); } },
   };
 }
