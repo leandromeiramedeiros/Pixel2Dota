@@ -132,8 +132,9 @@ function s2v() {
   return f;
 }
 const slug = m => m.replace(/^models\//, '').replace(/\.vmdl$/, '').replace(/[^a-z0-9]+/gi, '_');
-const run = args => execFileSync(s2v(), args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 180000, maxBuffer: 256 << 20 });
-const VPK = () => path.join(DOTA_DIR, 'game/dota/pak01_dir.vpk');
+/** Run Source2Viewer-CLI with args -> stdout Buffer (stderr dropped). Also used by tools/fx (particle KV3 + texture decode). */
+export const run = args => execFileSync(s2v(), args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 180000, maxBuffer: 256 << 20 });
+export const VPK = () => path.join(DOTA_DIR, 'game/dota/pak01_dir.vpk');
 const modelDir = vmdl => path.join(CACHE, '_export', slug(vmdl));
 
 /**
