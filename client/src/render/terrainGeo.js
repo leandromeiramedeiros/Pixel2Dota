@@ -1,6 +1,7 @@
 // Pure terrain geometry: per-tile top quads from the shared corner heights + vertical cliff-wall quads wherever neighbouring
 // tile edges differ in height. No Three/DOM so node can test it. Three coords: X = x, Y = z, Z = -y.
 import { TT } from '../../../shared/map.js';
+import { AP, apronQuads } from '../../../shared/vox/world/cliffs.js';
 
 export const CHUNK = 32;
 export const FACE = { TOP: 0, N: 1, E: 2, S: 3, W: 4 };
@@ -103,9 +104,12 @@ export function isDeepVoid(map, tx, ty) {
 /**
  * Build one chunk. lookup(name) -> { x, y, w, h } atlas px of the cell (water entries: frame 0; frames are 8 px apart).
  * Returns typed arrays { pos, uv, cell, index, bbox:[minx,miny,minz,maxx,maxy,maxz] } or null when empty.
- * cell = (cellX px, cellY px, cellH px, kind) with kind = type + 8*face.
+ * cell = (cellX px, cellY px, cellH px, kind) with kind = type + 8*face; wall and apron verts carry the owner side (0 Radiant / 1 Dire) in cellH.
+ * opts.merge: greedy-merge flat same-type same-height tiles into one quad (uv constant: the voxt shader never reads it there).
+ * opts.cell > 0 (voxt): add the stepped cliff aprons, wall slabs and shore curbs of shared/vox/world/cliffs.js snapped to that cell size
+ * (face 5 = UP tread, 1-4 = risers). Visual only: heights and pathing are untouched.
  */
-export function buildChunk(map, cx, cy, lookup) {
+export function buildChunk(map, cx, cy, lookup, opts = {}) {
   const N = map.w, tile = map.tile, tx0 = cx * CHUNK, ty0 = cy * CHUNK, tx1 = Math.min(tx0 + CHUNK, map.w), ty1 = Math.min(ty0 + CHUNK, map.h);
   const pos = [], uv = [], cell = [], index = [];
   let minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
@@ -116,6 +120,15 @@ export function buildChunk(map, cx, cy, lookup) {
     return nv++;
   };
   const cn = map.corners;
+  // opts.merge: flat same-type same-height tiles collapse into greedy rectangles (uv fixed at the tile centre; only valid for the voxel shader, which decides
+  // everything per world cell and never reads the in-tile uv). opts.cell > 0: stepped stone aprons (shared/vox/world/cliffs.js) at the foot of flat cliff walls.
+  const merge = !!opts.merge;
+  const used = merge ? new Uint8Array(CHUNK * CHUNK) : null;
+  const mergeable = (tx, ty, type, h) => {
+    if (tx >= tx1 || ty >= ty1 || used[(ty - ty0) * CHUNK + tx - tx0]) return false;
+    const j = ty * N + tx, o = j * 4;
+    return map.type[j] === type && !map.ramp[j] && cn[o] === h && cn[o + 1] === h && cn[o + 2] === h && cn[o + 3] === h && !isDeepVoid(map, tx, ty);
+  };
   for (let ty = ty0; ty < ty1; ty++) {
     for (let tx = tx0; tx < tx1; tx++) {
       if (isDeepVoid(map, tx, ty)) continue;
@@ -125,11 +138,24 @@ export function buildChunk(map, cx, cy, lookup) {
       const side = tileSide(map, tx, ty);
       const c = lookup(tileName(map, tx, ty)); if (!c) continue;
       const type = map.type[j], kind = type + 8 * FACE.TOP;
-      const a = vtx(wx, hNW, zN, 0, 0, c, kind), b = vtx(wx1, hNE, zN, 1, 0, c, kind), d = vtx(wx, hSW, zS, 0, 1, c, kind), e = vtx(wx1, hSE, zS, 1, 1, c, kind);
-      // diagonal that best fits the bilinear surface
-      if (Math.abs(hNW - hSE) <= Math.abs(hNE - hSW)) index.push(a, d, e, a, e, b); else index.push(a, d, b, b, d, e);
+      const flat = hNW === hNE && hNW === hSW && hNW === hSE && !map.ramp[j] && type !== TT.OUT;
+      if (merge && flat && used[(ty - ty0) * CHUNK + tx - tx0]) { /* top already emitted inside a merged rectangle */ }
+      else if (merge && flat) {
+        let w = 1; while (mergeable(tx + w, ty, type, hNW)) w++;
+        let h = 1;
+        grow: for (;; h++) { if (ty + h >= ty1) break; for (let k = 0; k < w; k++) if (!mergeable(tx + k, ty + h, type, hNW)) break grow; }
+        for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) used[(ty + yy - ty0) * CHUNK + tx + xx - tx0] = 1;
+        const mx1 = wx + w * tile, mzS = zN + h * tile;
+        const a = vtx(wx, hNW, zN, .5, .5, c, kind), b = vtx(mx1, hNW, zN, .5, .5, c, kind), d = vtx(wx, hNW, mzS, .5, .5, c, kind), e = vtx(mx1, hNW, mzS, .5, .5, c, kind);
+        index.push(a, d, e, a, e, b);
+      } else {
+        const a = vtx(wx, hNW, zN, 0, 0, c, kind), b = vtx(wx1, hNE, zN, 1, 0, c, kind), d = vtx(wx, hSW, zS, 0, 1, c, kind), e = vtx(wx1, hSE, zS, 1, 1, c, kind);
+        // diagonal that best fits the bilinear surface
+        if (Math.abs(hNW - hSE) <= Math.abs(hNE - hSW)) index.push(a, d, e, a, e, b); else index.push(a, d, b, b, d, e);
+      }
       // cliff walls: emit when THIS tile is the higher one across an edge
-      const cw = lookup(wallName(map, tx, ty, side)); if (!cw) continue;
+      const cw0 = lookup(wallName(map, tx, ty, side)); if (!cw0) continue;
+      const cw = { x: cw0.x, y: cw0.y, h: side };   // cell.z = the owning tile's Radiant / Dire side (the voxel shader cannot fetch it for ledges)
       // [neighbour dx, dy, face, this top-edge corner heights (start->end), edge endpoints (x,z) start->end]
       const edges = [
         [0, -1, FACE.N, hNW, hNE, wx, zN, wx1, zN],
@@ -152,6 +178,20 @@ export function buildChunk(map, cx, cy, lookup) {
         const v0 = vtx(x0, t0, z0, 0, 0, cw, type + 8 * face), v1 = vtx(x1, t1, z1, 1, 0, cw, type + 8 * face);
         const v2 = vtx(x1, l1, z1, 1, (t1 - l1) / WALL_PERIOD, cw, type + 8 * face), v3 = vtx(x0, l0, z0, 0, (t0 - l0) / WALL_PERIOD, cw, type + 8 * face);
         index.push(v0, v3, v2, v0, v2, v1);   // terrain material is DoubleSide
+      }
+    }
+  }
+  if (opts.cell > 0) {
+    const ac = lookup('cliff_r_0');
+    if (ac) for (const q of apronQuads(map, tx0, ty0, tx1, ty1, opts.cell, (x, y) => tileSide(map, x, y))) {
+      const cc = { x: ac.x, y: ac.y, h: q.side }, kk = q.type + 8 * q.f;
+      if (q.f === AP.UP) {   // tread
+        const v0 = vtx(q.x0, q.y0, q.z0, 0, 0, cc, kk), v1 = vtx(q.x1, q.y0, q.z0, 1, 0, cc, kk), v2 = vtx(q.x1, q.y0, q.z1, 1, 1, cc, kk), v3 = vtx(q.x0, q.y0, q.z1, 0, 1, cc, kk);
+        index.push(v0, v3, v2, v0, v2, v1);
+      } else {   // riser, uv.y = height / WALL_PERIOD down from the top like the cliff wall quads
+        const dv = (q.y1 - q.y0) / WALL_PERIOD;
+        const v0 = vtx(q.x0, q.y1, q.z0, 0, 0, cc, kk), v1 = vtx(q.x1, q.y1, q.z1, 1, 0, cc, kk), v2 = vtx(q.x1, q.y0, q.z1, 1, dv, cc, kk), v3 = vtx(q.x0, q.y0, q.z0, 0, dv, cc, kk);
+        index.push(v0, v3, v2, v0, v2, v1);
       }
     }
   }
