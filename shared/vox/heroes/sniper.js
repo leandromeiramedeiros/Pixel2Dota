@@ -18,7 +18,7 @@ export const PROP = {
 };
 const SKULL = [6.6, 6.4, 6.6];
 const HOLD = { R: [[-62, 30], [-14, 82]], L: [[-34, 64], [-8, 88]] };   // right hand on the grip at the hip, left hand forward under the barrel
-const GUN = [-2, 90];                                                   // rifle aim (body frame): level, straight ahead
+const GUN = [6, 90];                                                   // rifle aim (body frame): level, straight ahead
 const hash = (x, y, z) => { const s = Math.sin(x * 12.99 + y * 78.23 + z * 37.71) * 43758.55; return s - Math.floor(s); };
 
 /** Pose p: a biped rig pose (rig.js) + gun ([el, hd] rifle aim, body frame), cape (swept back 0..1), eyes. */
@@ -30,16 +30,16 @@ function rifle(v, rig, d, M) {
   const upW = apM(Rt, [0, 0, 1]), up = norm3(sub3(upW, mul3(d, dot3(upW, d)))), side = norm3(cross3(d, up));
   const at = (t, u = 0, s = 0) => add3(add3(add3(h, mul3(d, t)), mul3(up, u)), mul3(side, s));
   obox(v, at(-5.8, -0.8), at(-0.2, 0.3), side, 1.2, t => 1.9 - t * 0.6, M.wood);              // stock (deep at the butt)
-  obox(v, at(-0.6, 0.5), at(4.4, 0.5), side, 1.3, 1.4, M.gunD);                                 // receiver
+  obox(v, at(-0.6, 0.5), at(4.4, 0.5), side, 1.6, 1.7, M.gunD);                                 // receiver
   v.capsule(at(0.6, -0.8), at(1.4, -2.6), 0.8, M.wood);                                         // pistol grip under the hand
-  obox(v, at(4, 0.2), at(9, 0.2), side, 1.2, 1.2, M.wood);                                      // fore-end
-  v.capsule(at(4, 0.6), at(16, 0.6), 1.2, M.gun);                                               // barrel
-  for (const t of [9.6, 13.2]) band(v, at(t, 0.6), at(t + 0.9, 0.6), 0, 1, 1.6, M.steel);       // barrel bands
-  v.capsule(at(15.4, 0.6), at(17.6, 0.6), 1.8, M.gunD);                                         // muzzle brake
-  v.capsule(at(0.4, 2.8), at(5.6, 2.8), 0.9, M.gunD, 1.1);                                      // scope + mounts
-  for (const t of [1.4, 4.4]) v.capsule(at(t, 1.4), at(t, 2.2), 0.5, M.brass);
-  disc(v, at(5.7, 2.8), d, 1.2, 0.6, M.brass);                                                  // scope rim
-  disc(v, at(2.2, -0.8, 2), side, 2.2, 0.7, (px, py, pz, r) => (r > 0.5 ? M.steel : undefined));   // the ring on the side
+  obox(v, at(4, 0.2), at(9, 0.2), side, 1.8, 1.8, M.wood);                                      // fore-end
+  v.capsule(at(4, 0.6), at(16, 0.6), 1.7, M.wood);                                               // barrel
+  for (const t of [9.6, 13.2]) band(v, at(t, 0.6), at(t + 0.9, 0.6), 0, 1, 2.1, M.gunD);       // barrel bands
+  v.capsule(at(15.4, 0.6), at(17.6, 0.6), 2.3, M.gunD);                                         // muzzle brake
+  v.capsule(at(0.4, 3.2), at(5.6, 3.2), 0.9, M.gunD, 1.1);                                      // scope + mounts
+  for (const t of [1.4, 4.4]) v.capsule(at(t, 1.8), at(t, 2.6), 0.5, M.brass);
+  disc(v, at(5.7, 3.2), d, 1.2, 0.6, M.brass);                                                  // scope rim
+  disc(v, at(2.2, -0.8, 2.4), side, 2.2, 0.7, (px, py, pz, r) => (r > 0.5 ? M.steel : undefined));   // the ring on the side
 }
 
 export function build(p = {}) {
@@ -48,7 +48,7 @@ export function build(p = {}) {
     skin: useMat(v, 'skin', { ramp: ['#8a3a4e', '#d07a8c', '#eea0aa', '#ffc8c8'], noShadow: true }),
     skinD: useMat(v, 'skinD', { ramp: ['#6a2a3e', '#a85468', '#c47282', '#e094a0'] }),
     beard: useMat(v, 'beard', { ramp: ['#7a7488', '#bcb8c0', '#dedad8', '#f6f2ea'] }),
-    shirt: useMat(v, 'shirt', { ramp: ['#3e0806', '#7e180c', '#a82a14', '#d04a26'] }),
+    shirt: useMat(v, 'shirt', { ramp: ['#5a0c08', '#a01e10', '#c8341a', '#ec5a32'] }),
     pants: useMat(v, 'pants', { ramp: ['#120c08', '#2c1f16', '#43301f', '#5e4630'] }),
     pad: useMat(v, 'pad', { ramp: ['#100b08', '#2a1f17', '#3f3024', '#5a4636'] }),
     belt: useMat(v, 'belt', { ramp: ['#24140a', '#5a3a1c', '#7e5428', '#a2723a'] }),
@@ -86,7 +86,7 @@ export function build(p = {}) {
   torso(v, T.torso, { c: [cx, cy], z0: 9.6, z1: 23.6, r: 9 }, (dx, dy, z) => {
     const rx = 6 + Math.min(1, z / 4) * 1 - Math.max(0, z - 10) * 0.6, ry = 4.4 + (dy < 0 ? 0.9 * Math.max(0, 1 - Math.abs(z - 5) / 5) : 0);
     if ((dx / rx) ** 2 + (dy / ry) ** 2 > 1) return;
-    if (z < 2.6) return z < 2.4 && z > 0.3 && Math.abs(Math.abs(dx) - 4.2) < 1.2 && dy < 0.5 ? M.pouch : M.belt;
+    if (z < 1.6) return z < 1.5 && z > 0.3 && Math.abs(Math.abs(dx) - 4.2) < 1.2 && dy < 0.5 ? M.pouch : M.belt;
     return M.shirt;
   });
   for (const s of [-1, 1]) ell(v, T.torso, [cx + s * 6.2, cy - 0.4, 10.4], [1.6, 1.9, 1.9], M.pouch);   // hip pouches
@@ -94,12 +94,12 @@ export function build(p = {}) {
   for (const k of ['R', 'L']) {
     const sh = J['shoulder' + k], el = J['elbow' + k], hd = J['hand' + k];
     limb(v, [sh, el], [2.1, 1.9], M.shirt);
-    v.capsule(el, hd, 1.9, (px, py, pz, t) => (t < 0.18 ? M.shirt : t > 0.8 ? M.brass : M.pad), 1.8);
+    v.capsule(el, hd, 1.9, (px, py, pz, t) => (t < 0.55 ? M.shirt : t > 0.86 ? M.brass : M.pad), 1.8);
     hand(v, hd, [1.8, 1.8, 1.6], M.skin);
   }
   for (const [k, s] of [['R', -1], ['L', 1]]) {
     const sh = J['shoulder' + k];
-    pauldron(v, sh, [3.8, 3.9, 3], M.pad, M.pad, 0.8);
+    pauldron(v, sh, [3.2, 3.3, 2.4], M.pad, M.pad, 1.2);
     for (const [ox, oy] of [[0, -2.8], [s * 2.6, -1.6], [s * 3.4, 0.8]]) v.ellipsoid(sh[0] + ox, sh[1] + oy, sh[2] + 2.6, 0.6, 0.6, 0.6, M.steel);
   }
   // cape collar over the shoulders (bunched folds behind the neck)
@@ -148,18 +148,18 @@ export const ANIMS = {
     const st = [1, 0, -1, 0][i];
     return {
       bob: [-0.5, 0, -0.5, 0][i], spine: [10, st * 4, 0], head: [-6, -st * 3, 0], footR: [0, -st * 1.6, i === 3 ? 0.5 : 0], footL: [0, st * 1.6, i === 1 ? 0.5 : 0],
-      armR: sw(HOLD.R, st * 3), armL: sw(HOLD.L, st * 3), gun: [-14 + st * 2, 84], cape: 0.8,
+      armR: sw(HOLD.R, st * 3), armL: sw(HOLD.L, st * 3), gun: [2 + st * 2, 88], cape: 0.8,
     };
   }),
   attack: [
-    { spine: [-2, 0, 0], head: [2, 0, 0], armR: [[-56, 30], [-4, 84]], armL: [[-26, 64], [2, 88]], gun: [4, 90] },
+    { spine: [-2, 0, 0], head: [2, 0, 0], armR: [[-56, 30], [-4, 84]], armL: [[-26, 64], [2, 88]], gun: [8, 90] },
     { bob: 0.2, spine: [-10, 0, 0], head: [6, 0, 0], armR: [[-46, 26], [10, 76]], armL: [[-14, 60], [16, 86]], gun: [18, 90], footR: [0, 0.8, 0], cape: 0.3 },
-    { spine: [-4, 0, 0], head: [2, 0, 0], armR: sw(HOLD.R, 2), armL: sw(HOLD.L, 2), gun: [2, 90] },
+    { spine: [-4, 0, 0], head: [2, 0, 0], armR: sw(HOLD.R, 2), armL: sw(HOLD.L, 2), gun: [7, 90] },
   ],
   cast: [
-    { spine: [-6, -14, 0], head: [-4, 10, 0], armR: HOLD.R, armL: [[30, -20], [60, -40]], gun: [-14, 80], footL: [0, 1, 0] },
-    { spine: [-10, -6, 0], head: [-10, 4, 0], armR: HOLD.R, armL: [[70, 20], [84, 40]], gun: [-14, 80] },
-    { bob: -0.4, spine: [10, 10, 0], head: [-6, -6, 0], armR: HOLD.R, armL: [[10, 80], [0, 96]], gun: [-14, 80], footL: [0, -1.6, 0], cape: 0.4 },
+    { spine: [-6, -14, 0], head: [-4, 10, 0], armR: HOLD.R, armL: [[20, -30], [40, -40]], gun: [2, 86], footL: [0, 1, 0] },
+    { spine: [-10, -6, 0], head: [-10, 4, 0], armR: HOLD.R, armL: [[56, -6], [76, 4]], gun: [2, 86] },
+    { bob: -0.4, spine: [10, 10, 0], head: [-6, -6, 0], armR: HOLD.R, armL: [[10, 80], [0, 96]], gun: [2, 86], footL: [0, -1.6, 0], cape: 0.4 },
   ],
   stunned: range(2).map(i => ({
     bob: -0.6, spine: [8, [3, -3][i], 0], head: [10, [6, -6][i], [4, -4][i]], armR: [[-80, 20], [-60, 60]], armL: [[-80, 8], [-84, 14]], gun: [-30, 86], eyes: 'x',
