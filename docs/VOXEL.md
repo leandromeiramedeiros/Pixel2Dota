@@ -23,7 +23,7 @@ pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creeps (`shared/
 | `tools/vox/shot.mjs <short|all> [--small]` | Review sheet: 4 views, every pose, true size next to Lina -> `docs/voxel-chibi/<short>_vox.png` (`--small`: fast views in `tools/art/out/`). |
 | `tools/vox/portrait.mjs <short>` | HUD portrait (32x42) -> `client/src/art/portraits/<short>.js` + a 12x preview (library: `tools/art/vox_portrait.mjs`). |
 | `tools/vox/view.mjs <short> [--ref|--vox] [--poses]` | One compare PNG (reference rows over voxel rows, same views / anims) -> `tools/.cache/view/<short>.png`, gitignored, never committed. |
-| `tools/art/heroes/lina_vox_{shot,poses,terrains}.mjs` | Lina-only sheets (terrain patch, pose library). |
+| `tools/art/heroes/lina_vox_shot.mjs` | Lina-only showcase sheet (terrain patch). |
 | `docs/shots/v3-lina-sheet.png`, `docs/voxel-chibi/ref/` | The chibi likeness reference (v3 2D Lina). |
 
 ## Workflow
