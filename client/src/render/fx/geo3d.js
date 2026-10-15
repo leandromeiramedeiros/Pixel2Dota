@@ -217,8 +217,8 @@ void main(){
   vec3 wp = aP.xyz + qrot(aQ, lp * aS.xyz * aP.w);
   vW = wp; vL = position; vC = aC.rgb; vK = aC.w; vM = aM;
   vec4 cr = projectionMatrix * viewMatrix * vec4(wp, 1.);
-  if (aD.y > .5) {   // depth of the vertex dropped to the ground, like a sprite / voxel unit foot (mesh3d DEPTH_GLSL): units occlude it by where it stands
-    vec4 cf = projectionMatrix * viewMatrix * vec4(wp.x, aD.x, wp.z + aD.z, 1.);
+  if (aD.y > .5) {   // one depth for the whole solid: its centre dropped to the ground, like a sprite / voxel unit foot (mesh3d DEPTH_GLSL)
+    vec4 cf = projectionMatrix * viewMatrix * vec4(aP.x, aD.x, aP.z + aD.z, 1.);
     cr.z = cf.z / cf.w * cr.w;
   }
   gl_Position = cr;
@@ -472,8 +472,9 @@ export function createGeo3d({ scene, uniforms, particles }) {
    *  o: {sx, sy (long / vertical axis), sz (stretch, default 1), yaw, pitch, roll, lump (vertex noise, fraction of R), seed, p1, p2,
    *      foot (world z of the ground: sprite depth, see below), footPull (default 8)}
    *  foot (all solids): voxel units / props write the depth of their FOOT (mesh3d propDepth), not of each voxel, so a solid floating at body
-   *  height would win the depth test even behind them. With o.foot the solid writes the depth of its own ground point instead: it hides
-   *  behind a unit iff it sits behind that unit's foot (Invoker orbs, anything circling a hero). */
+   *  height would win the depth test even behind them. With o.foot the whole solid takes the depth of its centre's ground point pulled
+   *  o.footPull toward the camera (+z): it is hidden whole by a unit iff it sits behind that unit's foot card (voxel units: foot + 20),
+   *  never cut in half by the body (Invoker orbs, anything circling a hero). */
   function orb(x, y, z, R, col, a, mode, o) {
     o = o || DEF;
     return solid(O, x, y, z, R, o.sx || 1, o.sy || 1, o.sz || 1, o.yaw, o.pitch, o.roll, col, a, mode || 0, o);
