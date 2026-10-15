@@ -1,7 +1,7 @@
 // Ambient status visuals (stun stars, hex, magic immunity, slow, invis, channel ...) and the Invoker orbs.
 import { ST } from '../../../../shared/protocol.js';
 import { PAL, ORB, elemMul, rnd, TAU } from './common.js';
-import { LEAN_TO, LEAN_K } from '../voxactors.js';
+import { leanOf } from '../voxactors.js';
 
 const STUN_COL = [3.4, 2.8, 0.7];
 const GOLD = PAL.gold;
@@ -13,8 +13,7 @@ export function register(c, R) {
   const orbBuf = [0, 0, 0];
 
   // Orbs = real 3D geometry (fx/geo3d.js G.orb, GLOW): an HDR core inside a fresnel shell, about head-sized on the chibi (Dota: sphere r 16),
-  // no billboard glow and no sprite quad. Each orb is a real light (tight radius, so the three colours never sum to white): it rims his
-  // side in its element colour and pools on the ground under it.
+  // no billboard glow and no sprite quad. Each orb is a small steady real light: a faint element-colour rim on his side, no ground pool.
   // Depth: voxel units write the depth of their FOOT (mesh3d propDepth: foot card pulled 12 + 8 toward the camera), so the orbs use o.foot
   // with the same pull: an orb on the far half of the ring is hidden whole by his silhouette, one on the near half is drawn whole; the
   // swap happens at the sides, outside his body. Never chopped, never over his face.
@@ -34,15 +33,13 @@ export function register(c, R) {
     const alive = !(u.status & ST.DEAD) && u.hp > 0; if (!alive) return;
     const G = c.G, lo = G.lod === 0;
     // camera direction in the ground plane (three: X = x, Z = -y): which half of the ring is near (particles use real depth, see below)
-    const cp = c.uniforms && c.uniforms.uCamPos ? c.uniforms.uCamPos.value : null;
+    const up = c.uniforms && c.uniforms.uCamUp ? c.uniforms.uCamUp.value : null;
     const z0 = u.z || 0, zc = c.chest(u) + Math.sin(c.T * 2) * 3;   // chest height
     let vx = 0, vy = -1, lc = 1, ls = 0;
-    if (cp) {
-      const dx = cp.x - u.x, dy = -cp.z - u.y, l = Math.hypot(dx, dy);
-      if (l > 1) { vx = dx / l; vy = dy / l; }
-      // follow the voxel lean (voxactors.js): the body tilts back about its feet so the camera sees it from LEAN_TO; the ring tilts with it,
+    if (up) {
+      // follow the voxel lean (voxactors.js leanOf): the body tilts back about its feet so the camera sees it from LEAN_TO; the ring tilts with it,
       // so from the 60 deg game camera the orbs sit round the chest as in the showcase (not at the knees in front, hidden above the head behind)
-      const th = Math.max(0, Math.atan2(cp.y - z0, l) - LEAN_TO) * LEAN_K; lc = Math.cos(th); ls = Math.sin(th);
+      const L = leanOf(up); vx = -L.dx; vy = -L.dy; lc = Math.cos(L.th); ls = Math.sin(L.th);   // v = toward the camera
     }
     const hz = zc - z0;
     oShell.foot = oCore.foot = z0;
@@ -62,9 +59,9 @@ export function register(c, R) {
       const k = ch === 'W' ? (mul > 1 ? 1.15 : 0.8) : mul;
       G.orb(ox, oy, oz, CORE_R * (ch === 'E' ? 0.9 + 0.1 * k : 1), L.core, 0.8 + 0.2 * k, G.GLOW, oCore);
       G.orb(ox, oy, oz, ORB_R, L.shell, k, G.GLOW, oShell);
-      // per-orb light, tight (r 115): rims his side in the element colour + a soft pool on the ground under it. Trainer behaviour:
-      // E flickers, W strobes, Q steady
-      c.lightNow(ox + ca * 16, oy + sa * 16, oz, L.lt, 115, 0.6 * mul, 0);   // set outward a little: grazes his side (rim) rather than washing his front
+      // per-orb light: small (r 70, never reaches the ground from chest height) and steady (the strobe / flicker stays on the orb body: a flickering
+      // ground pool reads as noise), set outward so it only grazes his side; three stronger lights washed his whole body out
+      c.lightNow(ox + ca * 24, oy + sa * 24, oz, L.lt, 70, 0.25, 0);
       // pixels use real depth (they would show through him from behind): only the near half emits. Crisp single art pixels in the
       // element's hot / core colours, no cold ramp steps (a cooled grey pixel left hanging reads as a big square up close)
       if (near < -0.15) continue;

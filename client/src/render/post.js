@@ -74,7 +74,7 @@ void main(){
 // ground / sky / farther unit), never a unit's own inner depth steps (same id); the line sits at the unit's depth, so fog / mist / DoF treat it
 // like the unit. Nearest unit wins on a crossing. 1 px of the low-res target = 1 art px.
 export const ID_BIAS = 1e-4;
-export const OUTLINE_PX = 2;   // line width in art px (round brush)
+export const OUTLINE_PX = 1;   // line width in art px (round brush)
 const DEPTH_COPY = /* glsl */ `
 precision highp float;
 uniform sampler2D tDepth;

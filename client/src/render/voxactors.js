@@ -2,7 +2,7 @@
 // buildings3d.js (shadow map, key + point lights, Bayer-quantised light, fog grade). Outline: an ID pass (idScene: outline colour + per-instance id, same vertex
 // shader and depth) that post.js turns into a 1-art-px silhouette line (render/post.js OUTLINE), so inner depth steps never get a line.
 // What makes a ~44-voxel chibi read from the 60 deg game camera:
-//   - lean: the model tilts back about its feet, away from the camera, so the camera sees it from ~LEAN_TO deg like the offline renders
+//   - lean: the model tilts back about its feet, away from the camera (along its view direction, the same for every unit: leanOf), so the camera sees it from ~LEAN_TO deg like the offline renders
 //     (pitch 30), not from above (top of the hair, no face). Shadow passes use the same lean, so self-shadow lands where it is drawn.
 //   - smooth per-voxel normals (aSm) for the light, so the blocks shade like rounded forms; faces stay voxel-crisp.
 //   - depth = sprites: the foot point (propDepth), so units sort like the 2D sheets.
@@ -60,6 +60,16 @@ export function voxEntry(mod, o = {}) {
 export const VOX_HEROES = VOX_UNITS;   // old name
 export const LEAN_TO = 30 * Math.PI / 180;    // view pitch the model is shown at (deg above the horizon)
 export const LEAN_K = 1;                      // share of (camera pitch - LEAN_TO) taken by the lean
+const _lean = { dx: 0, dy: 1, th: 0 };
+/** The voxel lean, one for every unit on screen (the VERT shader does the same): tilt th about the feet along (dx, dy) in game coords = the view
+ *  camera's horizontal forward, by (camera pitch - LEAN_TO). From the camera up vector (uniforms.uCamUp). Not per unit: a unit off the screen
+ *  centre would lean along its own camera ray (sideways on screen). Shared result object. */
+export function leanOf(up) {
+  const hl = Math.hypot(up.x, up.z);
+  if (hl < 1e-6) { _lean.dx = 0; _lean.dy = 1; _lean.th = 0; return _lean; }
+  _lean.dx = up.x / hl; _lean.dy = -up.z / hl; _lean.th = Math.max(0, Math.atan2(hl, up.y) - LEAN_TO) * LEAN_K;
+  return _lean;
+}
 // voxel death (world units, seconds): burst speed out / up, gravity, bounce restitution, ground slide kept after the bounce, launch stagger,
 // lean release, dissolve start (+ up to DIE_FADE_J per voxel) -> fully gone at DIE_T
 export const DIE_T = 1.45;   // dissolve length, counted from the end of the ragdoll (RAG_T) for heroes
@@ -145,10 +155,9 @@ void main(){
     }
     alpha *= 1. - smoothstep(${DIE_FADE.toFixed(3)} + ${DIE_FADE_J.toFixed(3)} * r0, ${DIE_T.toFixed(3)}, td);
   } else o = rotY(p, c, s) * sc;
-  vec3 tc = uCamPos - iPos;                                     // shadow passes lean too (uCamPos = view camera), so self-shadow matches the drawn body
-  float hl = length(tc.xz);
-  vec2 h = hl > 1e-3 ? -tc.xz / hl : vec2(0., -1.);
-  float th = max(0., atan(tc.y, hl) - uLeanTo) * uLeanK * (1. - die * smoothstep(0., ${DIE_LEAN.toFixed(3)}, dt)), lc = cos(th), ls = sin(th);
+  float hl = length(uCamUp.xz);                                 // view camera forward (its up vector tilts along it): one lean for every unit (leanOf);
+  vec2 h = hl > 1e-6 ? uCamUp.xz / hl : vec2(0., -1.);           // shadow passes lean too (uCamUp = view camera), so self-shadow matches the drawn body
+  float th = max(0., atan(hl, uCamUp.y) - uLeanTo) * uLeanK * (1. - die * smoothstep(0., ${DIE_LEAN.toFixed(3)}, dt)), lc = cos(th), ls = sin(th);
   o = lean(o, h, lc, ls); n = lean(n, h, lc, ls);
   vec3 w = iPos + o;
   vec3 al = aCol;                                                // team voxels: the team colour at the voxel's own ramp luminance

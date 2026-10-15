@@ -5,7 +5,7 @@
 // Lights: c.glow / c.lightNow kept moderate (c.glow already x0.6): subtle bloom, never a whiteout.
 import { EV } from '../../../../shared/protocol.js';
 import { PAL, ORB, rnd, pick, TAU, elemMul } from './common.js';
-import { LEAN_TO, LEAN_K } from '../voxactors.js';
+import { leanOf } from '../voxactors.js';
 
 const ELEM_PAL = { Q: PAL.ice, W: PAL.arc, E: PAL.fire };
 const COLD = [0.7, 1.6, 2.6];
@@ -38,13 +38,9 @@ export function register(c, R) {
   // plus the foot pull that keeps geometry there in front of / behind him like his own foot card (see geo3d foot). Shared result object.
   const _b = { x: 0, y: 0, z: 0, pull: 20 };
   function bodyAt(u, h) {
-    const z0 = u.z || 0, cp = c.uniforms && c.uniforms.uCamPos ? c.uniforms.uCamPos.value : null;
+    const z0 = u.z || 0, up = c.uniforms && c.uniforms.uCamUp ? c.uniforms.uCamUp.value : null;
     let s = 0, co = 1, vx = 0, vy = -1;
-    if (cp) {
-      const dx = cp.x - u.x, dy = -cp.z - u.y, l = Math.hypot(dx, dy);
-      if (l > 1) { vx = dx / l; vy = dy / l; }
-      const th = Math.max(0, Math.atan2(cp.y - z0, l) - LEAN_TO) * LEAN_K; s = Math.sin(th); co = Math.cos(th);
-    }
+    if (up) { const L = leanOf(up); vx = -L.dx; vy = -L.dy; s = Math.sin(L.th); co = Math.cos(L.th); }   // v = toward the camera
     _b.x = u.x - vx * h * s; _b.y = u.y - vy * h * s; _b.z = z0 + h * co; _b.pull = 20 + h * s;
     return _b;
   }
@@ -393,13 +389,14 @@ export function register(c, R) {
   // r 132, 1.1 s), ring_b (#8b4715, r 240, 0.35 s), ground glows glow_b / c / d (white -> #833839, #febc80 / #fde06b), glow_e (peach,
   // 0.25-0.45 s), light (r 700 -> 175, 1.25 s), dark smoke burst (#081830, alpha over) + ambient smoke (#5a5955, 2.8 s + 2-2.5 s), sparks /
   // ash / flame / ambient sparks as 1/4-count pixels, crater (#ceb5a4, 5.2 s) + scorch (8 s) decals.
-  // Director tweak (flamier, emissive): hotter yellow -> orange palette (ray / beam / rings / glows), HDR ray core, 3 licking flame bands +
-  // hot core at the base (1.1 s), rising flame pixels, lighter dark smoke.
+  // Director tweaks (flamier, emissive, a strong light): hotter yellow -> orange palette (ray / beam / rings / glows), HDR ray core, 3 tall
+  // licking flame bands + hot core at the base (1.4 s), dense rising flame pixels, faint dark smoke; the light is a strong warm one (impact
+  // r up to ~900, plus a second light up the column while the ray burns) that floods the ground and every unit near it.
   const SS = {
     team: [0.42, 0.41, 0.36], teamB: [0.55, 0.57, 0.6], edge0: [0.5, 0.5, 0.5], edge1: [0.42, 0.3, 0.07], glowS: [0.4, 0.44, 0.48],
     flare0: [1.0, 0.93, 0.85], flare1: [1.0, 0.24, 0.0],
-    ray0: [1.0, 0.92, 0.6], ray1: [1.0, 0.4, 0.06], beam: [0.95, 0.34, 0.05], ringB: [1.0, 0.46, 0.1], ringC: [1.0, 0.7, 0.35],
-    ring: [0.75, 0.36, 0.12], glwB0: [1.0, 0.6, 0.2], glwB1: [0.4, 0.08, 0.02], flm: [1.0, 0.36, 0.04], flmCore: [1.5, 0.9, 0.3], glw: [1.0, 0.81, 0.46], grey0: [0.15, 0.15, 0.15],
+    ray0: [1.0, 0.84, 0.4], ray1: [1.0, 0.36, 0.04], beam: [0.95, 0.34, 0.05], ringB: [1.0, 0.46, 0.1], ringC: [1.0, 0.7, 0.35],
+    ring: [0.75, 0.36, 0.12], glwB0: [1.0, 0.6, 0.2], glwB1: [0.4, 0.08, 0.02], flm: [1.2, 0.42, 0.05], flmCore: [2.2, 1.2, 0.32], glw: [1.0, 0.81, 0.46], grey0: [0.15, 0.15, 0.15],
     glowE: [1.0, 0.78, 0.68], dark: [0.03, 0.09, 0.19], smoke: [0.42, 0.42, 0.4],
   };
   const SS_SPK = { hot: [1.25, 0.88, 0.6], mid: [0.9, 0.62, 0.4], low: [0.55, 0.16, 0.03], dim: [0.2, 0.05, 0.01], lt: [1, 0.6, 0.3], ramp: null };   // #876146 / #5d5235 -> #591805
@@ -448,14 +445,14 @@ export function register(c, R) {
       const cRay = [0, 0, 0], cCore = [0, 0, 0], cB = [0, 0, 0], cC = [0, 0, 0];
       const oFl = [0, 1, 2].map(() => ({ sweep: TAU / 3 - 0.3, start: 0, edge: 0.35, swirl: 0.9, pow: 0.9, flare: 1, top: 0.45, phase: 0, foot: z, footPull: 20 }));
       const oFc = { swirl: 0.6, pow: 0.6, top: 0.4, phase: 0, foot: z, footPull: 20 };
-      const lt = c.glow(x, y, z + 64, SS.glw, rad * 4, 0, 1.25, { mode: 'flat' });
+      const lt = c.glow(x, y, z + 64, SS.glw, rad * 4, 0, 1.25, { mode: 'flat' }), ltR = c.glow(x, y, z + 240, SS.ray0, rad * 3, 0, 0.7, { mode: 'flat' });
       c.run(1.6, (r, dt) => {
         const t = r.t;
         if (t < 0.6) {                                                                                  // ray (0.6 s) + ray_b (0.5 s, the hot core)
           const k = t / 0.6, s = k < 0.6 ? 2 - 1.9 * k / 0.6 : k < 0.75 ? 0.1 : 0.1 + 0.9 * ssBias((k - 0.75) / 0.25, 0.15);
           const R0 = rad * 0.5 * s;
-          G.tube(x, y, z, 1000, R0, R0, mix3(cRay, SS.ray0, SS.ray1, k, 1.1), Math.min(1, k / 0.25, (1 - k) / 0.5), oRay);
-          if (t < 0.5) G.tube(x, y, z, 1000, R0 * 0.3, R0 * 0.3, mix3(cCore, SS.ray0, SS.ray1, t / 0.5, 2.0), Math.min(1, t / 0.125, (0.5 - t) / 0.375), oCore);
+          G.tube(x, y, z, 1000, R0, R0, mix3(cRay, SS.ray0, SS.ray1, k, 1.45), Math.min(1, k / 0.25, (1 - k) / 0.5), oRay);
+          if (t < 0.5) G.tube(x, y, z, 1000, R0 * 0.3, R0 * 0.3, mix3(cCore, SS.ray0, SS.ray1, t / 0.5, 2.6), Math.min(1, t / 0.125, (0.5 - t) / 0.375), oCore);
           const kb = Math.min(1, t / 0.3), Rb = 288 - 252 * ssBias(kb, 0.85);                           // beam: trails r 576 -> 32 (half), alpha ~.05
           G.tube(x, y, z + 128, 1700 * kb, Rb, Rb * 0.5, SS.beam, 0.6 * (1 - k), oBeam);
         }
@@ -473,14 +470,15 @@ export function register(c, R) {
         { const k = t / 1.5; G.disc(x, y, gz, 560 * ssBias(Math.min(1, k), 0.75), 3, mix3(cC, SS.glw, SS.grey0, Math.max(0, k - 0.33) / 1.0, 0.3), 1 - k, dGC); }   // glow_c (mod2x)
         if (t < 1) G.disc(x, y, gz, rad * 0.8 * (2 - 1.9 * Math.min(1, t / 0.5)), 3, SS.glw, 0.55 * (1 - t), dGD);               // glow_d
         if (t < 0.45) { const k = Math.min(1, t / 0.35); G.orb(x, y, z + 8, 6 * (1 + 47 * ssBias(k, 0.65)) * 0.35, SS.glowE, 0.3 * (1 - k), G.GLOW, oE); }   // glow_e (mod2x)
-        if (t < 1.25) { const k = t / 1.25; lt.rad = rad * 2 * (2 - 1.5 * ssBias(k, 0.25)); lt.int = 1.6 * Math.min(1, k / 0.25, (1 - k) / 0.75); }   // light
-        if (t < 0.6) { const e = 1 - (1 - t / 0.6) * (1 - t / 0.6); oDark.phase = c.T * 2; G.tube(x, y, z, 30 + 140 * e, 50 + 110 * e, 40 + 130 * e, SS.dark, 0.3 * (1 - t / 0.6), oDark); }   // orange_smoke (dark)
-        if (t < 1.1) {                                                                                  // flame tongues (director: flamier): 3 licking swirl bands + hot core
-          const e = 1 - Math.pow(1 - Math.min(1, t / 0.15), 3), f = Math.min(1, (1.1 - t) / 0.6), h = 380 * e * (0.6 + 0.4 * f);
-          for (let i = 0; i < 3; i++) { const o = oFl[i]; o.start = TAU * i / 3 + c.T * 2.2; o.phase = c.T * 9 + i * 2; G.tube(x, y, z, h * (1 - 0.15 * i), rad * 0.55, rad * 0.12, SS.flm, 0.9 * f, o); }
-          oFc.phase = c.T * 12; G.tube(x, y, z, h * 0.55, rad * 0.25, rad * 0.06, SS.flmCore, 0.8 * f, oFc);
+        if (t < 1.25) { const k = t / 1.25; lt.rad = rad * 2.6 * (2 - 1.5 * ssBias(k, 0.25)); lt.int = 3.2 * Math.min(1, k / 0.15, (1 - k) / 0.75); }   // light (director: strong)
+        if (t < 0.7) { const k = t / 0.7; ltR.rad = rad * 3; ltR.int = 2.4 * Math.min(1, k / 0.1, (1 - k) / 0.5); }                         // column light while the ray burns
+        if (t < 0.6) { const e = 1 - (1 - t / 0.6) * (1 - t / 0.6); oDark.phase = c.T * 2; G.tube(x, y, z, 30 + 140 * e, 50 + 110 * e, 40 + 130 * e, SS.dark, 0.12 * (1 - t / 0.6), oDark); }   // orange_smoke (dark)
+        if (t < 1.4) {                                                                                  // flame tongues (director: flamier): 3 licking swirl bands + hot core
+          const e = 1 - Math.pow(1 - Math.min(1, t / 0.15), 3), f = Math.min(1, (1.4 - t) / 0.7), h = 520 * e * (0.6 + 0.4 * f);
+          for (let i = 0; i < 3; i++) { const o = oFl[i]; o.start = TAU * i / 3 + c.T * 2.2; o.phase = c.T * 9 + i * 2; G.tube(x, y, z, h * (1 - 0.15 * i), rad * 0.68, rad * 0.14, SS.flm, f, o); }
+          oFc.phase = c.T * 12; G.tube(x, y, z, h * 0.6, rad * 0.3, rad * 0.07, SS.flmCore, 0.9 * f, oFc);
         }
-        if (t < 0.9) { const n = c.n(60 * dt); for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rr = rnd(0, rad * 0.7); P.spawn(c.pix(SS_FLM, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: z + rnd(4, 60), life: [0.4, 0.8], px: [1, 2], speed: 0, up: [180, 420], gravity: 60, drag: 1.2, settle: false })); } }   // rising flame pixels
+        if (t < 1.2) { const n = c.n(150 * dt); for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rr = rnd(0, rad * 0.7); P.spawn(c.pix(SS_FLM, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: z + rnd(4, 60), life: [0.4, 0.8], px: [1, 2], speed: 0, up: [180, 420], gravity: 60, drag: 1.2, settle: false })); } }   // rising flame pixels
         // pixels at 1/4 of the game counts
         if (t < 0.25) { const n = c.n(112 * dt); for (let i = 0; i < n; i++) { const an = Math.random() * TAU; P.spawn(c.pix(SS_SPK, { x: x + Math.cos(an) * 72, y: y + Math.sin(an) * 72, z: z + 4, life: [0.5, 1], px: [1, 2], speed: 0, vel: [rnd(-400, 400), rnd(-400, 400), 0], up: [250, 600], gravity: -650, drag: 0.3 })); } }   // sparks
         if (t < 0.5) { const n = c.n(100 * dt); for (let i = 0; i < n; i++) P.spawn(c.pix(SS_ASH, { x: x + rnd(-30, 30), y: y + rnd(-30, 30), z: z + rnd(3, 300), life: [1, 1.2], px: 1, speed: 0, jitter: 24, up: [100, 200], gravity: -100, drag: 1.5, settle: false })); }   // ashes

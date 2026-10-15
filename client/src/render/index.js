@@ -17,7 +17,7 @@ import { createSprites } from './sprites.js';
 import { createActors } from './actors.js';
 import { createBuildings3d } from './buildings3d.js';
 import { createTrees3d } from './trees3d.js';
-import { createVoxActors, LEAN_TO, LEAN_K } from './voxactors.js';
+import { createVoxActors, leanOf as voxLean } from './voxactors.js';
 import { INFO as BINFO } from './buildings3d.js';
 import { pickAt, cylinderBox, minBox } from './pick.js';
 import { createClutter3d } from './clutter3d.js';
@@ -200,12 +200,6 @@ export function createRenderer({ canvas, sheets }) {
     const w = _v4.w; if (w <= 0) return null;
     return { sx: (_v4.x / w * 0.5 + 0.5) * cssW, sy: (1 - (_v4.y / w * 0.5 + 0.5)) * cssH, w, k: 0.5 * cssH * cam.projectionMatrix.elements[5] / w };
   }
-  /** Lean of a voxel model (voxactors.js vertex shader): tilt th about the feet away from the camera. */
-  function leanOf(x, y, z) {
-    const c = rig.camera.position, dx = x - c.x, dz = -y - c.z, hl = Math.hypot(dx, dz);
-    if (hl < 1e-3) return null;
-    return { dx: dx / hl, dy: -dz / hl, th: Math.max(0, Math.atan2(c.y - z, hl) - LEAN_TO) * LEAN_K };
-  }
   /** Screen boxes (css px) of every live unit this frame: [{ id, building, x0, y0, x1, y1, w }]. Voxel units and buildings: world cylinder of the body
    *  through the camera (perspective-correct); sprite units: tight opaque bounds of the drawn frame. */
   function pickBoxes(touch = false) {
@@ -218,7 +212,7 @@ export function createRenderer({ canvas, sheets }) {
         const bi = BINFO[p.b], k = BODY_K[p.b] || BODY_K.filler;
         box = cylinderBox(projCss, p.x, p.y, p.z, bi.R * k[0], bi.H * k[1], { pad: k[2], touch });
       } else if (f.vox) {
-        box = cylinderBox(projCss, p.x, p.y, p.z, (f.hw || f.r) * p.scale, (f.ptop || f.top) * p.scale, { lean: f.lean === false ? null : leanOf(p.x, p.y, p.z), touch });
+        box = cylinderBox(projCss, p.x, p.y, p.z, (f.hw || f.r) * p.scale, (f.ptop || f.top) * p.scale, { lean: f.lean === false ? null : voxLean(uniforms.uCamUp.value), touch });
       } else {
         _v4.set(p.x, p.z, -p.y, 1).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix);
         const w = _v4.w; if (w <= 0) continue;
@@ -285,7 +279,7 @@ export function createRenderer({ canvas, sheets }) {
   }
 
   // ---- HP bars -------------------------------------------------------------------------------------------------------------------------
-  const BAR_W = { hero: 17, creep: 6, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };
+  const BAR_W = { hero: 24, creep: 10, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };   // art px
   /** 0..1 visibility of world-anchored UI (bars, combat text): 1 in normal play; in the showcase it fades out where the mist starts and behind the camera. k = perspective size factor vs the target. */
   const _e = new THREE.Vector3(), uiVis = { a: 1, k: 1 };
   function uiFade(x, y, z) {
@@ -314,13 +308,21 @@ export function createRenderer({ canvas, sheets }) {
       if (!hero && !hurt && p.id !== actors.state.selected && p.id !== actors.state.hover) continue;
       const aw = BAR_W[u.kind] != null ? BAR_W[u.kind] : 6;
       if (!aw) continue;
-      const bz = p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92 * (p.f.vox ? p.scale : 1), vis = uiFade(u.x, u.y, bz);
+      // anchor: the top of the drawn body. Voxel units lean back (voxactors.js leanOf), so their head sits higher on screen than the upright top
+      let bx = u.x, by = u.y, bz;
+      if (p.f.vox) {
+        const ht = (p.f.ptop || p.f.top) * p.scale, L = p.f.lean === false ? null : voxLean(uniforms.uCamUp.value), sn = L ? Math.sin(L.th) * ht : 0;
+        if (L) { bx += L.dx * sn; by += L.dy * sn; }
+        bz = p.z + (L ? Math.cos(L.th) : 1) * ht;
+      } else bz = p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92;
+      const vis = uiFade(u.x, u.y, bz);
       if (vis.a <= 0.02) continue;
-      const w = Math.round(Math.min(hero ? 150 : 90, (hero ? Math.max(46, aw * cssPerArt * 0.95) : aw * cssPerArt * 0.95) * vis.k));   // capped: the showcase close-up never draws giant bars
+      const w = Math.round(Math.min(hero ? 190 : 110, (hero ? Math.max(64, aw * cssPerArt * 0.95) : aw * cssPerArt * 0.95) * vis.k));   // capped: the showcase close-up never draws giant bars
       const hh = hero ? Math.max(5, Math.round(Math.max(8, Math.min(14, cssPerArt * 3)) * vis.k)) : 3;   // hero bar: big enough to read on a phone
-      const s = worldToScreen(u.x, u.y, bz);
+      const mana = hero && u.maxMana > 0, stack = hh + 1 + (mana ? (hh >= 7 ? Math.max(3, Math.round(hh * 0.45)) : 2) + 1 : 0);   // overlay.bar: hp + gap + mana + frame
+      const s = worldToScreen(bx, by, bz);
       const mine = u.team === myTeam;
-      overlay.bar({ sx: s.x, sy: s.y - 6 - (hero ? Math.round(hh * 1.8) : 0), w, h: hh, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', maxHp: hero ? u.maxHp : 0, level: hero ? u.level : null, a: vis.a });
+      overlay.bar({ sx: s.x, sy: s.y - (hero ? 6 : 4) - stack, w, h: hh, hp: u.hp / u.maxHp, mana: mana ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', maxHp: hero ? u.maxHp : 0, level: hero ? u.level : null, a: vis.a });
     }
   }
 
