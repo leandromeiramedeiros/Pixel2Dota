@@ -55,7 +55,7 @@ export function acquire(w, u, range) {
     if (v._building) s += 4000;
     else if (v.kind === KIND.HERO) {
       if (!hero) s += 700;
-      if (t - v._atkHeroT < 2.5) { const vic = w.units.get(v._atkHeroId); if (vic && vic.team === u.team) s -= 8000; }
+      if (aggroOnAlly(w, u, v)) s -= 8000;
     }
     if (s < bs) { bs = s; best = v; }
   }
@@ -155,12 +155,10 @@ export function damage(w, src, tgt, amount, type, info) {
   if (sh && sh.team !== tgt.team) {
     if (tgt.kind === KIND.HERO) {
       (tgt._assist || (tgt._assist = new Map())).set(sh.id, w.time);
-      sh._atkHeroT = w.time; sh._atkHeroId = tgt.id;
-      if (src !== sh) { src._atkHeroT = w.time; src._atkHeroId = tgt.id; }
-      callForHelp(w, sh, tgt);
+      if (info.attack) heroAggro(w, src, tgt);   // only attacks draw creep / tower aggro, spells never do
     }
     tgt._lastPlayerDmg = w.time;
-  } else if (src && src.team !== tgt.team && tgt.kind === KIND.HERO) { src._atkHeroT = w.time; src._atkHeroId = tgt.id; }
+  } else if (src && src.team !== tgt.team && tgt.kind === KIND.HERO && info.attack) { src._atkHeroT = w.time; src._atkHeroId = tgt.id; }
   if (!info.silent) evHit(w, src ? src.id : '', tgt.id, d, type, info.crit);
   if (tgt.kind === KIND.HERO) {
     for (const ab of tgt.abilities) if (ab.level > 0) { const h = getHandler(ab.key); if (h.onDamaged) h.onDamaged(w, tgt, ab, src, d, type); }
@@ -171,13 +169,31 @@ export function damage(w, src, tgt, amount, type, info) {
 }
 const NOINFO = Object.freeze({});
 
-/** A hero hit an enemy hero: the victim's nearby creeps drop what they're doing and rescan (see acquire priority). */
-function callForHelp(w, attacker, victim) {
-  const c = w.index.query(victim.x, victim.y, CREEP_CALL_HELP + 40, w._qd);
+/**
+ * Dota aggro: a hero (or its summon) attacking an enemy hero -- an attack order on it or an attack landing -- marks the
+ * attacker for AGGRO_WINDOW s. The victim's lane creeps within CREEP_CALL_HELP of the ATTACKER and the victim's towers
+ * that can reach the attacker rescan at once, and acquire()/retarget() put a marked hero above everything else.
+ */
+export function heroAggro(w, src, victim) {
+  if (!src || !victim || victim.kind !== KIND.HERO || src.team === victim.team) return;
+  const sh = heroOf(w, src);
+  if (!sh) return;
+  sh._atkHeroT = w.time; sh._atkHeroId = victim.id;
+  if (src !== sh) { src._atkHeroT = w.time; src._atkHeroId = victim.id; }
+  const c = w.index.query(src.x, src.y, Math.max(CREEP_CALL_HELP, 900) + 200, w._qd);
   for (let i = 0; i < c.length; i++) {
     const v = c[i];
-    if (v.team === victim.team && v.kind === KIND.CREEP && !v._dead) v._scanT = -1;
+    if (v._dead || v.team !== victim.team) continue;
+    if (v.kind === KIND.CREEP && !v._neutral && Math.hypot(v.x - src.x, v.y - src.y) <= CREEP_CALL_HELP + v.radius + src.radius) v._scanT = -1;
+    else if (v.kind === KIND.TOWER && v.atkRate > 0 && inAttackRange(v, src, 0)) v._scanT = -1;
   }
+}
+export const AGGRO_WINDOW = 2.5;
+/** Is v a hero that attacked a hero of u's team within the aggro window? */
+export function aggroOnAlly(w, u, v) {
+  if (!v || v.kind !== KIND.HERO || w.time - v._atkHeroT > AGGRO_WINDOW) return false;
+  const vic = w.units.get(v._atkHeroId);
+  return !!vic && vic.team === u.team;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- death & rewards

@@ -2,7 +2,7 @@
 import { KIND, ST, ABF, ORDER, ACTIVE_SLOTS } from '../../../shared/protocol.js';
 import { canCast, canUseItem, endChannel, interrupt, beginChannel } from './status.js';
 import { getHandler } from './abilities/index.js';
-import { attackable, inAttackRange, acquire } from './combat.js';
+import { attackable, inAttackRange, acquire, heroAggro } from './combat.js';
 import { moveTo, follow, stepMove, faceToward } from './move.js';
 import * as H from './heroes.js';
 import * as items from './items.js';
@@ -39,7 +39,7 @@ export function push(w, u, o) {
       ord = { t: o.t, x: Math.max(-8800, Math.min(8800, o.x)), y: Math.max(-8800, Math.min(8800, o.y)), _s: 0 }; break;
     case ORDER.ATTACK:
       if (typeof o.id !== 'string') return false;
-      { const t = w.units.get(o.id); if (!t || !attackable(u, t)) return false; }
+      { const t = w.units.get(o.id); if (!t || !attackable(u, t)) return false; heroAggro(w, u, t); }   // the order itself draws aggro
       ord = { t: o.t, id: o.id, _s: 0 }; break;
     case ORDER.STOP: ord = { t: ORDER.STOP }; break;
     case ORDER.HOLD: ord = { t: ORDER.HOLD }; break;

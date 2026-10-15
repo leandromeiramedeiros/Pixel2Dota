@@ -3,7 +3,7 @@ import { KIND, TEAM, ST } from '../../../shared/protocol.js';
 import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
 import { LANES } from '../../../shared/data/lanes.js';
 import { makeCreep } from './units.js';
-import { acquire, attackable, inAttackRange } from './combat.js';
+import { acquire, attackable, inAttackRange, aggroOnAlly } from './combat.js';
 import { moveTo, follow, stepMove } from './move.js';
 import { chase, tauntSource } from './orders.js';
 
@@ -127,13 +127,18 @@ export function spawnWave(w, no) {
 }
 
 const rank = (v) => (v._building ? 2 : v.kind === KIND.HERO ? 1 : 0);
-function aggroOnAlly(w, u, v) {
-  if (v.kind !== KIND.HERO || w.time - v._atkHeroT > 2.5) return false;
-  const vic = w.units.get(v._atkHeroId);
-  return !!vic && vic.team === u.team;
-}
 
 /** Pick a target for an AI unit, keeping the current one unless something clearly better turned up. */
+export function towerRetarget(w, u) {
+  // Dota towers stay on their target until it dies or leaves range; the one exception is tower aggro: an enemy hero in
+  // range that attacked an allied hero (aggroOnAlly) pulls the tower off anything that is not itself such a hero.
+  const cur = u._tgt && attackable(u, u._tgt) && inAttackRange(u, u._tgt, 0) ? u._tgt : null;
+  const best = acquire(w, u, u.atkRange);
+  if (!cur) return best;
+  if (best && best !== cur && aggroOnAlly(w, u, best) && !aggroOnAlly(w, u, cur)) return best;
+  return cur;
+}
+
 export function retarget(w, u, range) {
   const cur = u._tgt, best = acquire(w, u, range);
   if (!best) return cur && attackable(u, cur) && inAttackRange(u, cur, 0) ? cur : null;
