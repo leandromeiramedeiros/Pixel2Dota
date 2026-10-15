@@ -160,7 +160,7 @@ test('hudInset: fractions of the screen height covered at the top / bottom', () 
   assert.deepEqual(hudInset(0, null, 390), { top: 0, bottom: 0 });
   assert.deepEqual(hudInset(40, 390, 390), { top: 40 / 390, bottom: 0 }, 'a panel that starts at the bottom edge covers nothing');
   assert.deepEqual(hudInset(10, 10, 0), { top: 0, bottom: 0 });
-  assert.ok(hudInset(900, 0, 390).top <= 0.6 && hudInset(0, 0, 390).bottom <= 0.6, 'clamped');
+  assert.deepEqual(hudInset(900, 0, 390), { top: 0.2, bottom: 0.35 }, 'capped: a huge rect never frames the hero at the screen bottom');
 });
 
 test('touch camera starts at the furthest distance (director: 1450)', () => {

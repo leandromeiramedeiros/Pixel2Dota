@@ -72,9 +72,15 @@ export async function startGame({ root, net }) {
 
   const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: () => net.mySid, send });
 
-  const resize = () => renderer.resize(root.clientWidth, root.clientHeight);
-  addEventListener('resize', resize);
-  resize();
+  // the canvas tracks the root's real size: a phone rotation / fullscreen / browser-bar change can land after the last window resize event, and a
+  // stale canvas keeps the old aspect and centre (hero parked low, wrong framing).  ResizeObserver catches every settle; the event stays as a fallback.
+  let lastW = 0, lastH = 0;
+  const resize = (force) => { const w = root.clientWidth, h = root.clientHeight; if (force !== true && w === lastW && h === lastH) return; lastW = w; lastH = h; renderer.resize(w, h); };
+  const onWinResize = () => resize(true);   // also a devicePixelRatio change (browser zoom)
+  addEventListener('resize', onWinResize);
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => resize()) : null;
+  if (ro) ro.observe(root);
+  resize(true);
 
   const offFx = net.onFx((events) => { renderer.fx(events); hud.fx?.(events); });
 
@@ -156,7 +162,7 @@ export async function startGame({ root, net }) {
     renderer, hud, input,
     destroy() {
       loop.destroy();
-      removeEventListener('resize', resize);
+      removeEventListener('resize', onWinResize); ro?.disconnect();
       offFx?.(); offPov?.();
       spectate.destroy(); menu.destroy(); perf.destroy(); touch.destroy(); input.destroy(); hud.destroy();
       root.innerHTML = '';

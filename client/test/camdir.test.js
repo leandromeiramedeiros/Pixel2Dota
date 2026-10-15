@@ -300,3 +300,16 @@ test('orbit (showcase): hero centred, pan / peek / jumpTo ignored, leaving resto
   o = run(cd, 30, 1 / 60, () => H(100, 0));
   assert.equal(cd.mode, 'free'); near(o.x, 100, 1);                 // back to free, camera stays
 });
+
+test('re-lock reset (touch recentre): peekEnd + aimAt(null) + centre puts a stuck peek / aim lean back on the hero at once', () => {
+  const cd = createCamDir();
+  run(cd, 30, 1 / 60, () => H(1000, 1000));
+  cd.peekStart(); cd.peekMove(0, 900); cd.aimAt(1000, 3000);   // a peek whose release was lost + a lean whose aim ended abnormally
+  run(cd, 60, 1 / 60, () => H(1000, 1000));
+  assert.equal(cd.mode, 'peek');
+  cd.peekEnd(); cd.aimAt(null); cd.centre();
+  assert.equal(cd.mode, 'follow');
+  assert.deepEqual(cd.peekOffset, { x: 0, y: 0 });
+  const o = run(cd, 1, 1 / 60, () => H(1000, 1000));
+  near(o.x, 1000, 1, 'x'); near(o.y, 1000, 1, 'y');
+});

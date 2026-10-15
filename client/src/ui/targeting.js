@@ -232,12 +232,13 @@ export function nearestIndex(pts, x, y, maxD) {
 }
 
 /** HUD cover as fractions of the screen height, for renderer.setViewInset: top bar bottom edge, bottom panel top edge (px; null = none). */
-export function hudInset(topBottomPx, bottomTopPx, screenH) {
+export const INSET_MAX = { top: 0.2, bottom: 0.35 };   // sanity ceilings: the phone top bar is ~0.1, the portrait cluster ~0.25; a bigger reading is a mid-rotation / overlay rect
+export function hudInset(topBottomPx, bottomTopPx, screenH, max = INSET_MAX) {
   if (!(screenH > 0)) return { top: 0, bottom: 0 };
-  const c = (v) => Math.max(0, Math.min(0.6, v));
+  const c = (v, m) => Math.max(0, Math.min(m, v));
   return {
-    top: c((topBottomPx > 0 ? topBottomPx : 0) / screenH),
-    bottom: bottomTopPx != null && bottomTopPx < screenH ? c((screenH - bottomTopPx) / screenH) : 0,
+    top: c((topBottomPx > 0 ? topBottomPx : 0) / screenH, max.top),
+    bottom: bottomTopPx != null && bottomTopPx < screenH ? c((screenH - bottomTopPx) / screenH, max.bottom) : 0,
   };
 }
 

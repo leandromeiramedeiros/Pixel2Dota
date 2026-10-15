@@ -709,9 +709,11 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const lockUI = (v) => { locked = !!v; bCam.classList.toggle('on', locked); bCam.replaceChild((() => { const g = pixelEl(locked ? LOCK : OPEN_LOCK, null, 1); g.classList.add('t-glyph'); return g; })(), bCam.firstChild); };
   const setLocked = (v) => { if (cam) cam.setFollow(v); lockUI(v); };   // on: the camera glides back to the hero (cuts when far)
   lockUI(true);   // the lock itself is taken in enable(): desktop play keeps a free camera
-  function recentre() {   // an explicit re-lock is also "reset the view": back to the default zoom
+  function recentre() {   // an explicit re-lock is also "reset the view": default zoom, no peek / aim lean, hero centred, HUD framing re-measured
     const r = rig();
     if (r) r.distanceGoal = Math.min(r.maxDist, Math.max(r.minDist, T.ZOOM_START));
+    if (cam) { cam.peekEnd(); if (!aim) cam.aimAt(null); cam.centre(); }
+    updateInset(true);
   }
   // temporary free camera (cam.suspend, the lock stays): the minimap is pressed (mmPtr), or this aim panned it (minimap / edge pan) until the cast ends
   let mmPtr = null, freeAim = false, lastT = 0, mmEl = null, mmHome = null;
@@ -1299,7 +1301,12 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (turnShown) return;
     const dt = lastT ? Math.min(0.05, (t - lastT) / 1000) : 0; lastT = t;
     edgePan(dt);
-    if (cam) { cam.suspend(tempFree()); if (cam.following !== locked) lockUI(cam.following); }   // the director follows (game.js steps it); mirror its lock
+    if (cam) {   // the director follows (game.js steps it); mirror its lock.  Camera states derived from the gestures are re-asserted every frame, so a lost
+      cam.suspend(tempFree());   // pointerup / cancel can never leave the view parked off the hero
+      if (cam.mode === 'peek' && ![...pointers.values()].some((q) => q.role === 'walk' && q.cls === 'peek')) cam.peekEnd();
+      if (!aim) cam.aimAt(null);
+      if (cam.following !== locked) lockUI(cam.following);
+    }
     for (const p of pointers.values()) if (p.role === 'walk') {   // hold-to-walk
       classifyWalk(p, t, false);
       if (p.walking && t >= (p.next || 0)) { walkTo(p); p.next = t + T.WALK_MS; }
@@ -1349,6 +1356,10 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     on(window, 'pointercancel', onUp);
     on(window, 'resize', () => { layout(); checkOrientation(); });
     on(window, 'orientationchange', () => { layout(); checkOrientation(); });
+    if (typeof ResizeObserver === 'function') {   // rotation / fullscreen / browser bars can settle after the last resize event: re-layout on the root's real size
+      const ro = new ResizeObserver(() => { layout(); checkOrientation(); }); ro.observe(root);
+      subs.push([{ removeEventListener: () => ro.disconnect() }, 'ro', null, null]);
+    }
     if (mqPortrait && mqPortrait.addEventListener) on(mqPortrait, 'change', checkOrientation);
     on(window, 'blur', cancelAll);
     on(document, 'gesturestart', (e) => e.preventDefault());
