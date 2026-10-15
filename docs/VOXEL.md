@@ -134,5 +134,7 @@ One director gate per batch, with in-game shots.
 | 3. Heroes | The 12 after Lina | |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |
 | 5. Trees + clutter | Trees, 15 clutter variants | |
+| 5b. Cliffs | Stepped stone aprons and wall slabs on the 8.4 cell grid (`shared/vox/world/cliffs.js`, emitted by `terrainGeo`), Radiant / Dire wall tint, merged flat tops; visual only (heights, pathing unchanged) | drafted, awaiting the director gate |
+| 5c. Water edge | Cell-snapped stone curbs stepping into the SSR water at banks (same builder) | drafted, awaiting the director gate |
 | 6. Portraits | `npm run vox:portrait` for every hero | Lina done |
 | 7. Sprite removal | Delete `?vox=0` / `?voxt=0`, the sprite unit path (`actors.js` / `sprites.js`), body / world sheets and generators, painted portraits, the tile atlas terrain path; switch to real depth | |

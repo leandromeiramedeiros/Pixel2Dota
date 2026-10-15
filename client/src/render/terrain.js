@@ -261,8 +261,8 @@ void main(){
   } else {
     float vv = max(vUv.y - 1e-4, 0.);
     px = vec2(floor(clamp(vUv.x, 0., .9999) * 8.), floor(fract(vv) * 22.));
-    n = face < 1.5 ? vec3(0., 0., -1.) : face < 2.5 ? vec3(1., 0., 0.) : face < 3.5 ? vec3(0., 0., 1.) : vec3(-1., 0., 0.);
-    dp = vec2(floor((vWorld.x + vWorld.z) / 6.), floor(vWorld.y / 6.));
+    n = face < 1.5 ? vec3(0., 0., -1.) : face < 2.5 ? vec3(1., 0., 0.) : face < 3.5 ? vec3(0., 0., 1.) : face < 4.5 ? vec3(-1., 0., 0.) : vec3(0., 1., 0.);   // 5 = ledge tread
+    dp = face > 4.5 ? floor(vWorld.xz / 6.) : vec2(floor((vWorld.x + vWorld.z) / 6.), floor(vWorld.y / 6.));
     vec4 t = texture2D(uTiles, (vCell.xy + px + .5) / uAtlas);
     alb = t.rgb; em = t.a * 4.;
     // darken toward the strip base, faint rain streaks, slow cool/warm drift along the face
@@ -270,11 +270,19 @@ void main(){
     alb *= mix(1., .58, smoothstep(.3, 1., sv));
 #ifdef VOXT
     // flat horizontal strata of the preset side colours on the world voxel grid (earth under grass / dire, rock under rock tops), a cell now and then slips a band
-    vec2 wc = vec2(n.x != 0. ? floor(vWorld.z / VOX_CELL) : floor(vWorld.x / VOX_CELL), floor(vWorld.y / VOX_CELL));
-    Tl ow = fetchTile(floor((vWorld.xz - n.xz - vec2(uMapRect.x, -uMapRect.y)) / uMapRect.z));   // owning (higher) tile: one unit back from the face
-    float wn = vhash(wc), wb = floor(wc.y / VOX_WALL_ROWS) + (wn < .22 ? 1. : wn > .86 ? 2. : 0.);
+    // owner side (Radiant / Dire) rides in cell.z; ledge treads (face 5) take the same colours, a notch lighter
+    vec2 wc = face > 4.5 ? floor(vWorld.xz / VOX_CELL) : vec2(n.x != 0. ? floor(vWorld.z / VOX_CELL) : floor(vWorld.x / VOX_CELL), floor(vWorld.y / VOX_CELL));
+    float wn = vhash(wc), wb = face > 4.5 ? 0. : floor(wc.y / VOX_WALL_ROWS) + (wn < .22 ? 1. : wn > .86 ? 2. : 0.);
+    if (face > 4.5) wb = wn < .35 ? 0. : wn < .75 ? 1. : 2.;
     int wi = int(mod(wb, 3.));
-    alb = VS[(type > 1.5 && type < 3.5 ? 6 : 0) + int(ow.side + .5) * 3 + (wi == 0 ? 0 : wi == 1 ? 2 : 1)] * mix(1., .58, smoothstep(.3, 1., sv)); em = 0.;
+    alb = VS[(type > 1.5 && type < 3.5 ? 6 : 0) + int(vCell.z + .5) * 3 + (wi == 0 ? 0 : wi == 1 ? 2 : 1)]; em = 0.;
+    if (face > 4.5) alb *= 1.22 + .1 * vhash(wc + 17.);
+    else {
+      // dressed stone: 3 cells wide per band (staggered by band), its own faint tone, a darker joint on its first cell
+      float sw = floor(wc.y / VOX_WALL_ROWS), so = wc.x + floor(vhash(vec2(sw, 5.)) * 3.), sx = floor(so / 3.);
+      alb *= (.93 + .14 * vhash(vec2(sx, sw + 9.))) * (mod(so, 3.) < 1. ? .88 : 1.);
+      alb *= mix(1., .58, smoothstep(.3, 1., sv));
+    }
 #else
     alb *= mix(1., .85, step(.88, hash12(vec2(dp.x, 3.))) * smoothstep(.1, .6, sv));
     alb *= mix(vec3(.9, .97, 1.), vec3(1.05, 1.02, .95), vnoise(vec2(dp.x * .05, dp.y * .12) + 5.));
@@ -321,7 +329,7 @@ export function createTerrain({ scene, uniforms, tiles }) {
 
   function build(ci) {
     const cx = ci % NC, cy = (ci / NC) | 0;
-    const c = buildChunk(map, cx, cy, atlas.lookup);
+    const c = buildChunk(map, cx, cy, atlas.lookup, { merge: voxtEnabled, cell: voxtEnabled ? VOX_CELL : 0 });
     if (!c) { chunks[ci] = false; stats.empty++; return; }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(c.pos, 3));
