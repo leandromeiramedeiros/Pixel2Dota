@@ -184,7 +184,9 @@ const STAT_MAP = {
   bonus_movement_speed: ['ms'], bonus_movement_speed_percent: ['msPct'], bonus_movement_speed_percentage: ['msPct'], bonus_movement_speed_pct: ['msPct'],
   bonus_health: ['hp'], bonus_mana: ['mana'], bonus_health_regen: ['hpRegen'], bonus_mana_regen: ['manaRegen'],
   bonus_magical_armor: ['mr'], bonus_magic_resistance: ['mr'], bonus_spell_resist: ['mr'],
+  bonus_max_mana_percentage: ['manaPct'],
 };
+const SHARE = { ITEM_FULLY_SHAREABLE: 'full', ITEM_PARTIALLY_SHAREABLE: 'partial', ITEM_NOT_SHAREABLE: 'none' };
 
 function bakeItem(name) {
   const def = itemKv[name];
@@ -206,14 +208,33 @@ function bakeItem(name) {
     recipe = { cost: n0(itemKv[rn].ItemCost), parts: alts[0] || [] };
     if (alts.length > 1) recipe.alts = alts; // alternative part sets (Power Treads: str/agi/int variants)
   }
+  // optional rules, emitted only when the file sets them (absent = engine default)
+  const opt = {};
+  const tt = flags(def.AbilityUnitTargetTeam, 'DOTA_UNIT_TARGET_TEAM_')[0];
+  if (tt) opt.targetTeam = tt;
+  if (def.AbilityUnitTargetType) opt.targetType = flags(def.AbilityUnitTargetType, 'DOTA_UNIT_TARGET_');
+  if (def.AbilityUnitTargetFlags) opt.targetFlags = flags(def.AbilityUnitTargetFlags, 'DOTA_UNIT_TARGET_FLAG_');
+  if (st.channel[0]) opt.channel = st.channel[0];
+  if (def.ItemShareability) opt.share = SHARE[def.ItemShareability] || 'none';
+  if (def.ItemStackableMax) opt.stackMax = n0(def.ItemStackableMax);
+  if (def.ItemPurchasable === '0') opt.purchasable = false;
+  if (def.AllowedInBackpack === '0') opt.backpack = false;
+  if (def.ItemDroppable === '0') opt.droppable = false;
+  if (def.ItemDisassembleRule) opt.disassemble = def.ItemDisassembleRule.replace('DOTA_ITEM_DISASSEMBLE_', '').toLowerCase();
+  if (def.ItemDeclarations) opt.declare = flags(def.ItemDeclarations, 'DECLARE_PURCHASES_');
+  if (def.SpeciallyBannedFromNeutralSlot === '1') opt.neutralBanned = true;
+  if (def.ItemRequiresCharges === '1') opt.needsCharges = true;
+  if (def.ItemDisplayCharges === '1') opt.showCharges = true;   // count shown on the slot even at 0 (stick / wand)
+  if (def.ItemHideCharges === '1') opt.hideCharges = true;
   return sortObj({
     cost: n0(def.ItemCost), recipe, stats: sortObj(stats),
-    cooldown: st.cooldown[0], manaCost: st.manaCost[0], castRange: st.castRange[0],
+    cooldown: st.cooldown[0], manaCost: st.manaCost[0], castRange: st.castRange[0], castPoint: st.castPoint[0],
     behavior: flags(def.AbilityBehavior, 'DOTA_ABILITY_BEHAVIOR_'),
     values: sortObj(outValues),
     charges: n0(def.ItemInitialCharges), stack: def.ItemStackable === '1',
     ...(def.ItemStockMax ? { stock: { max: n0(def.ItemStockMax), initial: n0(def.ItemStockInitial), time: n0(def.ItemStockTime) } } : {}),
     consumable: def.ItemPermanent === '0' || def.ItemQuality === 'consumable', sell: def.ItemSellable !== '0',
+    ...opt,
   });
 }
 const itemsOut = {};
@@ -295,7 +316,7 @@ const meta = { source: 'local game files', patch: inf$('PatchVersion') || inf$('
 const sizes = {
   heroes: writeModule('heroes', heroesOut, 'npc_dota_hero_* stats for the roster in shared/heroes.js (KV base values; attribute bonuses are applied by the sim).'),
   abilities: writeModule('abilities', abilitiesOut, 'Per-level arrays. damageType: mag|phys|pure. levelKeys (Invoker): value arrays indexed by that orb level.'),
-  items: writeModule('items', itemsOut, 'Items from docs/DECISIONS.md plus recipe parts. cost = total gold cost; recipe.cost = recipe scroll (0 = none).'),
+  items: writeModule('items', itemsOut, 'Items from docs/DECISIONS.md plus recipe parts. cost = total gold cost; recipe.cost = recipe scroll (0 = none). Optional rule keys (share stackMax purchasable backpack droppable disassemble declare neutralBanned needsCharges showCharges hideCharges target* channel) appear only when the file sets them.'),
   units: writeModule('units', unitsOut, 'Lane creeps, towers (all lanes/teams identical), barracks, ancient, fountain, neutral_* camp creeps, roshan.'),
   meta: writeModule('meta', meta, 'Source patch.'),
 };

@@ -119,6 +119,16 @@ test('items: spot values', () => {
   assert.equal(DATA.items.item_blink.castRange, 1200);
   assert.equal(DATA.items.item_blink.values.blink_damage_cooldown, 3);
   assert.equal(DATA.items.item_blink.recipe, null);
+  // item flags baked only when the file sets them
+  assert.equal(DATA.items.item_null_talisman.stats.manaPct, 3);
+  assert.equal(DATA.items.item_enchanted_mango.stackMax, 3);
+  assert.equal(DATA.items.item_tpscroll.channel, 3);
+  assert.equal(DATA.items.item_magic_wand.showCharges, true);
+  assert.equal(DATA.items.item_faerie_fire.hideCharges, true);
+  assert.equal(DATA.items.item_aegis.purchasable, false);
+  assert.equal(DATA.items.item_aegis.backpack, false);
+  assert.ok(DATA.items.item_phase_boots.behavior.includes('IMMEDIATE') && DATA.items.item_phase_boots.behavior.includes('IGNORE_CHANNEL'));
+  assert.equal(DATA.items.item_tango.stackMax, undefined);
   // stat mapping
   assert.deepEqual(DATA.items.item_branches.stats, { str: 1, agi: 1, int: 1 });
   assert.deepEqual(DATA.items.item_circlet.stats, { str: 2, agi: 2, int: 2 });

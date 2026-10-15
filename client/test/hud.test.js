@@ -12,7 +12,7 @@ import {
   orderForRightClick, orderForAttackClick, resolveTargetClick, resolveSelfCast, orderCast, PORTRAIT, portraitPhase,
 } from '../src/ui/targeting.js';
 import { SHOP_CATEGORIES, categoryOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned, clampPanelPos, parsePanelPos } from '../src/ui/shopdata.js';
-import { abilityTip, itemTip, recipeLines } from '../src/ui/tipdata.js';
+import { abilityTip, itemTip, recipeLines, slotCharges } from '../src/ui/tipdata.js';
 import { rasterRows, parseColor } from '../src/ui/pixels.js';
 import { expandUnits, hudScale } from '../src/ui/style.js';
 import { bakeMapPixels } from '../src/ui/minimap.js';
@@ -325,4 +325,13 @@ test('portrait gestures: hold shows stats, moving cancels, a short tap centres',
   assert.equal(portraitPhase(100, 0), 'tap');
   assert.equal(portraitPhase(PORTRAIT.HOLD_MS, 0), 'stats');
   assert.equal(portraitPhase(900, PORTRAIT.MOVE + 1), 'cancel');
+});
+
+test('slotCharges: wand / stick show 0, faerie fire never, stacks show their count, plain items none', () => {
+  assert.equal(slotCharges({ key: 'item_magic_wand', charges: 0 }), 0);
+  assert.equal(slotCharges({ key: 'item_magic_stick', charges: 7 }), 7);
+  assert.equal(slotCharges({ key: 'item_faerie_fire', charges: 1 }), null);
+  assert.equal(slotCharges({ key: 'item_tango', charges: 3 }), 3);
+  assert.equal(slotCharges({ key: 'item_blink', charges: 0 }), null);
+  assert.equal(slotCharges({ key: '', charges: 0 }), null);
 });

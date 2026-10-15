@@ -7,7 +7,7 @@
 //                               ({r, dur, x2, y2...}); return {channel: seconds, tick?, end?} to start a channel.
 //   passive(w, u, ab)           (re)apply permanent modifiers; called when the ability is learned/levelled and on respawn
 //   tick(w, u, ab, dt)          every sim tick while the owner is alive and ab.level > 0
-//   bonus(w, u, ab, b)          add to the stat bonus accumulator b {str,agi,int,dmg,armor,as,ms,msPct,hp,mana,hpRegen,manaRegen,mr,range}
+//   bonus(w, u, ab, b)          add to the stat bonus accumulator b {str,agi,int,dmg,armor,as,ms,msPct,hp,mana,manaPct,hpRegen,manaRegen,mr,range}
 //   onAttack(w, u, ab, tgt, info)               before damage (modify info.dmg / info.crit / info.type / info.pierce / info.noCleave)
 //   onAttackLanded(w, u, ab, tgt, info, dealt)  after the attacker's hit landed
 //   onAttacked(w, u, ab, attacker, info, dealt) after the owner was hit by an attack

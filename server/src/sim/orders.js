@@ -1,6 +1,6 @@
 // Player/bot orders: validation, queue, and the per-tick order executor (move / attack / amove / hold / cast / item).
 import { KIND, ST, ABF, ORDER, ACTIVE_SLOTS } from '../../../shared/protocol.js';
-import { canCast, canUseItem, endChannel, interrupt, beginChannel } from './status.js';
+import { canCast, canUseItem, endChannel, interrupt, beginChannel, isInvisible } from './status.js';
 import { getHandler } from './abilities/index.js';
 import { attackable, inAttackRange, acquire, heroAggro } from './combat.js';
 import { moveTo, follow, stepMove, faceToward } from './move.js';
@@ -54,6 +54,7 @@ export function push(w, u, o) {
       ord = { t: o.t, slot: o.slot, id: typeof o.id === 'string' ? o.id : '', x: fin(o.x) ? o.x : NaN, y: fin(o.y) ? o.y : NaN, _stage: 0 }; break;
     default: return false;
   }
+  if ((ord.t === ORDER.CAST || ord.t === ORDER.ITEM) && immediate(w, u, ord)) return true;
   if (!o.q || ord.t === ORDER.STOP || ord.t === ORDER.HOLD) {
     if (u._channel && !u._channel.noInterruptOnOrder) endChannel(w, u, true);
     else if (u._channel) return false;
@@ -70,6 +71,46 @@ function toggleImmediate(w, u, ab) {
   if (h.autocast || b.indexOf('AUTOCAST') >= 0) { ab.flags ^= ABF.AUTOCAST_ON; if (h.toggle) h.toggle(w, u, ab); return true; }
   if (b.indexOf('TOGGLE') >= 0) { ab.flags ^= ABF.TOGGLE_ON; u._dirty = true; u._lastCast = { key: ab.key, level: ab.level, t: w.time }; if (h.cast) h.cast(w, u, ab, null); return true; }
   return false;
+}
+
+/** DATA AbilityBehavior of the ability / item an order uses. */
+function behaviorOf(w, u, o) {
+  if (o.t === ORDER.CAST) { const ab = u.abilities[o.slot]; return (ab && w.data.abilities[ab.key]?.behavior) || []; }
+  const it = u.items[o.slot]; return (it && it.key && w.data.items[it.key]?.behavior) || [];
+}
+
+/**
+ * Dota IMMEDIATE behaviour: a no-cast-point ability / item fires the moment it is ordered and never enters the order queue,
+ * so the current move / attack / queue carries on (Phase Boots while walking, Wand mid-fight, Invoker orbs). It does not
+ * break a channel only with IGNORE_CHANNEL. DONT_RESUME_ATTACK / DONT_RESUME_MOVEMENT drop the current attack / move order.
+ * A unit-target immediate (Salve, Clarity) fires at once only when the target is already in range; otherwise it falls back to
+ * a normal queued cast that walks there. Returns true when the order was consumed.
+ */
+function immediate(w, u, o) {
+  const b = behaviorOf(w, u, o);
+  if (b.indexOf('IMMEDIATE') < 0) return false;
+  if (u._channel && b.indexOf('IGNORE_CHANNEL') < 0) return false;
+  const spec = castSpec(w, u, o);
+  if (!spec || spec.point > 0) return false;
+  let tgt = { unit: null, x: u.x, y: u.y };
+  if (spec.mode === 'unit') {
+    const tt = spec.itemSpec ? spec.itemSpec.targetTeam : spec.d && spec.d.targetTeam;
+    const t = w.units.get(o.id) || (!o.id && /FRIENDLY|ALLY/.test(String(tt)) ? u : null);
+    if (!unitTargetOk(w, u, t, spec.d, spec.h, spec.itemSpec)) return false;
+    if (t !== u && Math.hypot(t.x - u.x, t.y - u.y) - t.radius > spec.range) return false;
+    tgt = { unit: t, x: t.x, y: t.y };
+  } else if (spec.mode !== 'none') return false;
+  else if (o.id && b.indexOf('OPTIONAL_UNIT_TARGET') >= 0) { const t = w.units.get(o.id); if (t && !t._dead) tgt = { unit: t, x: t.x, y: t.y }; }   // Mango on an ally
+  const r = spec.ready();
+  if (r !== true) { if (typeof r === 'string') notify(w, u, r); return true; }
+  spec.exec(tgt);
+  const cur = u._q[0];
+  if (b.indexOf('DONT_RESUME_ATTACK') >= 0 && (!cur || cur.t === ORDER.ATTACK)) {
+    if (cur) { u._q.shift(); u._mv = null; }
+    u._tgt = null; u._wind = 0; u._windTgt = null;
+  }
+  if (b.indexOf('DONT_RESUME_MOVEMENT') >= 0 && cur && cur.t === ORDER.MOVE) { u._q.shift(); u._mv = null; }
+  return true;
 }
 
 const shift = (u) => { u._q.shift(); u._tgt = null; };
@@ -257,12 +298,17 @@ export function executeAbility(w, u, ab, tgt) {
   const ev = evSpell(w, ab.key, u.id, { t: tgt.unit ? tgt.unit.id : undefined, x: Math.round(tgt.x), y: Math.round(tgt.y), lv: ab.level });
   u._lastCast = { key: ab.key, level: ab.level, t: w.time };   // Rubick Spell Steal reads this
   let res;
+  const hidden = isInvisible(u);   // visibility at cast time (Ghost Walk turns invisible inside its own cast)
   const post = u._castCtx ? u._castCtx(w, u, ab) : null;   // Rubick: stolen-spell context (restored right after h.cast)
   if (h.cast) res = h.cast(w, u, ab, tgt);
   if (post) post();
-  // orchestrator hook: enemy heroes in range see the cast (magic stick/wand charges)
+  // magic stick / wand: enemy heroes within DATA charge_radius that can SEE the caster gain a charge (tooltip: "visible enemy")
   if (items.onEnemySpell && !(w.data.abilities[ab.key]?.behavior || []).includes('PASSIVE')) {
-    for (const v of w.unitsInRadius(u.x, u.y, 1200, { enemyOf: u, heroes: true })) items.onEnemySpell(w, v, u, ab.key);
+    const seen = new Map();
+    for (const v of w.unitsInRadius(u.x, u.y, items.STICK_RADIUS(w), { enemyOf: u, heroes: true })) {
+      if (!seen.has(v.team)) seen.set(v.team, !hidden && w.teamSees(v.team, u.x, u.y));
+      if (seen.get(v.team)) items.onEnemySpell(w, v, u, ab.key);
+    }
   }
   if (res && typeof res === 'object') {
     const { channel, tick, end, noInterruptOnOrder, ...extra } = res;
