@@ -4,6 +4,7 @@
 // WATER MASK CONTRACT: scene RT alpha = 1 for everything except water top tiles (terrain.js), which write 1 - fogBrightness,
 // so 0 = fully visible water, rising towards 1 as fog of war darkens it. Additive particles write alpha 1 (no reflection under them).
 import * as THREE from 'three';
+import { timeOfDay, skyPalette } from './sky.js';
 
 const FS_VERT = /* glsl */ `
 varying vec2 vUv;
@@ -134,12 +135,14 @@ void main(){
     vec3 sa = texture2D(tDofA, huv).rgb;
     vec3 sb = texture2D(tDofB, huv).rgb;
     vec3 hc = mix(mix(sh, sa, smoothstep(.0, .35, rough)), sb, smoothstep(.3, .9, rough));
-    hc += texture2D(tBloom, huv).rgb * (.25 + .6 * rough);
+    hc += texture2D(tBloom, huv).rgb * (.12 + .4 * rough);   // FINAL blooms the water again: keep the reflected bloom a hint
     float edge = smoothstep(0., .1, min(min(huv.x, 1. - huv.x), min(huv.y, 1. - huv.y)));
     conf = edge * (1. - tHit / (MAXD * 1.05));
     refl = mix(refl, hc, conf);
   }
-  // analytic light reflections (glints / bokeh)
+  // analytic light reflections (glints / bokeh). Only lights a viewer could see mirrored: bright (dim fill lights such as the per-hero
+  // glow sit inside the body and are no visible emitter -> gated out by colour), in range of this water pixel, and not behind whatever the
+  // SSR ray hit first (a hero standing in the water occludes the light inside her: hit closer than the light along the reflected path).
   vec3 Rw = mat3(uCamWorld) * R;
   vec3 glint = vec3(0.);
   for (int i = 0; i < 12; i++){
@@ -150,33 +153,43 @@ void main(){
     if (at <= 0.) continue;
     float tt = dot(dv, Rw);
     if (tt <= 0.) continue;
+    float lum = max(uLC[i].r, max(uLC[i].g, uLC[i].b));
+    float occ = found ? 1. - conf * (1. - smoothstep(-30., 10., tHit - tt)) : 1.;
     float perp = length(dv - Rw * tt);
     float sg = 22. + tt * .09;
     float gl = exp(-(perp * perp) / (sg * sg));
-    glint += uLC[i].rgb * (gl * at * at);
+    glint += uLC[i].rgb * (gl * at * at * occ * smoothstep(.15, .6, lum));
   }
   refl += glint * 1.6;                                           // rippled glint streaks (shimmer)
-  // bokeh discs: every strong light is mirrored in this water plane (y = Pw.y, flat per body) and splatted as a soft round / faintly
+  // bokeh discs: a strong light near this water body is mirrored in its plane (y = Pw.y, flat per body) and splatted as a soft round / faintly
   // hexagonal disc at its mirrored SCREEN position, so it stays round whatever the ripples do. Ripples only nudge the disc per light-grid
-  // cell (pixel-art wobble) and modulate its brightness; the edge is Bayer-dithered. Only runs on water pixels (early-out above).
+  // cell (pixel-art wobble) and modulate its brightness; the edge is Bayer-dithered. Range-attenuated from the light (fades out within ~2 radii
+  // of water), brightness-gated, occluded like the glints, and capped in screen size so a close camera does not inflate it into a blob.
   vec3 bok = vec3(0.);
   vec2 asp = vec2(uProj[0][0], uProj[1][1]);
   for (int i = 0; i < 12; i++){
     if (i >= uLN) break;
     vec3 Lw = uLP[i].xyz;
     if (Lw.y < Pw.y + 10.) continue;
-    vec4 cl = uProj * (uView * vec4(Lw.x, 2. * Pw.y - Lw.y, Lw.z, 1.));
+    float lum = max(uLC[i].r, max(uLC[i].g, uLC[i].b));
+    float gate = smoothstep(.35, .8, lum);
+    float ar = clamp(1. - length(Lw - Pw) / (uLP[i].w * 2.2), 0., 1.);
+    if (gate * ar <= 0.) continue;
+    vec4 Mv = uView * vec4(Lw.x, 2. * Pw.y - Lw.y, Lw.z, 1.);
+    vec4 cl = uProj * Mv;
     if (cl.w <= 1.) continue;
     vec2 uvm = cl.xy / cl.w * .5 + .5;
     vec2 rs = (30. + uLP[i].w * .11) * asp / cl.w * .5;
+    rs *= min(1., .04 / rs.y);                                    // screen-size cap (uv height)
     vec2 d = (vUv - uvm) / rs;
     if (dot(d, d) > 2.) continue;
+    float occ = found ? 1. - conf * (1. - smoothstep(-30., 10., tHit - length(Mv.xyz - P))) : 1.;
     d += g * vec2(.035, .05);
     float hx = max(abs(d.y), abs(d.x) * .866 + abs(d.y) * .5);
     float r = mix(length(d), hx, .4);
     float disc = (1. - smoothstep(.66, 1., r)) * (.62 + .38 * smoothstep(.4, .9, r));
     disc = floor(disc * 5. + jit) / 5.;
-    bok += uLC[i].rgb * disc * (.78 + .22 * clamp(g.x, -1., 1.));
+    bok += uLC[i].rgb * disc * (.78 + .22 * clamp(g.x, -1., 1.)) * (gate * ar * ar * occ);
   }
   refl += bok * 2.1;
   if (uDbg > .5) refl = vec3(conf * 2., found ? 1. : 0., 0.);
@@ -256,6 +269,7 @@ const ATM_LIB = /* glsl */ `
 precision highp float;
 uniform sampler2D tDepth; uniform mat4 uInvProj, uCamWorld; uniform vec2 uPAB, uRT; uniform vec3 uCamPos, uSun;
 uniform float uNight, uTime, uAtmos, uPxAng;
+uniform vec3 uHor, uZen, uCloudAmb, uGlow; uniform vec4 uBody; uniform float uSkyN, uMoon;   // time-of-day palette (sky.js): horizon = far haze colour, body rgb / a = sun or moon colour / visibility, uMoon 1 = the body is the moon
 varying vec2 vUv;
 float bayer4(vec2 p){
   vec2 b = mod(floor(p), 4.);
@@ -263,7 +277,6 @@ float bayer4(vec2 p){
   float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
   return (v + .5) / 16.;
 }
-vec3 horCol(){ return mix(vec3(.50, .66, .88), vec3(.07, .09, .17), uNight); }
 float viewZ(float d){ return uPAB.y / (d * 2. - 1. + uPAB.x); }
 `;
 // rgb = light added, a = what the scene keeps: ground pixels a = transmittance >= 0, sky pixels a = -1 - transmittance (FINAL adds the sky over the raw scene there)
@@ -276,23 +289,25 @@ void main(){
   vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
   vec3 vd = q.xyz / q.w; vd /= -vd.z;
   float dist = sky ? 1e5 : viewZ(d0) * length(vd);
-  vec3 hor = horCol(), zen = mix(vec3(.15, .37, .80), vec3(.02, .03, .09), uNight);
+  vec3 hor = uHor, zen = uZen;   // the sky's horizon colour is also the distance fog / mist colour: the map edge melts into the sky at any time of day
   vec3 wd = normalize(mat3(uCamWorld) * vd);
-  vec3 body = mix(vec3(1., .86, .6), vec3(.74, .82, 1.), uNight);   // sun / moon colour
+  vec3 body = uBody.rgb;   // sun / moon colour
   vec3 add; float keep;
   if (sky) {   // gradient, sun / moon disc + glow, night stars, day clouds
     float el = clamp(wd.y, 0., 1.);
     vec3 s = mix(hor, zen, pow(el, .55));
-    s += vec3(.05, .03, 0.) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
-    float ang = acos(clamp(dot(wd, uSun), -1., 1.)), rad = mix(.028, .02, uNight);
-    float glow = exp(-ang / (rad * 3.5)) * .42 + exp(-ang / (rad * 12.)) * .16;
-    s += body * glow * mix(1.3, .55, uNight);
-    s = mix(s, body * mix(1.6, .95, uNight), 1. - step(rad, ang));
-    if (uNight > .02) s += starField(wd, uPxAng, uTime) * smoothstep(.35, 1., uNight) * smoothstep(0., .08, wd.y) * (1. - clamp(glow * 3., 0., 1.));
-    if (uAtmos > .5 && uNight < .98 && wd.y > .03) {
+    float sunSide = pow(max(dot(normalize(wd.xz + 1e-5), normalize(uSun.xz)), 0.), 3.);
+    s += uGlow * exp(-el * 9.) * (1. + 1.6 * sunSide);   // warm glow hugging the horizon, strongest under the sun (golden hour / dusk)
+    s = floor(s * 40. + bayer4(gl_FragCoord.xy)) / 40.;   // Bayer-quantised gradient (pixel-art banding, dithered on the art grid)
+    float ang = acos(clamp(dot(wd, uSun), -1., 1.)), rad = mix(.028, .02, uMoon);
+    float glow = (exp(-ang / (rad * 3.5)) * .42 + exp(-ang / (rad * 12.)) * .16) * uBody.a;
+    s += body * glow * mix(1.3, .55, uMoon);
+    s = mix(s, body * mix(1.6, .95, uMoon), (1. - step(rad, ang)) * uBody.a);
+    if (uSkyN > .02) s += starField(wd, uPxAng, uTime) * smoothstep(.35, 1., uSkyN) * smoothstep(0., .08, wd.y) * (1. - clamp(glow * 3., 0., 1.));
+    if (uAtmos > .5 && uSkyN < .98 && wd.y > .03) {
       float cj = uAtmos > 1.5 ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
-      vec4 cl = cloudLayer(uCamPos, wd, uSun, body, mix(vec3(.42, .54, .78), vec3(.04), uNight), cj, uTime, uAtmos);
-      float fade = smoothstep(.03, .14, wd.y) * (1. - uNight);
+      vec4 cl = cloudLayer(uCamPos, wd, uSun, body * max(uBody.a, .35), uCloudAmb, cj, uTime, uAtmos);
+      float fade = smoothstep(.03, .14, wd.y) * (1. - uSkyN);
       s = mix(s, s * cl.a + cl.rgb, fade);
     }
     add = s; keep = 1.;
@@ -310,7 +325,7 @@ void main(){
     float L = min(dist, uFog.y), ds = L / float(ns), gY = uCamPos.y - 260., T = 1.;
     float jit = hi ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
     vec3 acc = vec3(0.), drift = vec3(uTime * 22., 0., uTime * 13.);
-    vec3 scat = hi ? body * pow(max(dot(wd, normalize(vec3(uSun.x, 0., uSun.z))), 0.), 4.) * mix(.8, .25, uNight) : vec3(0.);   // brighter mist toward the key light
+    vec3 scat = hi ? body * pow(max(dot(wd, normalize(vec3(uSun.x, 0., uSun.z))), 0.), 4.) * mix(.8, .25, uMoon) * max(uBody.a, .5) : vec3(0.);   // brighter mist toward the key light (golden haze at a low sun)
     for (int i = 0; i < 32; i++) {
       if (i >= ns || T < .02) break;
       float t = (float(i) + jit) * ds;
@@ -334,9 +349,9 @@ void main(){
 // FINAL lays the ATMOS sky / fog over the graded scene, so the atmosphere is blurred with the very same taps or every silhouette against the sky /
 // fog comes back sharp: SDOF (scene) = keep-premultiplied scene (rgb = sum c*keep, a = sum keep), ATMB = the ATMOS light added (sky + fog + mist).
 const SDOF = ATM_LIB + /* glsl */ `
-uniform sampler2D tScene, tDofA, tAtm; uniform float uFocus, uSky;
+uniform sampler2D tScene, tDofA, tAtm; uniform float uFocus, uSky, uDofK;
 float vh2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float cocOf(float z){ return clamp(smoothstep(uFocus * 1.3, uFocus * 3.4, z) + .4 * smoothstep(uFocus * .8, uFocus * .3, z), 0., 1.); }
+float cocOf(float z){ return clamp(smoothstep(uFocus * 1.6, uFocus * 4.5, z) + .2 * smoothstep(uFocus * .7, uFocus * .3, z), 0., 1.); }   // wider focus band, half the near blur
 // one tap: scene colour (sky: only what is drawn over the clear colour) premultiplied by what the atmosphere keeps; or the atmosphere's light
 vec4 tap(vec3 s, vec2 uv){
   vec4 at = texture2D(tAtm, uv);
@@ -354,7 +369,7 @@ void main(){
   float coc = cocOf(zv) * uSky;
   if (coc > .01) {
     int nT = uAtmos > 2.5 ? 24 : uAtmos > 1.5 ? 16 : 8;
-    float R = (uAtmos > 2.5 ? 9. : uAtmos > 1.5 ? 7.5 : 5.) * coc, rot = vh2(floor(vUv * uRT)) * 6.2832;
+    float R = (uAtmos > 2.5 ? 4.5 : uAtmos > 1.5 ? 3.75 : 2.5) * coc * uDofK, rot = vh2(floor(vUv * uRT)) * 6.2832;
     vec4 acc = c; float ws = 1.;
     for (int i = 0; i < 24; i++) {
       if (i >= nT) break;
@@ -364,7 +379,7 @@ void main(){
       float zs = dd >= .99999 ? 1e5 : viewZ(dd);
       float w = zs < zv ? clamp(cocOf(zs) * R / max(rr, .5), 0., 1.) : 1.;
       vec3 sm = texture2D(tDofA, uv2).rgb;
-      w *= 1. + max(dot(sm, vec3(.3, .59, .11)) - .9, 0.) * 3.;
+      w *= 1. + max(dot(sm, vec3(.3, .59, .11)) - .9, 0.) * 1.5;
       acc += tap(sm, uv2) * w; ws += w;
     }
     c = acc / ws;
@@ -377,6 +392,7 @@ precision highp float;
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
 uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
 uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky;
+uniform vec3 uHz;   // time-of-day top-of-frame haze (sky.js palette)
 uniform sampler2D tAtm, tSdof, tAtmB;   // showcase: ATMOS (rgb add, a keep; a < 0 = sky), SDOF (bokeh scene, keep-premultiplied) and ATMB (bokeh ATMOS light), all at the scene-target size
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
@@ -402,17 +418,11 @@ void main(){
   // warm highlights, water SSR, light scatter in the haze, far (top) of the frame dissolves into tinted haze.
   vec4 sc = texture2D(tScene, vUv);
   vec3 c = sc.rgb;
-  // tilt-shift: crisp band in the middle, soft bottom ~15% and top ~25%
+  // tilt-shift: crisp band in the middle, faintly soft bottom ~12% and top ~20%. Same strength (uDof) as the showcase bokeh, which takes over
+  // as the camera closes in (a screen-band blur cannot follow depth at the low showcase angle). Kept light: the lane stays readable.
   float dy = vUv.y - uDofY;   // uDofY: focus band follows the view inset (touch HUD) so the sharp band stays on the framed target
-  // tilt-shift (normal play, fades out as the showcase comes in): bands from the cheap half / quarter-res blurs
-  float dof = max(smoothstep(.17, 0., dy), smoothstep(.74, 1., dy)) * (1. - uSky) * uDof;
-  if (dof > .003) {
-    vec3 sA = texture2D(tDofA, vUv).rgb;
-    vec3 sB = (texture2D(tDofB, vUv + uBt * vec2(-1.2, -.4)).rgb + texture2D(tDofB, vUv + uBt * vec2(1.2, .4)).rgb
-             + texture2D(tDofB, vUv + uBt * vec2(.4, -1.2)).rgb + texture2D(tDofB, vUv + uBt * vec2(-.4, 1.2)).rgb) * .25;
-    vec3 soft = mix(sA, sB, smoothstep(.25, .95, dof));
-    c = mix(c, soft, clamp(dof * 1.25, 0., 1.));
-  }
+  float dof = max(smoothstep(.12, 0., dy), smoothstep(.8, 1., dy)) * (1. - uSky) * uDof;
+  if (dof > .003) c = mix(c, texture2D(tDofA, vUv).rgb, clamp(dof * .075, 0., 1.));   // half-res box blur, at most 7.5% (was 15% at play distance)
 #ifdef SHOWCASE
   vec4 sd = vec4(0.);
   if (uDof > .01) { sd = texture2D(tSdof, vUv); c = mix(c, sd.rgb / max(sd.a, 1e-4), uSky); }   // showcase bokeh (SDOF pass), tilt-shift hands over to it as the showcase comes in
@@ -435,7 +445,7 @@ void main(){
   c = mix(c * vec3(.72, .95, 1.), c, smoothstep(.15, .7, l));
   c += vec3(.05, .025, -.02) * smoothstep(.45, 1., l);
   vec3 b = texture2D(tBloom, vUv).rgb * (.14 * bx);   // subtle bloom (art refs: The Last Night, Noita)
-  vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);
+  vec3 haze = uHz;
   float hz = smoothstep(.4, 1., vUv.y) * .55 * (1. - uSky);
   c = mix(c, haze + b * .6, hz);
 #ifdef SHOWCASE
@@ -476,7 +486,6 @@ void main(){
 }`;
 
 const SKY_MIN = 0.002;   // showcase factor below this = normal camera (same threshold as the shader)
-const SUN_ELEV = 0.13;   // showcase camera sees only ~+5..+14 deg of sky: the sun / moon keep the key light azimuth but sit this low (sin of the elevation)
 
 export function createPost(renderer, shared) {
   const quadGeo = new THREE.BufferGeometry();
@@ -508,13 +517,14 @@ export function createPost(renderer, shared) {
     uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
-    uSky: { value: 0 }, tAtm: { value: null }, tSdof: { value: null }, tAtmB: { value: null },
+    uSky: { value: 0 }, tAtm: { value: null }, tSdof: { value: null }, tAtmB: { value: null }, uHz: { value: new THREE.Vector3(.09, .19, .19) },
   };
   // showcase passes (scene-target size): ATMOS = sky / distance fog / mist, SDOF = bokeh. One uniform set: the camera / depth inputs are shared.
   const atmU = {
     tDepth: { value: null }, tScene: { value: null }, tDofA: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() },
     uRT: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() }, uSun: { value: new THREE.Vector3(-0.5, 0.13, 0.45) }, uNight: { value: 0 }, uTime: { value: 0 }, uAtmos: { value: 2 },
-    uPxAng: { value: 0.002 }, uFog: { value: new THREE.Vector2(1000, 3200) }, uFocus: { value: 800 }, uSky: { value: 0 }, tAtm: { value: null },
+    uHor: { value: new THREE.Vector3() }, uZen: { value: new THREE.Vector3() }, uCloudAmb: { value: new THREE.Vector3() }, uGlow: { value: new THREE.Vector3() }, uBody: { value: new THREE.Vector4() }, uSkyN: { value: 0 }, uMoon: { value: 0 },
+    uPxAng: { value: 0.002 }, uFog: { value: new THREE.Vector2(1000, 3200) }, uFocus: { value: 800 }, uSky: { value: 0 }, uDofK: { value: 1 }, tAtm: { value: null },
   };
   const mAtmos = mk(ATMOS, atmU), mSdof = mk(SDOF, atmU);
   const mSdofAtm = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: SDOF, uniforms: atmU, defines: { ATMB: 1 }, depthTest: false, depthWrite: false });
@@ -590,6 +600,7 @@ export function createPost(renderer, shared) {
   }
 
   function render(sceneObj, camera, time, night, outW, outH) {
+    const pal = state.pal || skyPalette(timeOfDay(-1, night > 0.5));   // time-of-day palette (the renderer sets state.pal each frame)
     renderer.setRenderTarget(scene_rt);
     renderer.setClearColor(0x050509, 1); renderer.clear(true, true, false);
     renderer.render(sceneObj, camera);
@@ -638,10 +649,11 @@ export function createPost(renderer, shared) {
       u.uProj.value.copy(pm); u.uInvProj.value.copy(camera.projectionMatrixInverse); u.uCamWorld.value.copy(camera.matrixWorld); u.uView.value.copy(camera.matrixWorldInverse);
       u.uPAB.value.set(pm.elements[10], pm.elements[14]);
       u.uTime.value = time; u.uNight.value = night; u.uDbg.value = state.ssrDebug ? 1 : 0;
-      u.uHaze.value.set(0.17 + (0.04 - 0.17) * night, 0.31 + (0.09 - 0.31) * night, 0.33 + (0.15 - 0.33) * night);
+      u.uHaze.value.fromArray(pal.water);   // misses reflect the time-of-day sky / haze
       pass(mSsr, ssr_rt);
     }
     const showcase = state.sky > SKY_MIN, f = finalUniforms;
+    f.uHz.value.fromArray(pal.haze);
     f.tScene.value = scene_rt.texture; f.tBloom.value = bloomTex || noBloom; f.tDofA.value = dofA.texture; f.tDofB.value = dofB.texture; f.tSsr.value = ssr_rt.texture;
     f.uBloom.value = bloomTex ? state.bloomStrength : 0; f.uVig.value = state.vignette; f.uNight.value = night; f.uTime.value = time;
     f.uOut.value.set(outW, outH);
@@ -651,10 +663,12 @@ export function createPost(renderer, shared) {
     f.uSky.value = state.sky;
     if (showcase) {   // sky / fog / mist + bokeh at the scene-target size; nothing of this runs in the normal camera
       const a = atmU, fr = api.fogRange();
-      a.uAtmos.value = state.atmos; a.uFocus.value = state.focus; a.uSky.value = state.sky; a.uRT.value.set(w, h); a.uPxAng.value = camera.fov * Math.PI / 180 / h;
+      a.uAtmos.value = state.atmos; a.uDofK.value = state.dofStrength; a.uFocus.value = state.focus; a.uSky.value = state.sky; a.uRT.value.set(w, h); a.uPxAng.value = camera.fov * Math.PI / 180 / h;
       a.uFog.value.set(fr[0], fr[1]);   // medium+: denser rolling fog; a short draw distance pulls both in
       a.uNight.value = night; a.uTime.value = time; a.tDepth.value = scene_rt.depthTexture; a.tScene.value = scene_rt.texture; a.tDofA.value = dofA.texture;
-      if (shared) { const k = shared.uKeyDir.value, e = SUN_ELEV, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; a.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, lowered into the visible sky band
+      if (shared) { const k = shared.uKeyDir.value, e = pal.elev, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; a.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, at the time-of-day elevation inside the visible sky band
+      a.uHor.value.fromArray(pal.hor); a.uZen.value.fromArray(pal.zen); a.uCloudAmb.value.fromArray(pal.cloud); a.uGlow.value.fromArray(pal.glow);
+      a.uBody.value.set(pal.body[0], pal.body[1], pal.body[2], pal.bodyK); a.uSkyN.value = pal.n; a.uMoon.value = pal.sunN;
       a.uInvProj.value.copy(camera.projectionMatrixInverse); a.uCamWorld.value.copy(camera.matrixWorld); a.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); a.uCamPos.value.copy(camera.position);
       pass(mAtmos, atm_rt); f.tAtm.value = a.tAtm.value = atm_rt.texture;
       if (doDof) { pass(mSdof, sdof_rt); pass(mSdofAtm, atmb_rt); f.tSdof.value = sdof_rt.texture; f.tAtmB.value = atmb_rt.texture; }

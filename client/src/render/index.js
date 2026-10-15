@@ -2,16 +2,17 @@
 import * as THREE from 'three';
 import { launchAt, strikeLaunch, strongerLaunch } from './wind.js';
 import { getMap, heightAt } from '../../../shared/map.js';
-import { ART_UNITS_PER_PX, CAMERA, MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
+import { ART_UNITS_PER_PX, CAMERA, MAP_MIN, MAP_MAX, DAY_LEN } from '../../../shared/constants.js';
 import { ST, EV } from '../../../shared/protocol.js';
 import { buildAtlas } from '../art/atlas.js';
-import { CameraRig, rayToGround, camParams, visibleHeight, dofForDistance, showcaseK } from './camera.js';
+import { CameraRig, rayToGround, camParams, visibleHeight, showcaseK } from './camera.js';
 import { createCamDir } from './camdir.js';
 import { createWind } from './wind.js';
 import { createSharedUniforms } from './shaderlib.js';
 import { createLights } from './lights.js';
 import { createTerrain } from './terrain.js';
 import { createPost } from './post.js';
+import { timeOfDay, skyPalette, goldenLight, TWI } from './sky.js';
 import { createSprites } from './sprites.js';
 import { createActors } from './actors.js';
 import { createBuildings3d } from './buildings3d.js';
@@ -79,7 +80,8 @@ export function createRenderer({ canvas, sheets }) {
     return strongerLaunch(l, a ? strikeLaunch(h.d, h.c, u.x, u.y, a.x, a.y) : null);
   }
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
-  let rtSettledH = 0;
+  let rtSettledH = 0, todOverride = null;   // todOverride: game seconds standing in for view.time (sandbox / screenshots), null = the game clock
+  uniforms.uHorizon = { value: new THREE.Vector3(0.5, 0.66, 0.88) };   // time-of-day horizon / far-haze colour (sky.js), for any material that fades into the sky
   const hooks = [];
   let lastView = { units: [], treesDown: new Set() };
   const unitMap = new Map();
@@ -120,18 +122,26 @@ export function createRenderer({ canvas, sheets }) {
     stats.rt = w + 'x' + h;
   }
 
-  function setNight(n, dt) {
+  function setNight(n, dt, gameTime) {
+    if (todOverride != null) { gameTime = todOverride; n = todOverride >= 0 && Math.floor(todOverride / DAY_LEN) % 2 === 1; }   // setClock: the flag follows the forced clock
     const target = n ? 1 : 0;
     nightK += (target - nightK) * Math.min(1, dt / 1.2);
     if (Math.abs(nightK - target) < 0.002) nightK = target;
     const k = nightK;
     const mix = (a, b) => a + (b - a) * k;
-    uniforms.uAmb.value.set(mix(0.66, 0.24), mix(0.72, 0.34), mix(0.72, 0.42));   // v2 day: moody but readable (docs/ART-DIRECTION.md)
-    uniforms.uKeyCol.value.set(mix(0.56, 0.14), mix(0.46, 0.25), mix(0.30, 0.36));
-    uniforms.uRimKey.value.set(mix(0.58, 0.22), mix(0.48, 0.46), mix(0.30, 0.66));
+    // time of day (sky.js): one palette for normal play and the showcase; golden hour is the full warm low-sun look on High / Ultra (atmos >= 2)
+    const tod = timeOfDay(gameTime, n), full = settings.atmos >= 2;
+    if (Math.abs(tod.s) >= TWI) tod.n = k;   // away from a clock flip (sandbox N, pregame) the sky follows the smoothed flag instead of popping
+    const gl = goldenLight(tod, full);
+    post.state.pal = skyPalette(tod, full ? 1 : 0.4);
+    { const h = post.state.pal.hor; uniforms.uHorizon.value.set(h[0], h[1], h[2]); }
+    uniforms.uAmb.value.set(mix(0.66, 0.24) * gl.amb[0], mix(0.72, 0.34) * gl.amb[1], mix(0.72, 0.42) * gl.amb[2]);   // v2 day: moody but readable (docs/ART-DIRECTION.md)
+    uniforms.uKeyCol.value.set(mix(0.56, 0.14) * gl.key[0], mix(0.46, 0.25) * gl.key[1], mix(0.30, 0.36) * gl.key[2]);
+    uniforms.uRimKey.value.set(mix(0.58, 0.22) * gl.rim[0], mix(0.48, 0.46) * gl.rim[1], mix(0.30, 0.66) * gl.rim[2]);
+    uniforms.uKeyDir.value.set(-0.5, 0.75 * gl.keyY, 0.45).normalize();   // low sun at golden hour (High / Ultra)
     // the key light stays in the world: its screen-plane x follows the orbit (x = east-west part, 0.6 x it = north-south part), y (up) is yaw independent
     const kx = mix(-0.6, 0.55), cy = Math.cos(rig.yaw), sy = Math.sin(rig.yaw);
-    uniforms.uKeyRimDir.value.set(kx * (cy + 0.6 * sy), mix(0.8, 0.83));
+    uniforms.uKeyRimDir.value.set(kx * (cy + 0.6 * sy), mix(0.8, 0.83) * gl.rimY);
     uniforms.uNight.value = k;
   }
 
@@ -323,9 +333,9 @@ export function createRenderer({ canvas, sheets }) {
     uniforms.uTime.value = time;
     rig.update(dt);
     { const far = post.state.sky > 0.002 ? Math.max(3000, settings.drawDist + rig.distance) : 5500; if (rig.camera.far !== far) { rig.camera.far = far; rig.camera.updateProjectionMatrix(); } }   // showcase: the view reaches the horizon, the draw distance cuts it (inside the mist)
-    post.state.dofStrength = dofForDistance(rig.distance); post.state.sky = showcaseK(rig.distance); post.state.focus = rig.distance;   // sky + rolling distance fog fade in with the same factor   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
+    post.state.sky = showcaseK(rig.distance); post.state.focus = rig.distance;   // the far horizon mist + sky fade in with the showcase; DoF strength is one setting for both (post.state.dofStrength)
     fitRT(false);
-    setNight(view.night, dt);
+    setNight(view.night, dt, view.time);
     const cam = rig.camera;
     cam.updateMatrixWorld();
     uniforms.uCamRight.value.setFromMatrixColumn(cam.matrixWorld, 0);
@@ -389,6 +399,8 @@ export function createRenderer({ canvas, sheets }) {
     getDistance() { return rig.distanceGoal; },
     setCameraFar(d, start) { rig.setFar(d, start); fitRT(true); },
     isShowcase() { return rig.showcase; },
+    /** Time of day override in game seconds (DAY_LEN 300: day 0..300, night 300..600, the night flag follows it), null = follow view.time. */
+    setClock(t) { todOverride = t == null ? null : +t; },
     /** Orbit the hero in the showcase (dYaw rad, + = eye towards east; dPitch deg, + = more top-down). false outside the showcase. */
     orbit(dYaw, dPitch = 0) { return rig.orbit(dYaw, dPitch); },
     getYaw() { return rig.yaw; },
