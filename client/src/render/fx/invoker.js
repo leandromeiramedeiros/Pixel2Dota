@@ -16,7 +16,7 @@ const INV = {
   teal: [0.28, 0.6, 0.55], tealD: [0.11, 0.24, 0.22],                   // ghost walk ring [112,200,187] / sphere [144,110,233]
   zap: [0.62, 0.17, 0.32], zapC: [1.9, 0.8, 1.35],                      // emp lightning ropes [228,70,122]
   dust: [0.39, 0.42, 0.49], dustLt: [0.62, 0.7, 0.87],                  // tornado funnel [99,107,124] [123,112,124], trail glow [158,179,222]
-  body: [0.2, 0.3, 0.52], edge: [0.78, 0.5, 0.2],                       // deafening blast body [65,93,130]/[89,128,179], edge -> [234,167,80]
+  body: [0.32, 0.46, 0.7], edge: [0.78, 0.5, 0.2],                       // deafening blast body [65,93,130]/[89,128,179], edge -> [234,167,80]
   altV: [0.62, 0.36, 0.66], altO: [0.85, 0.48, 0.2], altLt: [0.9, 0.45, 0.4],   // alacrity trails [214,136,222] + [241,145,74]
   heat: [0.9, 0.45, 0.18], heatD: [0.3, 0.12, 0.05],                    // cold snap trail_pull / heat [105,52,23] [123,88,67]
   gold: [0.55, 0.42, 0.14],
@@ -430,8 +430,8 @@ export function register(c, R) {
         G.tube(x, y, z, 150 * e, 9, 4, FCORE, fade, co);
         if (t < 0.4) { const q = t / 0.4; sh.p0 = 0.15 + 0.85 * (1 - (1 - q) * (1 - q)); G.disc(x, y, z, 110, 2, INV.E, 1 - q, sh); }
       });
-      c.pillar(x, y, z, pal, { count: 30, radius: 22, up: [400, 1100] });
-      c.embers(x, y, z + 30, pal, { count: 12 });
+      c.pillar(x, y, z, pal, { count: G.lod ? 14 : 8, radius: 22, up: [400, 1000] });
+      c.embers(x, y, z + 30, pal, { count: 8 });
       c.glow(x, y, z + 60, pal.lt, 260, 0.7, 0.7, { elem: 'E' });
       c.smoke(x, y, z + 20, { count: 6 });
     }
