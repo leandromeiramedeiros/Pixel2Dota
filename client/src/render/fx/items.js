@@ -135,8 +135,8 @@ export function register(c, R) {
     });
     c.glow(su.x, su.y, c.chest(su), p.lt, 260, 0.8, dur, { follow: id, dz: 80, mode: 'flat' });
   });
-  R.spell(['item_ward_observer', 'item_ward_sentry'], (ev, su) => {   // x,y = the planted ward; own team only (the ward itself is invisible to enemies)
-    if (ev.x == null || !su || !c.view || su.team !== c.view.myTeam) return;
+  R.spell(['item_ward_observer', 'item_ward_sentry'], (ev, su) => {   // x,y = the planted ward; hidden from the enemy team (the ward itself is invisible), shown to spectators
+    if (ev.x == null || !su || !c.view || (!c.view.spectator && su.team !== c.view.myTeam)) return;
     const z = c.zAt(ev.x, ev.y), p = ev.k === 'item_ward_sentry' ? PAL.mana : PAL.gold;
     c.dust(ev.x, ev.y, z, { count: 8 }, PAL.smoke);
     c.ring(ev.x, ev.y, z, p, { R: 60, life: [0.3, 0.5] });
