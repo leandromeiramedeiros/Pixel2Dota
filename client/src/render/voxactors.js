@@ -22,15 +22,15 @@ import { DEPTH_FRAG } from './shadow.js';
 import { instancedGeo, flushInstances, DEPTH_GLSL } from './mesh3d.js';
 import { buildVoxFrames } from './voxmesh.js';
 import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
-import * as LINA from '../../../shared/vox/lina.js';
-import * as INVOKER from '../../../shared/vox/heroes/invoker.js';
 import * as CRYSTAL_MAIDEN from '../../../shared/vox/heroes/crystal_maiden.js';
-import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
+import * as INVOKER from '../../../shared/vox/heroes/invoker.js';
 import * as SPIRIT from '../../../shared/vox/creeps/invoker_forged_spirit.js';
 import * as JUGGERNAUT from '../../../shared/vox/heroes/juggernaut.js';
 import * as HEALING_WARD from '../../../shared/vox/creeps/juggernaut_healing_ward.js';
-import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
+import * as LINA from '../../../shared/vox/lina.js';
 import * as MELEE_D from '../../../shared/vox/creeps/melee_dire.js';
+import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
+import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
 
 export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: characters (heroes, creeps, neutrals, Roshan) / world (buildings, trees, clutter, terrain)
 /**
@@ -38,17 +38,17 @@ export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: char
  * { build(pose) -> Vox, anims: { name: [pose] }, cx, cy (voxel foot centre), unit (CHAR_UNIT | WORLD_UNIT), max (instances per pose frame; creeps >= 64),
  *   lean (characters true, buildings false), rig (class, informational: META.rig, e.g. 'biped' | 'quadruped' | 'flyer' | 'big' | 'static'), keys?: [extra unit keys] }
  */
-export const VOX_UNITS = {
-  lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
-  invoker: voxEntry(INVOKER, { unit: CHAR_UNIT, max: 10 }),
+export const VOX_UNITS = {   // heroes + their summons, then creeps; alphabetical within each group (parallel branches merge clean)
   crystal_maiden: voxEntry(CRYSTAL_MAIDEN, { unit: CHAR_UNIT, max: 10 }),
+  invoker: voxEntry(INVOKER, { unit: CHAR_UNIT, max: 10 }),
   invoker_forged_spirit: voxEntry(SPIRIT, { unit: CHAR_UNIT, max: 24, night: 0.25 }),   // summon: up to 2 per Invoker (+ Sun Strike shard spirits); lava glows +25% at night
   juggernaut: voxEntry(JUGGERNAUT, { unit: CHAR_UNIT, max: 10 }),
   juggernaut_healing_ward: voxEntry(HEALING_WARD, { unit: CHAR_UNIT, max: 10, keys: ['npc_dota_juggernaut_healing_ward'] }),   // summon (sim key juggernaut_healing_ward); static, lean off
+  lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
   pudge: voxEntry(PUDGE, { unit: CHAR_UNIT, max: 10 }),
   // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
-  melee_radiant: voxEntry(MELEE_R, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_goodguys_melee'] }),
   melee_dire: voxEntry(MELEE_D, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_badguys_melee'] }),
+  melee_radiant: voxEntry(MELEE_R, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_goodguys_melee'] }),
 };
 /** Registry entry from a model module ({ build, ANIMS, META: { cx, cy, rig } }); o overrides (unit, max, lean, keys, night = extra emissive gain at full night, ...). */
 export function voxEntry(mod, o = {}) {

@@ -15,16 +15,17 @@ History lives in `git log`. This page lists only what exists now and what is ope
   `render/camdir.js`.
 - **Tests:** `npm test` is green.
 
-## Open
-1. **Voxel conversion:** batches 1-7 in [VOXEL.md](VOXEL.md) "Conversion order" (batch 0 foundation done). The last batch removes the sprites and the
-   fallbacks.
-2. **Feature parity**, in priority order. Each item lands with sim tests and a bot behaviour.
-   - Runes (bounty, power, water, wisdom), glyph, buyback, courier (with side / secret shops).
-   - Talents, Aghanim's Scepter / Shard, the real hero mechanics behind the DECISIONS simplifications (illusions, terrain ults, etc.).
-   - Neutral abilities, neutral items, outposts, mega creeps, backdoor protection, building bounty, multiple Roshan pits / Roshan behaviour.
-   - Full item list (from the bake), stash.
-3. **Roster:** expand past 13 heroes, one hero per agent (EXTENDING "Add a hero").
-4. **Tools:** generic voxel tools (`check / shot / portrait <short|all>`), deterministic sandbox shots (URL-pinned unit, camera and zoom, and an A/B PNG
-   runner), and skills (`/add-hero`, `/art-review`, `/verify`) as thin wrappers over EXTENDING.
-5. **Checks still open:** iPhone retest (rejoin, rubber-banding, Low vs High, touch aim), the Render cold-start UX, and a camera feel play pass.
-6. **Perf reference:** about 2.4 ms median frame (RTX 5070 Ti, 835x397 target, mid-lane fight); the sim takes about 0.2 ms per tick with 10 bots.
+## Open: phases as agent bursts (5-7 agents each)
+Routing: Opus medium = likeness / art / cross-cutting sim; Sonnet high = well-specified features with tests; Haiku high = verification, docs, data wiring.
+Each burst merges into `voxel` before the next one starts. Each feature lands with sim tests + bot behaviour + HUD. Hero agents own model + spell FX, with an OG-vs-ours FX sheet for the director.
+- **Burst 0 (running):** FX sheet tool (`tools/fx/`), Invoker 3D FX + geo3d primitives + orb fix, Dota shop layout, spell-immunity pass.
+  Merge order: sheet tool -> Invoker FX -> shop -> immunity.
+- **Burst 1 (7):** Opus x3 FX for Pudge, Crystal Maiden and Juggernaut; Opus x3 model + FX for Axe, Lion and Sven; Haiku x1 verifier (`npm test`, `vox:check all`, portraits, docs prune).
+- **Burst 2 (7):** Opus x5 model + FX for Drow Ranger, Mirana, Rubick, Sniper and Zeus; Sonnet x2 for runes + glyph + buyback, and courier + side / secret shops.
+- **Burst 3 (6-7, Sonnet):** talents; Aghanim's Scepter / Shard; the DECISIONS simplifications restored to the real mechanics (2 agents, split by hero);
+  neutral items / abilities / outposts; mega creeps + backdoor + building bounty + Roshan behaviour; full item bake + stash; Haiku docs + tests.
+- **Burst 4:** voxel conversion batches 1-7 ([VOXEL.md](VOXEL.md)). Opus where likeness matters (creep variants, neutrals, Roshan, courier), Sonnet for
+  buildings and mechanical ports. The last agent removes the sprites and the fallbacks.
+- **Burst 5+:** roster expansion, 5-7 heroes per burst (Opus each: model + FX + sim + bot), plus one Haiku verifier.
+- **Main session with the director, not agents:** iPhone retest (rejoin, rubber-banding, Low vs High, touch aim), Render cold-start UX, camera feel pass.
+- **Perf reference:** about 2.4 ms median frame (RTX 5070 Ti, 835x397 target, mid-lane fight); the sim takes about 0.2 ms per tick with 10 bots.
