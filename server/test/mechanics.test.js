@@ -13,13 +13,14 @@ const run = (w, sec) => { for (let i = 0, n = Math.round(sec / DT); i < n; i++) 
 const put = (w, u, x, y) => { w.teleport(u, x, y); w.index.insert(u); };
 const SVEN = 'npc_dota_hero_sven';
 const X0 = -2000, Y0 = 2000;   // open jungle-free ground in a buildings:false world
+const tank = (u) => { u._base.hp = u.hp = u.maxHp = 1e6; };   // _base too: recalc() would reset maxHp
 
 function duel() {
   const w = new World({ seed: 1, pregame: 0, buildings: false, creeps: false });
   const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
   put(w, h, X0, Y0); h.facing = 0;
   const c = makeCreep(w, TEAM.DIRE, 'melee', X0 + 100, Y0, 'mid'); w.addUnit(c);
-  c.hp = c.maxHp = 5000; c.ms = 0; c._base.ms = 0;
+  c._base.hp = c.hp = c.maxHp = 5000; c.ms = 0; c._base.ms = 0;
   c.dmgMin = c.dmgMax = 0;
   return { w, h, c };
 }
@@ -114,14 +115,37 @@ test('waves grow with the game clock', () => {
   assert.equal(count(e, 'melee'), WAVE_MELEE + 3); assert.equal(count(e, 'siege'), 1 + WAVE_GROW.siege.filter((m) => m <= 45).length);
 });
 
+// ---------------------------------------------------------------------------------------------------------------- melee arc
+test('melee heroes attacking one target spread around it and settle instead of shoving toward its centre', () => {
+  const w = new World({ seed: 1, pregame: 0, buildings: false });
+  const c = makeCreep(w, TEAM.DIRE, 'melee', X0, Y0, 'mid'); w.addUnit(c);
+  c.ms = 0; c._base.ms = 0; tank(c); c.dmgMin = c.dmgMax = 0;
+  const hs = [];
+  for (let i = 0; i < 8; i++) {   // a tight column coming from one side
+    const pid = 'p' + i, h = w.addHero({ pid, team: TEAM.RADIANT, heroKey: SVEN });
+    put(w, h, X0 - 600 + (i % 3) * 30, Y0 + ((i / 3) | 0) * 40 - 40);
+    w.order(pid, { t: 'attack', id: c.id });
+    hs.push(h);
+  }
+  run(w, 3);
+  let late = 0;   // movement in the 4th second: should be none once everybody has a spot
+  for (let k = 0; k < 30; k++) { const p = hs.map((h) => [h.x, h.y]); w.step(DT); hs.forEach((h, i) => { late += Math.hypot(h.x - p[i][0], h.y - p[i][1]); }); }
+  let minD = Infinity;
+  for (let i = 0; i < hs.length; i++) for (let j = i + 1; j < hs.length; j++) minD = Math.min(minD, Math.hypot(hs[i].x - hs[j].x, hs[i].y - hs[j].y));
+  const inRange = hs.filter((h) => Math.hypot(h.x - c.x, h.y - c.y) <= h.atkRange + h.radius + c.radius + 1).length;
+  assert.equal(inRange, hs.length, `all ${hs.length} in attack range (${inRange})`);
+  assert.ok(minD >= 2 * hs[0].radius - 4, `no overlapping bodies (closest pair ${minD.toFixed(1)})`);
+  assert.ok(late < 2, `settled: ${late.toFixed(1)} units of shoving in the last second`);
+});
+
 // ---------------------------------------------------------------------------------------------------------------- tower aggro
 function towerScene() {
   const w = new World({ seed: 2, pregame: 0 });
   const t = w.towers.find((b) => b.team === TEAM.DIRE && b._lane === 'mid' && b._tier === 1);
   const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
-  h.hp = h.maxHp = 1e6;   // survive the tower for the whole test
+  tank(h);   // survive the tower for the whole test
   const c = makeCreep(w, TEAM.RADIANT, 'melee', t.x - 520, t.y - 120, 'mid'); w.addUnit(c);
-  c.ms = 0; c._base.ms = 0; c.hp = c.maxHp = 1e6;
+  c.ms = 0; c._base.ms = 0; tank(c);
   return { w, t, h, c };
 }
 
@@ -139,7 +163,7 @@ test('tower keeps its hero target when a creep walks into range (no free dives)'
 test('tower switches to a hero that attacks an allied hero in its range; spells do not draw aggro', () => {
   const { w, t, h, c } = towerScene();
   const foe = w.addHero({ pid: 'b', team: TEAM.DIRE, heroKey: SVEN });
-  foe.hp = foe.maxHp = 1e6;
+  tank(foe);
   put(w, foe, t.x - 100, t.y - 720);           // out of both heroes' auto-attack reach
   put(w, h, t.x + 3000, t.y - 3000);            // hero away: the tower settles on the creep
   run(w, 1);
@@ -160,12 +184,12 @@ function aggroScene() {
   const w = new World({ seed: 1, pregame: 0, buildings: false });
   const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
   const foe = w.addHero({ pid: 'b', team: TEAM.DIRE, heroKey: SVEN });
-  h.hp = h.maxHp = foe.hp = foe.maxHp = 1e6;
+  tank(h); tank(foe);
   put(w, h, X0, Y0); put(w, foe, X0 + 900, Y0);
   const rc = makeCreep(w, TEAM.RADIANT, 'melee', X0 + 200, Y0 + 300, 'mid'); w.addUnit(rc);
   const near = makeCreep(w, TEAM.DIRE, 'melee', X0 + 300, Y0 + 300, 'mid'); w.addUnit(near);
   const far = makeCreep(w, TEAM.DIRE, 'melee', X0 - 800, Y0 - 300, 'mid'); w.addUnit(far);
-  for (const c of [rc, near, far]) { c.ms = 0; c._base.ms = 0; c.hp = c.maxHp = 1e6; c._lp = null; }
+  for (const c of [rc, near, far]) { c.ms = 0; c._base.ms = 0; tank(c); c._lp = null; }
   return { w, h, foe, rc, near, far };
 }
 

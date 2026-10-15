@@ -176,58 +176,8 @@ export function creepThink(w, u, dt) {
     const n = retarget(w, u, u._acq);
     if (n !== t) { t = u._tgt = n; if (n) u._mv = null; }
   }
-  if (t) { u._mvLi = -1; if (u._ranged || !u._lp) chase(w, u, t, dt); else engage(w, u, t, dt); return; }
+  if (t) { u._mvLi = -1; chase(w, u, t, dt); return; }   // chase spreads melee attackers in an arc (arc.js)
   laneWalk(w, u, dt);
-}
-
-// ---------------------------------------------------------------------------------------------------------------- melee arc
-const SLOT_NEAR = 300;   // beyond this (edge distance) a melee creep just chases the target; inside it walks to its own slot on the ring
-/** Ring radius (centre distance) a melee unit attacks t from: comfortably inside its attack range. */
-const ringR = (u, t) => t.radius + u.radius + u.atkRange * 0.7;
-const slotX = (u, t) => t.x + Math.cos(u._slot.a) * ringR(u, t), slotY = (u, t) => t.y + Math.sin(u._slot.a) * ringR(u, t);
-
-/** Is (x,y) taken for a melee slot around t: a body stands there, or another attacker of t has claimed it. */
-function slotTaken(w, u, t, x, y) {
-  const cand = w.index.query(x, y, u.radius + 64, w._qd);
-  for (let i = 0; i < cand.length; i++) {
-    const o = cand[i];
-    if (o === u || o === t || o._dead || o._building || o._noCollide) continue;
-    const m = u.radius + o.radius;
-    if ((o.x - x) ** 2 + (o.y - y) ** 2 < m * m) return true;
-    if (o._slot && o._slot.t === t && o._tgt === t && (slotX(o, t) - x) ** 2 + (slotY(o, t) - y) ** 2 < m * m) return true;
-  }
-  return false;
-}
-/** Dota melee creeps spread in an arc around their target: take the free ring angle nearest the direct approach. */
-function pickSlot(w, u, t) {
-  const R = ringR(u, t), a0 = Math.atan2(u.y - t.y, u.x - t.x), da = (2 * u.radius + 2) / R;
-  for (let k = 0; k * da <= Math.PI; k++) for (const s of k ? [1, -1] : [1]) {
-    const a = a0 + s * k * da, x = t.x + Math.cos(a) * R, y = t.y + Math.sin(a) * R;
-    if (w.nav.walkXY(x, y) && !slotTaken(w, u, t, x, y)) { u._slot = { t, a }; return; }
-  }
-  u._slot = { t, a: a0 };
-}
-/** Melee lane creep vs t: chase from afar, then walk to a free slot on the ring and attack from there.
- *  It stops as soon as it is in range unless it stands inside another body (then it keeps going to its slot). */
-function engage(w, u, t, dt) {
-  u._tgt = t;
-  if (Math.hypot(t.x - u.x, t.y - u.y) - t.radius - u.radius > SLOT_NEAR) { u._slot = null; chase(w, u, t, dt); return; }
-  if (!u._slot || u._slot.t !== t || ((w.tick + u._nid) % 15 === 0 && !inAttackRange(u, t, -4))) pickSlot(w, u, t);
-  const gx = slotX(u, t), gy = slotY(u, t);
-  if (inAttackRange(u, t, -4) && (Math.hypot(gx - u.x, gy - u.y) < 12 || !crowded(w, u))) { if (u._mv) u._mv = null; return; }
-  if (!u._mv || u._mv.tgt) moveTo(w, u, gx, gy, 4, true);
-  else { u._mv.gx = gx; u._mv.gy = gy; }
-  stepMove(w, u, dt);
-}
-function crowded(w, u) {
-  const cand = w.index.query(u.x, u.y, u.radius + 64, w._qd);
-  for (let i = 0; i < cand.length; i++) {
-    const o = cand[i];
-    if (o === u || o._dead || o._building || o._noCollide) continue;
-    const m = u.radius + o.radius - 2;
-    if ((o.x - u.x) ** 2 + (o.y - u.y) ** 2 < m * m) return true;
-  }
-  return false;
 }
 
 const LANE_ARRIVE = 48;

@@ -4,6 +4,7 @@ import { canCast, canUseItem, endChannel, interrupt, beginChannel } from './stat
 import { getHandler } from './abilities/index.js';
 import { attackable, inAttackRange, acquire, heroAggro } from './combat.js';
 import { moveTo, follow, stepMove, faceToward } from './move.js';
+import { engage } from './arc.js';
 import * as H from './heroes.js';
 import * as items from './items.js';
 import { evSpell, evMsg } from './events.js';
@@ -131,6 +132,7 @@ function idle(w, u) {
 /** Walk into range of t (chasing), attack once there. u._tgt must already be t. */
 export function chase(w, u, t, dt) {
   u._tgt = t;
+  if (!u._ranged && engage(w, u, t, dt === undefined ? 1 / 30 : dt)) return;   // melee, close: take a free slot on the ring around t
   if (inAttackRange(u, t, -4)) { if (u._mv && u._mv.tgt === t) u._mv = null; return; }
   if (!u._mv || u._mv.tgt !== t) follow(w, u, t, 8, true);
   stepMove(w, u, dt === undefined ? 1 / 30 : dt);
