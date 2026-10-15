@@ -65,8 +65,9 @@ void main(){
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 w = iPos + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) * iXf.y;
   if (uWind > 0. && uWN > 0 && sw > 0.) {                       // spell gusts (wind.js): world-space push of the canopy, trunks stay planted
-    vec2 g = gustAt(iPos.xz) * (.85 + .3 * sin(uTime * 5. + ph * 3.)) * (uWind * sw * 34. * iXf.y);
-    w.xz += g; w.y -= length(g) * .12;
+    vec2 g = gustAt(iPos.xz) * (.85 + .3 * sin(uTime * 5. + ph * 3.)) * (uWind * sw * 220. * iXf.y);   // up to ~220 u at the crown: a hard bend
+    float h = max(position.y * iXf.y, 30.);
+    w.xz += g; w.y -= min(dot(g, g) / (2. * h), h * .55);   // the crown swings on an arc (keeps its length) instead of shearing
   }
   vW = w; vN = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c); vFoot = iPos;
   vLY = position.y; vPh = ph; vSw = aSw;

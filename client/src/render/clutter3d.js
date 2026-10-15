@@ -310,7 +310,7 @@ void main(){
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 w = iPos + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c) * iXf.y;
   if (uWind > 0. && uWN > 0 && sw > 0.) {                       // spell gusts (wind.js): grass / bushes ripple outward or around the impact
-    vec2 g = gustAt(iPos.xz) * (.8 + .4 * sin(uTime * 6. + ph * 3.)) * (uWind * sw * 20. * iXf.y);
+    vec2 g = gustAt(iPos.xz) * (.8 + .4 * sin(uTime * 6. + ph * 3.)) * (uWind * sw * 40. * iXf.y);
     w.xz += g; w.y -= length(g) * .18;
   }
   vW = w; vN = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c); vFoot = iPos;

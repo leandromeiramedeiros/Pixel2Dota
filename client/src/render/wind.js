@@ -19,13 +19,13 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const at = (arr, level) => (arr && arr.length ? arr[Math.min(Math.max((level | 0) || 1, 1), arr.length) - 1] : 0);
 
-/** Time envelope 0..1: fast rise (0.12 s), then an exponential-ish decay that reaches 0 at `life`. */
+/** Time envelope 0..1: fast rise (0.12 s) to a full lean, then the plants hold a slowly releasing lean while they rock in it
+ *  (~2 s sway between 40 % and 100 % of a lean that halves every ~3 s), tapering to exactly 0 at `life`. */
 export function envelope(age, life) {
   if (age <= 0 || age >= life) return 0;
-  const rise = smooth(0, 0.12, age);
-  const t = (age - 0.12) / Math.max(0.01, life - 0.12);
-  const fall = t <= 0 ? 1 : (1 - smooth(0.55, 1, t)) * Math.exp(-2.4 * t);
-  return rise * fall;
+  const rise = smooth(0, 0.12, age), t = Math.max(0, age - 0.12);
+  const rock = 0.7 + 0.3 * Math.cos(t * 3.2);
+  return rise * Math.exp(-0.25 * t) * rock * (1 - smooth(0.7, 1, age / life));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -82,8 +82,8 @@ export function spellGust(ev, src, tgt, abilities = DATA.abilities) {
   const ex = ev.x2, ey = ev.y2;
   const hasEnd = ex != null && ey != null;
   const radius = ev.r && !hasEnd ? Math.max(ev.r, st.radius) : st.radius;
-  // ---- strength: damage -> 0..1 (350 dmg ~ 0.6, 575 ~ 0.85); ults +25 %; area-only utility spells get a light breeze
-  let strength = st.damage > 0 ? Math.pow(clamp(st.damage / 700, 0, 1), 0.7) : radius > 0 ? 0.14 + Math.min(0.2, radius / 4000) : 0.1;
+  // ---- strength: damage -> 0..1 (100 dmg ~ 0.38, 300 ~ 0.74, 500+ = 1); ults +25 %; area-only utility spells get a light breeze
+  let strength = st.damage > 0 ? Math.pow(clamp(st.damage / 500, 0, 1), 0.6) : radius > 0 ? 0.14 + Math.min(0.2, radius / 4000) : 0.1;
   if (st.ult) strength *= 1.25;
   strength = clamp(ov.strength != null ? ov.strength : strength, 0, 1);
   if (strength < 0.06) return null;
@@ -114,8 +114,8 @@ export function spellGust(ev, src, tgt, abilities = DATA.abilities) {
     else R = clamp(ov.radius || Math.max(radius * 1.5, 170 + st.castRange * 0.1), 220, 620);
     if (kind === KIND.SWIRL) { dx = 1; dy = 0; }
   }
-  const life = Math.min(2.5, 1.0 + 1.5 * strength) * (kind === KIND.BURST ? 1.1 : 1);
-  return { x, y, dx, dy, len, radius: R, strength, kind, life: Math.min(2.5, life), key: ev.k, src: ev.s };
+  const life = (2.5 + 3 * strength) * (kind === KIND.BURST ? 1.1 : 1);   // lasting: strong spells leave the trees rocking for ~5-6 s
+  return { x, y, dx, dy, len, radius: R, strength, kind, life: Math.min(6, life), key: ev.k, src: ev.s };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -176,10 +176,10 @@ export function gustField(A, B, C, i, px, pz) {
   const dx = px - A[o], dz = pz - A[o + 1];
   const k = B[o + 2];
   let ox = 0, oz = 0;
-  if (k < 0.5) {                                                       // SWIRL: tangential push, bent by a ripple travelling outward
+  if (k < 0.5) {                                                       // SWIRL: outward spiral (tangential + away from the centre), rippling outward
     const r = Math.hypot(dx, dz), nx = dx / Math.max(r, 1), nz = dz / Math.max(r, 1);
     const fall = 1 - smooth(0, 1, r / R), f2 = fall * fall;
-    const a = Math.sin(age * 7 - r * 0.02) * 0.6;
+    const a = 0.7 + 0.12 * Math.sin(age * 4 - r * 0.02);
     const cx = Math.cos(a), sn = Math.sin(a);
     const tx = -nz, tz = nx;
     const rip = 0.7 + 0.3 * Math.sin(r * 0.035 - age * 9);
@@ -193,16 +193,16 @@ export function gustField(A, B, C, i, px, pz) {
     const inseg = smooth(-L - 0.3 * R, -L + 0.1 * R, s) * (1 - smooth(L - 0.1 * R, L + 0.4 * R, s));
     const reached = 1 - smooth(sf, sf + 0.6 * R, s);
     const e = (s - sf) / (0.4 * L + 0.8 * R);
-    const pass = 0.35 + 0.65 * Math.exp(-e * e);
+    const pass = 0.6 + 0.4 * Math.exp(-e * e);
     const side = (l >= 0 ? 1 : -1) * 0.35 * Math.min(1, Math.abs(l) / R);
     const f = lat * inseg * reached * pass * amp;
     ox = (ux - uz * side) * f; oz = (uz + ux * side) * f;
-  } else {                                                             // BURST: expanding ring + a softer outward lean inside it
+  } else {                                                             // BURST: expanding ring, then everything it passed keeps leaning away from the centre
     const r = Math.hypot(dx, dz), nx = dx / Math.max(r, 1), nz = dz / Math.max(r, 1);
     const rf = R * Math.min(1, age * 2.2);
     const e = (r - rf) / (R * 0.28 + 30);
     const ring = Math.exp(-e * e);
-    const inner = (1 - smooth(0, R, r)) * 0.45 * (1 - smooth(rf, rf + 0.1 * R, r));
+    const inner = (1 - smooth(0.5 * R, 1.1 * R, r)) * 0.85 * smooth(0, 60, r) * (1 - smooth(rf, rf + 0.1 * R, r));
     const rip = 0.75 + 0.25 * Math.sin(r * 0.04 - age * 12);
     const f = (ring * (1 - smooth(0.7 * R, 1.15 * R, r)) + inner) * rip * amp;
     ox = nx * f; oz = nz * f;
@@ -237,7 +237,7 @@ vec2 gustAt(vec2 f){
       if (r >= R) continue;
       vec2 n = d / max(r, 1.), t = vec2(-n.y, n.x);
       float fall = 1. - smoothstep(0., 1., r / R);
-      float a = sin(age * 7. - r * .02) * .6;
+      float a = .7 + .12 * sin(age * 4. - r * .02);
       float rip = .7 + .3 * sin(r * .035 - age * 9.);
       o += (t * cos(a) + n * sin(a)) * (fall * fall * rip * amp);
     } else if (B.z < 1.5){
@@ -249,7 +249,7 @@ vec2 gustAt(vec2 f){
       float inseg = smoothstep(-L - .3 * R, -L + .1 * R, s) * (1. - smoothstep(L - .1 * R, L + .4 * R, s));
       float reached = 1. - smoothstep(sf, sf + .6 * R, s);
       float e = (s - sf) / (.4 * L + .8 * R);
-      float pse = .35 + .65 * exp(-e * e);
+      float pse = .6 + .4 * exp(-e * e);
       float side = (l >= 0. ? 1. : -1.) * .35 * min(1., abs(l) / R);
       o += (u + pu * side) * (lat * inseg * reached * pse * amp);
     } else {
@@ -258,7 +258,7 @@ vec2 gustAt(vec2 f){
       float rf = R * min(1., age * 2.2);
       float e = (r - rf) / (R * .28 + 30.);
       float ring = exp(-e * e) * (1. - smoothstep(.7 * R, 1.15 * R, r));
-      float inner = (1. - smoothstep(0., R, r)) * .45 * (1. - smoothstep(rf, rf + .1 * R, r));
+      float inner = (1. - smoothstep(.5 * R, 1.1 * R, r)) * .85 * smoothstep(0., 60., r) * (1. - smoothstep(rf, rf + .1 * R, r));
       float rip = .75 + .25 * sin(r * .04 - age * 12.);
       o += n * ((ring + inner) * rip * amp);
     }

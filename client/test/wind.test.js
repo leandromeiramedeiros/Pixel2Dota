@@ -57,7 +57,7 @@ test('spellGust: bigger damage -> stronger gust (ults a bit more); every ability
       if (!g) continue;
       n++;
       assert.ok(g.strength > 0 && g.strength <= 1, k + ' strength ' + g.strength);
-      assert.ok(g.life >= 1 && g.life <= 2.5, k + ' life ' + g.life);
+      assert.ok(g.life >= 2.5 && g.life <= 6, k + ' life ' + g.life);
       assert.ok(g.radius > 0 && Number.isFinite(g.x) && Number.isFinite(g.y) && Number.isFinite(g.dx), k);
     }
   }
@@ -72,11 +72,15 @@ test('abilityStats: damage ignores pct / delay / per-mana noise, dps counts for 
   assert.equal(abilityStats('nope', 1), null);
 });
 
-test('envelope: rises fast, decays, exactly 0 outside [0, life]', () => {
+test('envelope: rises fast, holds a rocking lean, decays, exactly 0 outside [0, life]', () => {
   assert.equal(envelope(0, 2), 0); assert.equal(envelope(2, 2), 0); assert.equal(envelope(3, 2), 0);
   assert.ok(envelope(0.12, 2) > 0.7, 'near peak by ~0.12 s');
   assert.ok(envelope(1, 2) < envelope(0.2, 2) && envelope(1.8, 2) < envelope(1, 2));
   assert.ok(envelope(1.99, 2) < 0.02);
+  const e = []; for (let a = 0.2; a < 4; a += 0.05) e.push(envelope(a, 6));
+  assert.ok(e.every((v) => v > 0), 'never pushes the other way');
+  assert.ok(envelope(3, 6) > 0.1, 'still leaning 3 s after a strong cast');
+  assert.ok(e.some((v, i) => i > 0 && i < e.length - 1 && v > e[i - 1] && v > e[i + 1]), 'rocks (has a local peak after the first push)');
 });
 
 test('createWind: fixed array, rearm window, eviction of the weakest, decay to empty, gain 0 = off', () => {
@@ -114,12 +118,12 @@ const pack1 = (g, age) => {
 };
 const base = { x: 0, y: 0, dx: 1, dy: 0, len: 0, radius: 400, strength: 1, life: 2, key: 'k', src: 's' };
 
-test('displacement: swirl circles the centre (mostly tangential), calm far outside', () => {
+test('displacement: swirl spirals outward (tangential + away, never inward), calm far outside', () => {
   const { A, B, C, n } = pack1({ ...base, kind: KIND.SWIRL }, 0.4);
   assert.equal(n, 1);
   let tang = 0, rad = 0;
-  for (let a = 0; a < 6.28; a += 0.5) { const px = Math.cos(a) * 150, pz = Math.sin(a) * 150; const [ox, oz] = windAt(A, B, C, n, px, pz); tang += Math.abs(-Math.sin(a) * ox + Math.cos(a) * oz); rad += Math.abs(Math.cos(a) * ox + Math.sin(a) * oz); }
-  assert.ok(tang > rad * 1.2 && tang > 0, 'tangential ' + tang + ' vs radial ' + rad);
+  for (let a = 0; a < 6.28; a += 0.5) { const px = Math.cos(a) * 150, pz = Math.sin(a) * 150; const [ox, oz] = windAt(A, B, C, n, px, pz); const t = -Math.sin(a) * ox + Math.cos(a) * oz, q = Math.cos(a) * ox + Math.sin(a) * oz; assert.ok(t > 0 && q > 0, 'same spin, outward'); tang += t; rad += q; }
+  assert.ok(tang > rad * 0.6 && rad > tang * 0.6, 'spiral ' + tang + ' vs ' + rad);
   assert.deepEqual(windAt(A, B, C, n, 900, 0), [0, 0]);
 });
 
@@ -134,6 +138,8 @@ test('displacement: line pushes along dir (not outside / behind it); burst is a 
   assert.ok(at(early, 60) > 0 && at(early, 500) < at(early, 60) * 0.2, 'young ring is near the centre');
   assert.ok(at(late, 560) > at(early, 560), 'ring has travelled out');
   const [, oz] = windAt(late.A, late.B, late.C, 1, 0, 500); assert.ok(Math.abs(oz) > 0, 'radial in every direction');
+  const held = pack1({ ...base, kind: KIND.BURST, radius: 600, life: 6 }, 2);
+  assert.ok(windAt(held.A, held.B, held.C, 1, 250, 0)[0] > 0.35 * held.A[3] && held.A[3] > 0.1, 'still leaning away long after the ring passed');
 });
 
 test('GLSL: declares the uniforms the renderer fills, loops over MAX_GUSTS', () => {

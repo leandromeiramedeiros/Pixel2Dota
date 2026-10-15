@@ -107,7 +107,7 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   tint, o)` = geo3d TARGET disc + coloured ground light (`grow` is a radius multiplier, `light: false` skips the light). Never stretch `decal_ring_target`.
 - **Spell vision**: `w.addVision()` in the sim (`vision.js`) -> `state.vision` -> client `fog.js` casts from each source like a friendly unit.
 - **Spell wind** (`wind.js`): up to `MAX_GUSTS` 8 gusts derived from EV.SPELL events (shape swirl/line/burst from targeting, strength from damage, size
-  from radius/range, read generically from DATA; `OVERRIDES` per key). Trees + clutter shaders read the shared gust uniforms. Attacks never gust.
+  from radius/range, read generically from DATA; `OVERRIDES` per key). Trees + clutter shaders read the shared gust uniforms: plants bend away from the spell (burst outward, swirl spirals out, line along the cast) and hold a rocking lean for ~3-6 s. Attacks never gust.
 - **Quality** (`quality.js`): *Level* low / medium / high / ultra = a *preset* (renderer `settings` for fidelity: `bloomStrength/Levels, shadows, shadowPoints, maxLights,
   particles, ambient, clutter, rim, wind, ssr, rays, atmos, drawDist, msaa, outlines`; `ultra` must equal `render/index.js DEFAULTS`, tested; graded low <= ... <= ultra) plus an *option bundle*
   (`LEVEL_OPTIONS`: resolution 1/4, 1/2, native -> `pixelScale` 1, sqrt2, 2; fps cap 30/60/120/144/165/MAX (0 = display refresh); `bloom`; `dof`; vsync). Picking a level applies both and
