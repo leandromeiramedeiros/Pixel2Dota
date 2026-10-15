@@ -331,34 +331,45 @@ void main(){
 }`.replace('@LIB@', ATM_NOISE);
 // showcase bokeh: focus plane = camera-to-target distance (the hero); beyond ~1.3x it blurs progressively (disc gather, bright spots bloom into discs,
 // taps that are sharper and nearer than the centre are rejected so the hero keeps a clean edge), the near foreground is a little soft. 8 / 16 / 24 taps.
+// FINAL lays the ATMOS sky / fog over the graded scene, so the atmosphere is blurred with the very same taps or every silhouette against the sky /
+// fog comes back sharp: SDOF (scene) = keep-premultiplied scene (rgb = sum c*keep, a = sum keep), ATMB = the ATMOS light added (sky + fog + mist).
 const SDOF = ATM_LIB + /* glsl */ `
-uniform sampler2D tScene, tDofA; uniform float uFocus, uSky;
+uniform sampler2D tScene, tDofA, tAtm; uniform float uFocus, uSky;
 float vh2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float cocOf(float z){ return clamp(smoothstep(uFocus * 1.3, uFocus * 3.4, z) + .4 * smoothstep(uFocus * .8, uFocus * .3, z), 0., 1.); }
+// one tap: scene colour (sky: only what is drawn over the clear colour) premultiplied by what the atmosphere keeps; or the atmosphere's light
+vec4 tap(vec3 s, vec2 uv){
+  vec4 at = texture2D(tAtm, uv);
+#ifdef ATMB
+  return vec4(at.rgb, 1.);
+#else
+  if (at.a < -.5) return vec4(max(s - vec3(.02, .02, .035), 0.) * (-1. - at.a), -1. - at.a);
+  return vec4(s * at.a, at.a);
+#endif
+}
 void main(){
-  vec3 c = texture2D(tScene, vUv).rgb;
+  vec4 c = tap(texture2D(tScene, vUv).rgb, vUv);
   float d0 = texture2D(tDepth, vUv).r;
   float zv = d0 < .99999 ? viewZ(d0) : 1e5;
   float coc = cocOf(zv) * uSky;
-  if (coc > .01 && d0 < .99999) {
+  if (coc > .01) {
     int nT = uAtmos > 2.5 ? 24 : uAtmos > 1.5 ? 16 : 8;
     float R = (uAtmos > 2.5 ? 18. : uAtmos > 1.5 ? 15. : 10.) * coc, rot = vh2(floor(vUv * uRT)) * 6.2832;
-    vec3 hor = horCol(), acc = c; float ws = 1.;
+    vec4 acc = c; float ws = 1.;
     for (int i = 0; i < 24; i++) {
       if (i >= nT) break;
       float a = float(i) * 2.39996 + rot, rr = sqrt((float(i) + .5) / float(nT)) * R;
       vec2 uv2 = vUv + vec2(cos(a), sin(a)) * rr / uRT;
       float dd = texture2D(tDepth, uv2).r;
-      bool sk = dd >= .99999;
-      float zs = sk ? 1e5 : viewZ(dd);
+      float zs = dd >= .99999 ? 1e5 : viewZ(dd);
       float w = zs < zv ? clamp(cocOf(zs) * R / max(rr, .5), 0., 1.) : 1.;
-      vec3 sm = sk ? hor : texture2D(tDofA, uv2).rgb;
+      vec3 sm = texture2D(tDofA, uv2).rgb;
       w *= 1. + max(dot(sm, vec3(.3, .59, .11)) - .9, 0.) * 3.;
-      acc += sm * w; ws += w;
+      acc += tap(sm, uv2) * w; ws += w;
     }
     c = acc / ws;
   }
-  gl_FragColor = vec4(c, 1.);
+  gl_FragColor = c;
 }`;
 
 const FINAL = /* glsl */ `
@@ -366,7 +377,7 @@ precision highp float;
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
 uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
 uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky;
-uniform sampler2D tAtm, tSdof;   // showcase: ATMOS (rgb add, a keep; a < 0 = sky) and SDOF (bokeh scene), both at the scene-target size
+uniform sampler2D tAtm, tSdof, tAtmB;   // showcase: ATMOS (rgb add, a keep; a < 0 = sky), SDOF (bokeh scene, keep-premultiplied) and ATMB (bokeh ATMOS light), all at the scene-target size
 uniform vec2 uOut, uBt;
 uniform vec4 uGL[8];
 uniform vec3 uGC[8];
@@ -403,7 +414,8 @@ void main(){
     c = mix(c, soft, clamp(dof * 1.25, 0., 1.));
   }
 #ifdef SHOWCASE
-  if (uDof > .01) c = mix(c, texture2D(tSdof, vUv).rgb, uSky);   // showcase bokeh (SDOF pass), tilt-shift hands over to it as the showcase comes in
+  vec4 sd = vec4(0.);
+  if (uDof > .01) { sd = texture2D(tSdof, vUv); c = mix(c, sd.rgb / max(sd.a, 1e-4), uSky); }   // showcase bokeh (SDOF pass), tilt-shift hands over to it as the showcase comes in
 #endif
   // water: SSR (rgb = reflected radiance, a = water mask)
   vec4 sr = texture2D(tSsr, vUv);
@@ -429,7 +441,8 @@ void main(){
 #ifdef SHOWCASE
   {   // showcase: sky behind the world + rolling distance fog + volumetric mist (ATMOS pass)
     vec4 at = texture2D(tAtm, vUv);
-    vec3 base = at.a < -.5 ? at.rgb + max(sc.rgb - vec3(.02, .02, .035), 0.) * (-1. - at.a) : c * at.a + at.rgb;
+    vec3 base = uDof > .01 ? c * sd.a + texture2D(tAtmB, vUv).rgb   // bokeh: the atmosphere blurred with the scene (no sharp sky / fog edge)
+      : at.a < -.5 ? at.rgb + max(sc.rgb - vec3(.02, .02, .035), 0.) * (-1. - at.a) : c * at.a + at.rgb;
     c = mix(c, base, uSky);
   }
 #endif
@@ -495,15 +508,16 @@ export function createPost(renderer, shared) {
     uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
-    uSky: { value: 0 }, tAtm: { value: null }, tSdof: { value: null },
+    uSky: { value: 0 }, tAtm: { value: null }, tSdof: { value: null }, tAtmB: { value: null },
   };
   // showcase passes (scene-target size): ATMOS = sky / distance fog / mist, SDOF = bokeh. One uniform set: the camera / depth inputs are shared.
   const atmU = {
     tDepth: { value: null }, tScene: { value: null }, tDofA: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() },
     uRT: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() }, uSun: { value: new THREE.Vector3(-0.5, 0.13, 0.45) }, uNight: { value: 0 }, uTime: { value: 0 }, uAtmos: { value: 2 },
-    uPxAng: { value: 0.002 }, uFog: { value: new THREE.Vector2(1000, 3200) }, uFocus: { value: 800 }, uSky: { value: 0 },
+    uPxAng: { value: 0.002 }, uFog: { value: new THREE.Vector2(1000, 3200) }, uFocus: { value: 800 }, uSky: { value: 0 }, tAtm: { value: null },
   };
   const mAtmos = mk(ATMOS, atmU), mSdof = mk(SDOF, atmU);
+  const mSdofAtm = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: SDOF, uniforms: atmU, defines: { ATMB: 1 }, depthTest: false, depthWrite: false });
   // two FINAL programs sharing one uniform set: the normal one has the sky / fog / mist / bokeh code compiled out (no ALU, registers, depth fetch), SHOWCASE only while state.sky > 0
   const mFinal = mk(FINAL, finalUniforms);
   const mFinalShow = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: FINAL, uniforms: finalUniforms, defines: { SHOWCASE: 1 }, depthTest: false, depthWrite: false });
@@ -514,7 +528,7 @@ export function createPost(renderer, shared) {
   // 1x1 adaptation ping-pong (HalfFloat, persists across resizes)
   const adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, flat));
   let adaptI = 0, lastT = -1;
-  let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, atm_rt = null, sdof_rt = null, downs = [], ups = [], w = 0, h = 0, samples = 0;
+  let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, atm_rt = null, sdof_rt = null, atmb_rt = null, downs = [], ups = [], w = 0, h = 0, samples = 0;
   const LEVELS = 5;
   const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, sky: 0, atmos: 2, focus: 800, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS, drawDist: 9000 };   // drawDist: the flat showcase fog closes inside it   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
   let ssrDirty = false;
@@ -522,7 +536,7 @@ export function createPost(renderer, shared) {
 
   function disposeRTs() {
     if (scene_rt) { scene_rt.dispose(); scene_rt.depthTexture && scene_rt.depthTexture.dispose(); }
-    if (ssr_rt) ssr_rt.dispose(); if (dofA) dofA.dispose(); if (dofB) dofB.dispose(); if (atm_rt) atm_rt.dispose(); if (sdof_rt) sdof_rt.dispose();
+    if (ssr_rt) ssr_rt.dispose(); if (dofA) dofA.dispose(); if (dofB) dofB.dispose(); if (atm_rt) atm_rt.dispose(); if (sdof_rt) sdof_rt.dispose(); if (atmb_rt) atmb_rt.dispose();
     for (const t of downs) t.dispose(); for (const t of ups) t.dispose();
   }
   function setRT(nw, nh, force) {
@@ -534,7 +548,7 @@ export function createPost(renderer, shared) {
     scene_rt.depthTexture = new THREE.DepthTexture(w, h);
     scene_rt.depthTexture.minFilter = scene_rt.depthTexture.magFilter = THREE.NearestFilter;
     ssr_rt = new THREE.WebGLRenderTarget(w, h, flat);
-    atm_rt = new THREE.WebGLRenderTarget(w, h, flat); sdof_rt = new THREE.WebGLRenderTarget(w, h, flat);
+    atm_rt = new THREE.WebGLRenderTarget(w, h, flat); sdof_rt = new THREE.WebGLRenderTarget(w, h, flat); atmb_rt = new THREE.WebGLRenderTarget(w, h, flat);
     dofA = new THREE.WebGLRenderTarget(Math.max(2, (w + 1) >> 1), Math.max(2, (h + 1) >> 1), lin);
     dofB = new THREE.WebGLRenderTarget(Math.max(2, (w + 3) >> 2), Math.max(2, (h + 3) >> 2), lin);
     downs = []; ups = []; ssrDirty = false;
@@ -642,8 +656,8 @@ export function createPost(renderer, shared) {
       a.uNight.value = night; a.uTime.value = time; a.tDepth.value = scene_rt.depthTexture; a.tScene.value = scene_rt.texture; a.tDofA.value = dofA.texture;
       if (shared) { const k = shared.uKeyDir.value, e = SUN_ELEV, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; a.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, lowered into the visible sky band
       a.uInvProj.value.copy(camera.projectionMatrixInverse); a.uCamWorld.value.copy(camera.matrixWorld); a.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); a.uCamPos.value.copy(camera.position);
-      pass(mAtmos, atm_rt); f.tAtm.value = atm_rt.texture;
-      if (doDof) { pass(mSdof, sdof_rt); f.tSdof.value = sdof_rt.texture; }
+      pass(mAtmos, atm_rt); f.tAtm.value = a.tAtm.value = atm_rt.texture;
+      if (doDof) { pass(mSdof, sdof_rt); pass(mSdofAtm, atmb_rt); f.tSdof.value = sdof_rt.texture; f.tAtmB.value = atmb_rt.texture; }
     }
     f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;
@@ -657,7 +671,7 @@ export function createPost(renderer, shared) {
     fogRange() { const mm = Math.min(state.atmos, 1), end = Math.min(4200 + (3200 - 4200) * mm, state.drawDist * 0.85); return [Math.min(1500 + (1000 - 1500) * mm, end * 0.4), end]; },
     /** scene-target MSAA samples (0 = off); rebuilds the targets */
     setSamples(n) { n = n | 0; if (n === samples) return; samples = n; if (w) setRT(w, h, true); }, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
-    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); mAtmos.dispose(); mSdof.dispose(); quadGeo.dispose(); noBloom.dispose(); },
+    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); mAtmos.dispose(); mSdof.dispose(); mSdofAtm.dispose(); quadGeo.dispose(); noBloom.dispose(); },
   };
   return api;
 }
