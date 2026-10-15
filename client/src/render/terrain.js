@@ -7,6 +7,37 @@ import { CHUNK, buildChunk, tileName, buildTileData } from './terrainGeo.js';
 import { buildTerrainAtlas } from './tilesheet.js';
 import { COMMON_GLSL } from './shaderlib.js';
 import { DEPTH_FRAG } from './shadow.js';
+import { VOX_HEROES } from './voxactors.js';
+import { hex, mix } from '../../../shared/vox/vox.js';
+import { TERRAINS, STONE, TOP_CUTS, HSH_GLSL } from '../../../shared/vox/terrain.js';
+
+// ---- voxel ground (docs/VOXEL.md section 8): land tops quantise to VOX_CELL cells with a hashed 5-tone preset colour, cliff walls become flat strata ----
+/** `?voxt=0` restores the tile-atlas terrain (the VOXT shader define is then absent: the off path is the old shader). */
+export const voxtEnabled = typeof location === 'undefined' || new URLSearchParams(location.search).get('voxt') !== '0';
+/** World units per ground voxel = the hero voxel (VOX_HEROES.lina.unit 4.2) x VOX_CELL_MUL. 4.2 alone is only ~1.4 x 1.2 render px at the default camera / native
+ *  resolution (art px = 6 u = 2 px, ground foreshortened by sin 60), so the ground uses 2 cells per hero voxel (~2.8 x 2.4 px). `?voxc=1` tries the plain hero cell. */
+export const VOX_CELL_MUL = Number(typeof location === 'undefined' ? 0 : new URLSearchParams(location.search).get('voxc')) || 2;
+export const VOX_CELL = VOX_HEROES.lina.unit * VOX_CELL_MUL;
+const VOX_WALL_ROWS = 2;      // cliff strata thickness, in cells
+export const VOX_FOREST_DIM = 0.4;   // forest floor = grass / dire top blended this far toward the preset's shadow colour
+export const VOX_MACRO = 0.6;        // share of the old cool<->warm macro tint kept on the voxel ground (0 = flat presets)
+const VOX_DIRE_STONE = 0.35;  // Dire rock = stone blended this far toward the dire top
+const glv = (c) => 'vec3(' + c.map((v) => (v / 255).toFixed(4)).join(',') + ')';
+const dimT = (T) => T.top.map((c) => mix(hex(c), hex(T.shadow), VOX_FOREST_DIM));
+const toneSets = [   // top presets, 5 tones each, index = preset * 5 + tone: 0 grass 1 dire 2 forest 3 forest dire 4 stone 5 stone dire 6 dirt (road)
+  TERRAINS.grass.top.map(hex), TERRAINS.dire.top.map(hex), dimT(TERRAINS.grass), dimT(TERRAINS.dire), STONE.top.map(hex),
+  STONE.top.map((c, i) => mix(hex(c), hex(TERRAINS.dire.top[i]), VOX_DIRE_STONE)), TERRAINS.dirt.top.map(hex),
+];
+const wallSets = [TERRAINS.grass.side.map(hex), TERRAINS.dire.side.map(hex), STONE.side.map(hex), STONE.side.map((c, i) => mix(hex(c), hex(TERRAINS.dire.side[i]), VOX_DIRE_STONE))];   // cliff strata: earth r / d, rock r / d
+const VOX_GLSL = /* glsl */ `
+precision highp int;
+const float VOX_CELL = ${VOX_CELL.toFixed(3)};
+const float VOX_WALL_ROWS = ${VOX_WALL_ROWS.toFixed(1)};
+const float VOX_MACRO = ${VOX_MACRO.toFixed(2)};
+const vec3 VT[${toneSets.length * 5}] = vec3[${toneSets.length * 5}](${toneSets.flat().map(glv).join(',')});
+const vec3 VS[${wallSets.length * 3}] = vec3[${wallSets.length * 3}](${wallSets.flat().map(glv).join(',')});
+${HSH_GLSL}
+int vtone(float n){ return n < ${TOP_CUTS[0]} ? 0 : n < ${TOP_CUTS[1]} ? 1 : n < ${TOP_CUTS[2]} ? 2 : n < ${TOP_CUTS[3]} ? 3 : 4; }`;
 
 const VERT = /* glsl */ `
 attribute vec4 cell;
@@ -21,6 +52,9 @@ void main(){
 const FRAG = /* glsl */ `
 precision highp float;
 ${COMMON_GLSL}
+#ifdef VOXT
+${VOX_GLSL}
+#endif
 uniform sampler2D uTiles, uMap;
 uniform vec2 uAtlas, uMapSize;
 uniform vec4 uMapRect;       // x0, y1, tile size, unused
@@ -65,14 +99,28 @@ void main(){
     dp = floor(vWorld.xz / 6.);
     vec4 own = texture2D(uTiles, (vCell.xy + px + .5) / uAtlas);
     alb = own.rgb; em = own.a * 4.;
-    vec2 tile = floor((vWorld.xz - vec2(uMapRect.x, -uMapRect.y)) / uMapRect.z - vUv + .5);
+    vec2 org = vec2(uMapRect.x, -uMapRect.y);
+    vec2 tile = floor((vWorld.xz - org) / uMapRect.z - vUv + .5);
     Tl me = fetchTile(tile);
+#ifdef VOXT
+    // voxel ground: every decision (kind borders, blend, tone) is taken per VOX_CELL cell at its centre, so cells that straddle a tile seam stay whole;
+    // across an elevation / ramp change the fragment's own tile wins (cliff lip + AO keep their side)
+    vec2 vc = floor(vWorld.xz / VOX_CELL), cc = (vc + .5) * VOX_CELL, ct = floor((cc - org) / uMapRect.z);
+    if (ct != tile) { Tl m2 = fetchTile(ct); if (m2.type < 5.5 && m2.elev == me.elev && m2.ramp == me.ramp) { tile = ct; me = m2; } }
+    vec2 dq = vc, dqw = (vc + .5) * (VOX_CELL / 6.);          // hash cell / art-px-equivalent position for the low-frequency noise
+#else
+    vec2 dq = dp, dqw = dp;
+#endif
     if (me.type < 5.5) {
       bool st = me.stairs > .5;                              // worn stair tile: keeps its own art, edges dither into the neighbouring ground
+#ifdef VOXT
+      vec2 lp = clamp((cc - org - tile * uMapRect.z) / 6., 0., 8.);
+#else
       vec2 lp = px + .5;                                     // art-pixel centre inside the tile, 0..8
+#endif
       float myP = prio(me.type);
-      float th = mix(hash12(dp), bayer4(dp), .5);            // dither threshold
-      float nR = vnoise(dp * .21 + 11.7);
+      float th = mix(hash12(dq), bayer4(dq), .5);            // dither threshold
+      float nR = vnoise(dqw * .21 + 11.7);
       float R = 1.3 + 3.1 * nR;                              // noisy blend reach in art px
       vec2 qd = vec2(lp.x < 4. ? -1. : 1., lp.y < 4. ? -1. : 1.);
       vec2 qw = abs(lp - 4.) / 8.;
@@ -113,11 +161,16 @@ void main(){
       float fs = swapped ? best.side : me.side;
       bool meWater = me.type > 4.5;
       isWater = ft > 4.5;
-      float h1 = hash12(dp + 3.1), h2 = hash12(dp * 1.37 + 9.7);
+      float h1 = hash12(dq + 3.1), h2 = hash12(dq * 1.37 + 9.7);
+#ifdef VOXT
+      float thW = mix(hash12(dp), bayer4(dp), .5), h1W = hash12(dp + 3.1);   // water + foam stay on art pixels
+#else
+      float thW = th, h1W = h1;
+#endif
       if (isWater) {
         // depth: bilinear of tile depths (land = 0), jittered then quantised to 4 teal steps
         float sd = mix(mix(me.depth, dX, qw.x), mix(dY, dXY, qw.x), qw.y);
-        float lv = floor(clamp(sd / 6.5, 0., 1.) * 3. + th * .999 + (nR - .5) * .5);
+        float lv = floor(clamp(sd / 6.5, 0., 1.) * 3. + thW * .999 + (nR - .5) * .5);
         lv = clamp(lv, 0., 3.);
         vec3 w0 = vec3(.165, .392, .408), w1 = vec3(.106, .29, .337), w2 = vec3(.067, .2, .255), w3 = vec3(.043, .141, .2);
         alb = lv < .5 ? w0 : lv < 1.5 ? w1 : lv < 2.5 ? w2 : w3;
@@ -133,7 +186,7 @@ void main(){
         // foam rim next to land (the land pixels bleeding into this tile are drawn as wet sand below)
         if (dLand < 90.) {
           float fp = clamp(1.2 - dLand / (R * .6 + .5), 0., 1.);
-          if (h1 < fp * .6 && hash12(dp * 1.7 + floor(uTime * 2.5)) > .2) { alb = vec3(.56, .74, .72); em = 0.; isWater = false; }
+          if (h1W < fp * .6 && hash12(dp * 1.7 + floor(uTime * 2.5)) > .2) { alb = vec3(.56, .74, .72); em = 0.; isWater = false; }
         }
       } else if (swapped && meWater) {
         // beach: sand bleeding into the water tile, wetter (darker, cooler) toward the water
@@ -146,8 +199,21 @@ void main(){
         vec2 cell = swapped ? uBase[int(ft * 2. + fs + .5)] : vCell.xy;
         vec4 tx = texture2D(uTiles, (cell + px + .5) / uAtlas);
         alb = tx.rgb; em = swapped ? 0. : tx.a * 4.;
+#ifdef VOXT
+        bool vx = !(st && !swapped);   // worn stairs keep their atlas art
+        if (vx) {
+          float vn = vhash(vc);
+          int tn = vtone(vn);
+          if (mod(vc.x + vc.y, 2.) < .5 && vn > .3 && vn < .5) tn = 2;   // checker lift, as the offline slab
+          int pre = ft < .5 ? int(fs + .5) : ft < 1.5 ? 2 + int(fs + .5) : ft < 3.5 ? 4 + int(fs + .5) : 6;   // grass / dire, forest floor, rock top, road = dirt
+          alb = VT[pre * 5 + tn]; em = 0.;
+          float vm = vnoise(dqw * .009 + 3.) * .6 + vnoise(dqw * .034 + 9.) * .4;
+          float vq = floor(vm * 5. + th) / 5.;
+          alb *= mix(vec3(1.), mix(vec3(.84, .93, .98), vec3(1.07, 1.04, .92), clamp(vq * 1.25, 0., 1.)), VOX_MACRO * (ft < 1.5 ? 1. : ft < 2.5 ? .55 : .8));
+        } else {
+#endif
         // macro colour variation: two octaves of low-frequency noise, quantised to 5 dithered steps, cool <-> warm
-        float mn = vnoise(dp * .009 + 3.) * .6 + vnoise(dp * .034 + 9.) * .4;
+        float mn = vnoise(dqw * .009 + 3.) * .6 + vnoise(dqw * .034 + 9.) * .4;
         float mq = floor(mn * 5. + th) / 5.;
         float k = ft < 1.5 ? 1. : ft < 2.5 ? .55 : .8;
         if (st && !swapped) k = .7;
@@ -181,6 +247,9 @@ void main(){
         } else if (ft > .5 && ft < 1.5) {
           if (h1 < .06 * dens) alb *= 1.28; else if (h1 > .95) alb *= .78;
         }
+#ifdef VOXT
+        }
+#endif
         // wet ground right at the waterline
         if (dWater < 90.) { float wp = clamp(1.5 - dWater / 1.7, 0., 1.); if (h2 < wp) alb *= vec3(.7, .8, .82); }
       }
@@ -199,8 +268,17 @@ void main(){
     // darken toward the strip base, faint rain streaks, slow cool/warm drift along the face
     float sv = fract(vv);
     alb *= mix(1., .58, smoothstep(.3, 1., sv));
+#ifdef VOXT
+    // flat horizontal strata of the preset side colours on the world voxel grid (earth under grass / dire, rock under rock tops), a cell now and then slips a band
+    vec2 wc = vec2(n.x != 0. ? floor(vWorld.z / VOX_CELL) : floor(vWorld.x / VOX_CELL), floor(vWorld.y / VOX_CELL));
+    Tl ow = fetchTile(floor((vWorld.xz - n.xz - vec2(uMapRect.x, -uMapRect.y)) / uMapRect.z));   // owning (higher) tile: one unit back from the face
+    float wn = vhash(wc), wb = floor(wc.y / VOX_WALL_ROWS) + (wn < .22 ? 1. : wn > .86 ? 2. : 0.);
+    int wi = int(mod(wb, 3.));
+    alb = VS[(type > 1.5 && type < 3.5 ? 6 : 0) + int(ow.side + .5) * 3 + (wi == 0 ? 0 : wi == 1 ? 2 : 1)] * mix(1., .58, smoothstep(.3, 1., sv)); em = 0.;
+#else
     alb *= mix(1., .85, step(.88, hash12(vec2(dp.x, 3.))) * smoothstep(.1, .6, sv));
     alb *= mix(vec3(.9, .97, 1.), vec3(1.05, 1.02, .95), vnoise(vec2(dp.x * .05, dp.y * .12) + 5.));
+#endif
   }
   float sh = shadowAt(vWorld, n, dp);
   vec3 L = shadowAmb(sh) + uKeyCol * (max(dot(n, uKeyDir), 0.) * sh) + pointLights(vWorld + n * 6., n, .25);
@@ -220,7 +298,7 @@ export function createTerrain({ scene, uniforms, tiles }) {
   const KIND_NAME = ['grass_r_0', 'grass_d_0', 'forest_r', 'forest_d', 'rock_top_0', 'rock_top_d_0', 'void', 'void', 'road_0', 'road_0', 'water', 'water', 'void', 'void', 'void', 'void'];
   const base = KIND_NAME.map((nm) => { const c = atlas.lookup(nm) || atlas.lookup('void') || { x: 0, y: 0 }; return new THREE.Vector2(c.x, c.y); });
   const material = new THREE.ShaderMaterial({
-    vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide,
+    vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, defines: voxtEnabled ? { VOXT: 1 } : {},
     uniforms: {
       ...uniforms, uTiles: { value: atlas.texture }, uAtlas: { value: new THREE.Vector2(atlas.width, atlas.height) },
       uMap: { value: mapTex }, uMapSize: { value: new THREE.Vector2(map.w, map.h) }, uMapRect: { value: new THREE.Vector4(map.x0, map.y1, map.tile, 0) }, uBase: { value: base },

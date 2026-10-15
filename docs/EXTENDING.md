@@ -20,12 +20,14 @@ any spell without a server) or a real match with cheats. Never self-certify visu
    Full surface: `server/src/sim/API.md`.
 4. **Bots** `server/src/sim/bots.js`: optional `BUILD[heroKey]` (item list; falls back to Sven's) and `MELEE_CORE[heroKey]` (1 melee / 2 ranged start set; else caster set).
    Skill learning and spell usage are generic (DATA behavior); add a special case only if the hero misplays (see `mirana_leap`).
-5. **Body sheet** (director rule: every new body is 8 directions at 2x from day one): `tools/art/heroes/<short>.mjs` built on `rig.mjs` (`Pal`, `buildSheet8(cfg, PL)`,
-   `writeSheet('<short>', sheet)`; cfg = `W H px:2 pitch g model(J, ctx) pose(anim, i, p)`, see `lina.mjs`). Output `client/src/art/sheets/<short>.js` with `px: 2`, dirs
-   `s se e ne n` (west mirrored), anims `idle walk attack cast stunned` (+ optional `death`), and a `portrait` frame (HUD shows it at 32x42, lobby reads the same frame).
-   Preview `node tools/art/contact8.mjs <short>`; validate `node tools/art/heroes/check.mjs <short>` and add the name to its `ALL` list. Emissive pixels: `emit: {ch: strength}`.
-   Until the sheet exists the hero draws a stand-in: `BODY_STANDIN` in `client/src/render/actors.js` (delete the entry once `sheets/<short>.js` exists; the real sheet wins automatically).
-   Ranged attack projectile: `client/src/render/fx/projectiles.js ATK[short]` (else GENERIC magic missile); frames live in `sheets/fx.js`.
+5. **Body (voxel)** `shared/vox/heroes/<short>.js`, a params file on the kit ([VOXEL.md](VOXEL.md); samples `heroes/lina.js`, `creeps/melee.js`):
+   `META { rig, grid, cx, cy }`, `build(pose)` -> `Vox` (34x30x48, faces -y, feet on z 0), `ANIMS { idle, walk, attack, cast, stunned }`.
+   Body = `solve('biped', PROP, pose)` + `parts.js` builders; materials via `useMat` (override only signature colours; emissives carry a `tier`; heroes
+   never use `team: true`: one colour scheme for both teams); poses = `LIBRARY[rig](opts)` + `withPoses` for signature frames.
+   - Checks: add it to `tools/art/heroes/vox_kit_check.mjs` and `MODELS` in `client/test/voxmesh.test.js`. Review sheet (see `creep_vox_shot.mjs`) to the director.
+   - Register: `VOX_UNITS` in `client/src/render/voxactors.js`: `<short>: voxEntry(MOD, { unit: CHAR_UNIT, max: 10 })`.
+   - Portrait: `node tools/art/vox_portrait.mjs <short>` -> `client/src/art/portraits/<short>.js`.
+   - Ranged attack projectile: `client/src/render/fx/projectiles.js ATK[short]` (else GENERIC magic missile).
 6. **Icons**: glyphs in `tools/art/icons/abilities.mjs` (or a sibling file merged in `icons.mjs`), one per ability key, 20x20 frame. Rebuild `node tools/art/icons/icons.mjs`,
    validate `node tools/art/icons/check.mjs` (every roster ability needs an icon). Director rule: detailed, Dota-2-like composition and colour key, hand-authored.
 7. **Spell fx** `client/src/render/fx/<short>.js`: `export function register(c, R)` with `R.spell(key | [keys], (ev, su, tu, c) => ...)`, `R.proj(key, def)` for `w.spawnProjectile`
@@ -47,7 +49,7 @@ any spell without a server) or a real match with cheats. Never self-certify visu
 ## Add or convert a spell to 3D fx
 - Pilots: Sun Strike (`fx/invoker.js`), Laguna Blade (`fx/lina.js`), Freezing Field (`fx/crystal_maiden.js`). Geometry: `c.G.tube / c.G.disc / c.G.bolt` called every frame inside
   `c.run(dur, (rec, dt) => ...)` (immediate mode, pooled: pass option bags and colour arrays made once per cast). World coords, z from `c.zAt(x, y)`.
-- Telegraphs: `c.ringDecal(x, y, R, dur, tint, {grow, spin, pulse, follow, light:false})`. Ground fx are discs/quads at `heightAt`, never sprites below their pivot (depth rule).
+- Telegraphs: `c.ringDecal(x, y, R, dur, tint, {grow, spin, pulse, follow, light:false})`. Ground fx are discs/quads at `heightAt`, never billboards below a unit's foot.
 - Look: shells under the 1.4 bloom threshold, HDR cores (> 1.4) bloom; stepped bands, no ordered dither; crisp 1-px particles (`c.pix`, `c.sparks`) over soft blobs.
 - Lights: `c.glow(...)` / `c.lightNow(...)` only for spells and items; the pool drops the weakest beyond 32, cube shadows beyond the 10 strongest.
 - Register under the same ability key (`R.spell`); `sub` events (`ev.sub`) carry per-hit positions from the sim.

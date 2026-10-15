@@ -7,8 +7,8 @@
   showcase close-up, not a wider view; touch starts at 1450 because the phone HUD rings the screen.
 - Ability slot order is authored in `shared/heroes.js`, not read from the game files (current-patch files add innates/facets/shards we skip).
 
-## Roster (13) and simplifications
-Criterion: every hero other than Invoker uses at most two mechanics beyond the shared status system. No illusions, no terrain ults, no Aghanim's, no talents.
+## Heroes (13) and their current simplifications
+Each hero below is simplified until the parity backlog (PROGRESS) restores the real mechanic.
 | Hero | Simplifications |
 |---|---|
 | Invoker | Trainer spell rules; Forge Spirit = summon that follows and attacks (the one AI-summon exception); Ice Wall = slow segments; Tornado = invuln + stun; no Cataclysm |
@@ -26,12 +26,11 @@ Keys are the game's (`sven_storm_bolt`, `zuus_*`, ...); `shared/heroes.js` is th
 Consumables `tango flask clarity faerie_fire enchanted_mango tpscroll ward_observer ward_sentry`; basics `branches gauntlets slippers mantle circlet ring_of_protection
 quelling_blade blades_of_attack broadsword claymore chainmail ogre_axe mithril_hammer blade_of_alacrity staff_of_wizardry boots gloves ring_of_regen sobi_mask
 belt_of_strength boots_of_elves robe magic_stick`; built `magic_wand bracer wraith_band null_talisman phase_boots power_treads lesser_crit black_king_bar blink`; `aegis` (Roshan drop).
-- Buy only within SHOP_RANGE of your fountain shop: no courier, side or secret shop (keeps the match loop simple). 6 slots, no backpack/stash; recipes auto-combine; sell 50 % (100 % within 10 s).
+- Buy within SHOP_RANGE of your fountain shop. 6 main + 3 backpack slots; recipes auto-combine; sell 50 % (100 % within 10 s).
 - TP Scroll 3 s channel to the nearest allied building; Blink 1200, disabled 3 s after hero damage; BKB 9 s -> 6 s.
 
 ## Match rules
 - Real map, 3 lanes, waves every 30 s from 0:00 (3 melee + 1 ranged, siege every 5th). Neutral camps (4 tiers), Roshan + Aegis, observer/sentry wards ARE in.
-- Out: runes, outposts, couriers, glyph, buyback, talents, Aghanim's, neutral abilities, mega creeps, backdoor protection, building bounty.
 - Tier protection: T2 invulnerable until the lane's T1 dies, ... barracks until T3, T4 until any T3, ancient until both T4. Win = ancient destroyed.
 - Day/night 5/5 min (vision + lighting only). Fog of war is client-side (server sends everything; accepted for a fan project).
 - Server authoritative, no client prediction (Dota itself doesn't predict unit movement); 30 Hz patches, adaptive interpolation delay.
@@ -39,8 +38,8 @@ belt_of_strength boots_of_elves robe magic_stick`; built `magic_wand bracer wrai
 - Spectators: host toggle, up to 6, see both teams' vision, cannot order.
 
 ## Rendering
-- Sprites sort per pixel at true height above the foot (upright card) so 3D fx, lights and meshes occlude units consistently; ground fx are 3D discs at terrain height.
+- Everything but FX is voxel (units 4.2 world units per voxel, world 8.4); FX, particles and projectiles are not. Until sprite removal, voxel units sort at foot depth like sprites; ground fx are 3D discs at terrain height.
 - Ring telegraphs are geo3d discs + a ground light (`c.ringDecal`), never the stretched `decal_ring_target` sprite (read as a blocky staircase).
-- No ordered dither on geo3d fx / beams (read as a fine white grid): stepped bands. Bayer quantise stays on terrain/sprite lighting (Trainer look).
+- No ordered dither on geo3d fx / beams (read as a fine white grid): stepped bands. Bayer-quantised lighting stays on terrain and voxel meshes.
 - Only spells and items cast big lights; attacks/towers/creeps under the bloom threshold. Fight whiteouts solved by exposure + hue-preserving roll-off, not by dimmer spells.
 - Graphics levels Low/Medium/High/Ultra (detected from hardware at load, never auto-lowered mid-match), each a fidelity preset plus an option bundle; only resolution / FPS / bloom / DoF / vsync are individual toggles.

@@ -15,6 +15,7 @@ import { createSprites } from './sprites.js';
 import { createActors } from './actors.js';
 import { createBuildings3d } from './buildings3d.js';
 import { createTrees3d } from './trees3d.js';
+import { createVoxActors } from './voxactors.js';
 import { createClutter3d } from './clutter3d.js';
 import { createFog } from './fog.js';
 import { createShadow } from './shadow.js';
@@ -59,11 +60,12 @@ export function createRenderer({ canvas, sheets }) {
   const post = createPost(gl, uniforms);
   const overlay = createOverlay(canvas);
   const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
+  const vox = createVoxActors({ scene, uniforms });   // voxel units (voxactors.js VOX_UNITS)
   const wind = createWind();   // spell gusts (wind.js) -> uWA/uWB/uWC/uWN each frame
   const shadow = createShadow(gl, uniforms);
   shadow.addGroup(terrain.group, terrain.depthMaterial);
-  for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
-  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d, yaw: () => rig.yaw });
+  for (const c of [...buildings.casters(), ...trees3d.casters(), ...clutter.casters(), ...vox.casters(), sprites.caster]) shadow.addCaster(c.mesh, c.mat);
+  const actors = createActors({ sprites, atlas, uniforms, lights, fog, particles, camera: rig.camera, buildings, trees: trees3d, vox, yaw: () => rig.yaw });
 
   let cssW = 1280, cssH = 720, outW = 1280, outH = 720, dpr = 1, nightK = 0, time = 0, myTeam = 0;
   let rtSettledH = 0;
@@ -175,8 +177,8 @@ export function createRenderer({ canvas, sheets }) {
       if (f.dens > 1) s /= f.dens;                                   // double-resolution hero sheets: dense px = 1/dens of a snapped art px
       const lx = Math.floor((mx - fx) / s + f.ax + 0.5), ly = Math.floor(f.ay + 0.5 - (my - fy) / s);
       if (lx < -2 || ly < -2 || lx > f.w + 1 || ly > f.h + 1) continue;
-      let hit = false;
-      for (const [dx, dy] of p.id ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]]) {
+      let hit = !!f.vox;                                              // voxel units: footprint box (voxactors.js footFrame), no texels
+      if (!hit) for (const [dx, dy] of p.id ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]]) {
         const tx = lx + dx, ty = ly + dy;
         if (atlas.texel(f, f.flip ? f.w - 1 - tx : tx, ty)) { hit = true; break; }
       }
@@ -241,7 +243,7 @@ export function createRenderer({ canvas, sheets }) {
       if (!hero && !hurt && p.id !== actors.state.selected && p.id !== actors.state.hover) continue;
       const aw = BAR_W[u.kind] != null ? BAR_W[u.kind] : 6;
       if (!aw) continue;
-      const bz = p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92, vis = uiFade(u.x, u.y, bz);
+      const bz = p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92 * (p.f.vox ? p.scale : 1), vis = uiFade(u.x, u.y, bz);
       if (vis.a <= 0.02) continue;
       const w = Math.round(Math.min(hero ? 150 : 90, (hero ? Math.max(46, aw * cssPerArt * 0.95) : aw * cssPerArt * 0.95) * vis.k));   // capped: the showcase close-up never draws giant bars
       const hh = hero ? Math.max(5, Math.round(Math.max(8, Math.min(14, cssPerArt * 3)) * vis.k)) : 3;   // hero bar: big enough to read on a phone
@@ -304,7 +306,7 @@ export function createRenderer({ canvas, sheets }) {
     post.render(scene, cam, time, nightK, outW, outH);
     drawBars(view);
     overlay.draw(dt);
-    stats.cpuMs = performance.now() - t0; stats.lights = lights.count; stats.chunks = terrain.stats.drawn; stats.tris = terrain.stats.tris + buildings.stats.tris + trees3d.stats.tris + clutter.stats.tris; stats.props3d = buildings.stats.draws + trees3d.stats.draws;
+    stats.cpuMs = performance.now() - t0; stats.lights = lights.count; stats.chunks = terrain.stats.drawn; stats.tris = terrain.stats.tris + buildings.stats.tris + trees3d.stats.tris + clutter.stats.tris + vox.stats.tris; stats.props3d = buildings.stats.draws + trees3d.stats.draws;
     stats.sprites = sprites.count; stats.units = actors.state.unitsDrawn; stats.trees = actors.state.treesDrawn; stats.spawned = particles.spawned; stats.fogMs = fog.state.castMs; stats.shadowMs = shadow.state.ms;
   }
 

@@ -4,6 +4,7 @@
 // Sheet format: { pal:{ch:'#rrggbb[aa]'}, anchor:[x,y], px?:N, emit?:{ch:strength}, frames:{ key:[rows] } }, '.' = transparent.
 //   Dirs: s e n (+ mirrored w) for 1x sheets; 8-dir sheets also paint se ne (sw/nw mirror se/ne). px = pixel density (2 = drawn at 2x, shown at the same world size).
 import * as THREE from 'three';
+import { withVoxPortrait } from './portraits.js';
 
 let sheetMods = {};
 try { sheetMods = import.meta.glob('./sheets/*.js'); } catch { /* not running under vite (node tests) */ }
@@ -15,7 +16,7 @@ export async function loadSheets() {
     const name = p.slice(p.lastIndexOf('/') + 1).replace(/\.js$/, '');
     try {
       const mod = await sheetMods[p]();
-      const def = mod.default;
+      const def = await withVoxPortrait(name, mod.default);
       if (def && def.frames) out[name] = def;
     } catch (e) { console.warn('[atlas] sheet "' + name + '" failed to load:', e && e.message); }
   }));

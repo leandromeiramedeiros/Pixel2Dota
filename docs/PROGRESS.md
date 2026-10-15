@@ -1,27 +1,30 @@
 # Current state and open items
 
-History lives in `git log`. This page is only what exists now and what is open.
+History lives in `git log`. This page lists only what exists now and what is open.
 
 ## Done
-- Match: real map, lanes, creeps, 22 towers, 12 barracks, ancients, fountains, shop; neutral camps, Roshan + Aegis, wards; ~41 items; XP/gold/respawn; win + end screen.
-- 13 heroes playable (full Invoker; Rubick steals every roster spell incl. Invoker's). Bots: lane, fight, retreat, buy, TP rebuy, team group-push from 22 min
-  (10-bot headless match ends in ~24-30 min, `node tools/fullmatch.mjs`).
-- Net: 30 Hz authoritative sim, adaptive interpolation delay, rejoin reclaims the hero, spectators, lobby with codes / open list / invite links; public deploy
-  (GitHub Pages client + Render server).
-- Render: 3D tile terrain, 3D buildings/trees/clutter, upright-card sprite depth, 32-light pool with 10 cube-shadowed spell lights + height-field fallback,
-  key-light shadows, bloom/DoF/SSR/scatter post with adaptive exposure (no whiteouts), ring telegraphs in 3D, spell vision, spell wind, fog, quality presets.
-- Input: desktop keyboard/mouse (6 main + 3 backpack inventory, swap drag); touch (joystick, aim-drag with aim sensitivity, wheel of 6 spells + 6 item shortcuts, bag, last-hit, peek drag, pinch, menu).
-- Camera: one director (`render/camdir.js`): follow with lead and aim lean, teleport cuts, instant player pans, hold-Space follow, touch peek; minimap draws the real view quad.
-- Art: v2 approved by the director. v3 pilots landed (verdicts pending): base ambiance, shadows, clutter, 3D VFX (Sun Strike, Laguna Blade, Freezing Field),
-  8-dir 2x sprite pilot (Lina).
-- Tests: `npm test` green (shared, server, client; pure-logic tests for render, touch, wind, quality, fx coverage).
+- **Match:** the real map, lanes, creeps, 22 towers, 12 barracks, ancients, fountains and the shop. Also neutral camps, Roshan + Aegis, wards, about 41 items,
+  XP / gold / respawn, and the win and end screens.
+- **Heroes:** 13 playable (full Invoker; Rubick steals every roster spell).
+- **Bots:** lane, fight, retreat, buy and team push. A 10-bot headless match ends in about 24-30 min (`node tools/fullmatch.mjs`).
+- **Net:** a 30 Hz authoritative sim with adaptive interpolation, rejoin, spectators, and a lobby with codes / an open list / invite links.
+  Public deploy: Pages client + Render server.
+- **Render:** voxel heroes (Lina), voxel ground and tufts, 3D buildings / trees / clutter, light pool with cube-shadowed spell lights, key-light shadows,
+  bloom / DoF / SSR / atmosphere post, 3D spell fx, fog of war, spell vision and wind, quality presets.
+- **Input:** desktop, and touch (joystick, full-screen thumb aim with edge pan, spell / item wheel, bag, peek, pinch). The camera director lives in
+  `render/camdir.js`.
+- **Tests:** `npm test` is green.
 
 ## Open
-- Art backlog (cloud session, see [CLOUD-HANDOFF.md](CLOUD-HANDOFF.md) P3-P7): readable Dota-like icons; real 8-dir 2x bodies + portraits for Pudge, Mirana, Rubick
-  (stand-ins now: `BODY_STANDIN` in `render/actors.js`); Lina redo then 8-dir 2x for the other 12 heroes; ~37 spells still particle-only -> 3D fx.
-- Director verdicts pending: v3 pilots, tower-destruction blast size, fog darkness, weak `sniper_headshot` / gold icons.
-- iPhone retest: rejoin (move + learn after reclaim), rubber-banding, Low vs High, menu, zoom 1450.
-- Camera feel (`render/camdir.js` `CAMERA_FEEL`: lead, aim lean, peek, springs) tuned by tests only: needs a play pass (desktop + phone) and a director verdict.
-- Render free tier cold start (~1 min) UX not verified on a real spin-up.
-- Neutrals have no abilities; single Roshan pit; no HUD ward stock display.
-- Perf reference: ~2.4 ms median frame (RTX 5070 Ti, 835x397 target, mid-lane fight); sim ~0.2 ms/tick with 10 bots.
+1. **Voxel conversion:** batches 1-7 in [VOXEL.md](VOXEL.md) "Conversion order" (batch 0 foundation done). The last batch removes the sprites and the
+   fallbacks.
+2. **Feature parity**, in priority order. Each item lands with sim tests and a bot behaviour.
+   - Runes (bounty, power, water, wisdom), glyph, buyback, courier (with side / secret shops).
+   - Talents, Aghanim's Scepter / Shard, the real hero mechanics behind the DECISIONS simplifications (illusions, terrain ults, etc.).
+   - Neutral abilities, neutral items, outposts, mega creeps, backdoor protection, building bounty, multiple Roshan pits / Roshan behaviour.
+   - Full item list (from the bake), stash.
+3. **Roster:** expand past 13 heroes, one hero per agent (EXTENDING "Add a hero").
+4. **Tools:** generic voxel tools (`check / shot / portrait <short|all>`), deterministic sandbox shots (URL-pinned unit, camera and zoom, and an A/B PNG
+   runner), and skills (`/add-hero`, `/art-review`, `/verify`) as thin wrappers over EXTENDING.
+5. **Checks still open:** iPhone retest (rejoin, rubber-banding, Low vs High, touch aim), the Render cold-start UX, and a camera feel play pass.
+6. **Perf reference:** about 2.4 ms median frame (RTX 5070 Ti, 835x397 target, mid-lane fight); the sim takes about 0.2 ms per tick with 10 bots.

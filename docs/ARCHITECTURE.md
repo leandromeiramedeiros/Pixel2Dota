@@ -1,12 +1,13 @@
 # Architecture — core concepts and contracts
 
-5v5 Dota on the real Dota 2 map. Authoritative Colyseus server (30 Hz sim), Three.js 2.5D pixel-art client. Custom lobby + match only.
+5v5 Dota on the real Dota 2 map. Authoritative Colyseus server (30 Hz sim), Three.js voxel client rendered into a low-res pixel target. Custom lobby + match only.
 The code is the source of truth; every module's header comment is its contract. This file holds only what you need to know before touching
 anything. To add a hero / item / spell fx / quality setting, see [EXTENDING.md](EXTENDING.md).
 
 ## Repo layout (npm workspaces, plain JS ESM, no TypeScript)
 ```
 shared/              imported by server AND client (no DOM, no node-only APIs)
+  vox/               voxel kit + models (vox.js grid / smooth normals, terrain.js materials, lina.js ...); see VOXEL.md
   heroes.js          roster: hero key -> { short, name, abilities (slot order), keys, invoked?, stolen? }   <- add heroes here first
   protocol.js        wire contract: MSG, ORDER, EV, ST (status bits), ABF (ability flags), KIND, ANIM, TEAM, TICK_HZ
   constants.js       Dota rules constants + CAMERA
@@ -23,14 +24,17 @@ server/src/
 client/src/
   main.js, game.js   boot (lobby -> match) and match glue (net + renderer + hud + input + touch + menu + fx loop)
   net/               Colyseus client wrapper, snapshot interpolation (clock.js), rejoin
-  render/            Three.js renderer; fx/ = per-hero spell VFX (fx/<short>.js); quality.js presets; wind.js gusts
-  art/atlas.js       sheet loader + atlas;  art/sheets/*.js generated pixel sheets (heroes, world, icons, fx stamps)
+  render/            Three.js renderer; voxmesh.js (vox -> compact mesh) + voxactors.js (instanced voxel units); fx/ = per-hero spell VFX
+                     (fx/<short>.js); quality.js presets; wind.js gusts
+  art/atlas.js       sheet loader + atlas;  art/sheets/*.js generated pixel sheets (icons, fx stamps; unit/world sheets retire in batch 7)
+  art/portraits/     HUD portraits rendered from the voxel models (tools/art/vox_portrait.mjs)
   ui/                DOM HUD, lobby, shop, minimap, scoreboard, menu, touch controls (touch.js)
   input.js           desktop mouse + keyboard -> orders
   sandbox.html       offline renderer sandbox (sandbox.js + fxdemo.js: fire any spell without a server)
 tools/
   bake.mjs           game-file bake (needs a local Dota 2 install): shared/heroes.js roster + ITEM_NAMES -> shared/data/*.js
-  art/heroes/*.mjs   hero sheet generators (rig.mjs + lib3d.mjs SDF renderer -> 8-dir 2x sheets); contact8.mjs preview; heroes/check.mjs
+  art/heroes/*_vox*.mjs  voxel model checks / reference renders;  art/vox_portrait.mjs portraits
+  art/heroes/*.mjs   legacy sprite sheet generators (rig.mjs + lib3d.mjs), removed in batch 7
   art/icons/*.mjs    ability + item icon glyphs -> sheets/icons.js;  art/world/*.mjs terrain/tree/building/creep sheets
   fullmatch.mjs, soak.mjs   headless bot matches / short sim runs
 reference/trainer/   read-only InvokerTrainer code + LIGHTING-v6.md (never imported at runtime)
@@ -42,7 +46,7 @@ Deploy: every push to `main` rebuilds the GitHub Pages client (.github/workflows
 ## Coordinates and scale
 - Sim/world: Dota units, x east, y north, map box [-8832, 8832]. Ground z from `shared/map.js heightAt(x, y)` (elevation tier x 128, ramps interpolate).
 - Three.js: `X = x`, `Y = z` (up), `Z = -y`. 1 Three unit = 1 Dota unit. Every fx/wind/geo3d API takes WORLD coords and converts internally.
-- Pixel density: 6 Dota units per art pixel (`ART_UNITS_PER_PX`). A 48u tile = 8x8 px. Hero sheets with `px: 2` are drawn at 2x and shown at the same world size.
+- Pixel density: 6 Dota units per art pixel (`ART_UNITS_PER_PX`). A 48u tile = 8x8 px. Voxels: characters 4.2 u, world 8.4 u (exactly 2:1).
 - Tiles: 368x368 of 48u, row 0 = north. `type` 0 grass, 1 tree, 2 cliff, 4 road, 5 water, 6 outside; `elev` 0 river / 1 lanes / 2 high ground; `ramp` flag.
 
 ## Camera (`shared/constants.js CAMERA`, `render/camera.js`)
@@ -104,12 +108,16 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   perspective, vignette, nearest upscale). DoF strength follows the camera distance (`camera.js dofForDistance`): `DOF_MIN` 0.12 at play distance, ramping
   to 1 from closeDistance down to the showcase close-up. Fight whiteouts are prevented by exposure + roll-off; keep lights hue-local rather than raising intensity.
 - **Showcase atmosphere** (`post.js`, ramped by `camera.js showcaseK` = `uSky`; while `state.sky <= SKY_MIN` the normal FINAL program runs, the showcase code is compiled out via `#ifdef SHOWCASE`; tier = quality key `atmos` 0..3): two passes at scene-RT resolution, composited by FINAL. ATMOS: undrawn pixels get a day/night gradient, sun/moon disc at the key azimuth, night stars and (tier 1+) raymarched slab clouds; drawn pixels get distance fog (`fogRange()`, pulled in by a short `drawDist`) plus a raymarched ground mist (10 / 22 / 32 steps + key-light scatter); output rgb = added light, a = kept scene (sky flagged negative). SDOF: bokeh DoF (focus = camera distance, hero sharp; 8 / 16 / 24 taps), only when the `dof` option is on; it gathers the keep-premultiplied scene and, in a second pass with the same taps (ATMB), the ATMOS light, so FINAL composites a blurred atmosphere (a sharp sky / fog composite would re-cut every far silhouette).
-- **Terrain** = tile sprites on a 3D heightfield with cliff walls (`terrain.js`, `terrainGeo.js`). **Buildings, trees, ground clutter are 3D instanced
-  low-poly meshes** (`buildings3d.js`, `trees3d.js`, `clutter3d.js`) lit/fogged/quantised like the terrain. Lighting is 9-level Bayer-quantised
-  (`shaderlib.js LIGHT_LEVELS`) on terrain/sprites/meshes; geo3d fx and beams use stepped bands, never ordered dither.
-- **Sprite depth** (`sprites.js`): units are camera-facing quads, but every sprite pixel sorts at its true height above the foot (upright card).
-  Pixels below the pivot keep foot depth. So 3D fx, orbs, lights and meshes occlude units consistently — and **ground fx must be geo3d discs/quads at
-  `heightAt`, never sprites drawn below their pivot.** 1x sheets use dirs s/e/n (w mirrored); `px: 2` sheets use 8 dirs (`actors.js dir8Of`).
+- **Terrain** = a 3D heightfield with cliff walls (`terrain.js`, `terrainGeo.js`), shaded as voxel ground (`VOXT` mode, `VOX_CELL` 8.4, materials in
+  `shared/vox/terrain.js`); voxel tufts in `clutter3d.js`. **Buildings, trees, clutter** are 3D instanced meshes (`buildings3d.js`, `trees3d.js`,
+  `clutter3d.js`), being converted to voxel (VOXEL.md "Conversion order"). Lighting is 9-level Bayer-quantised (`shaderlib.js LIGHT_LEVELS`) on terrain and meshes;
+  geo3d fx and beams use stepped bands, never ordered dither.
+- **Voxel units** (`voxmesh.js`, `voxactors.js`): one compact geometry per pose frame (12 B / vertex: Int8 position + face byte, Int8 smooth normal +
+  hash, Uint8 colour + emit gain), built lazily on a hero's first `add()`, drawn instanced. The vertex shader leans each body 30 deg about its feet away
+  from the camera (in the shadow pass too), pushes an inverted-hull outline, and breaks the model into falling voxels on death. Emissive tiers: eye <= 1,
+  signature ~1.2, spell 1.5-1.7. Until sprite removal (batch 7) units still sort at foot depth.
+- **Ground fx must be geo3d discs/quads at `heightAt`**, never billboards drawn below a unit's foot. Legacy sprites (`sprites.js`, retiring in batch 7) sort
+  each pixel at its true height above the foot.
 - **Lights** (`lights.js`, `shadow.js`): pool of `MAX_LIGHTS` 32 per frame, selected by intensity x radius, distance-weighted (`selectLights`). The `MAX_PS` 10 strongest spell lights get real
   cube shadows (atlas row per light); the rest fall back to marched height-field shadows + one-bounce fill. Sun/moon key light casts near-overhead shadows.
   Rule: only spells and items cast big lights; basic attacks, towers and creeps stay under the bloom threshold (`fx/projectiles.js ATK_LIGHT` 0.3).
@@ -133,8 +141,9 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   packed, in a per-hero order by inventory slot (`p2d.wheelItems.<hero>` v2; new items append). No item row, no hotkey letters. A BAG button left of
   the attack button opens a popover of all 9 slots (6 main + 3 backpack): drag cell -> cell = `ORDER.SWAP`, cell -> small slot = wheel order, tap =
   tooltip + SELL in shop range (desktop rule); tap outside / BAG closes. Spells: tap / double-tap self-cast / drag-to-aim with rangefinder (clipped at
-  the camera near plane). The icon never moves; the knob shows the aim cursor = button + drag x sensitivity s (menu "Aim sensitivity", 0.75..2.5,
-  default 1.5; attack / pad radius `AIM_R / s`). The move joystick stays live (multi-touch). Cancel: release over the CANCEL X above the wheel, or slide
+  the camera near plane). The icon never moves; the knob shows the cursor. Spell aim (`aimCursor`) starts at the hero's preview point; a comfortable
+  thumb reach (`AIM_REACH_X/Y` x screen, scaled by sensitivity 0.75..2.5, default 1.5) sweeps it to the screen edge, where it edge-pans, so one thumb
+  covers the whole screen. Attack drag / pad radius `AIM_R / s`. The move joystick stays live (multi-touch). Cancel: release over the CANCEL X above the wheel, or slide
   back onto the button. Holding a spell/item still 0.75 s shows its tooltip (release does not cast); 1.75 s enters wheel reorder (spells and small
   items, per hero). HUD bottom bar, left to right: minimap, hero portrait, stats (desktop), bars/items;
   portrait: tap/double tap/click centres the camera, press-and-hold 0.5 s shows the full stats panel (`format.heroStats`) while held. Pinch zoom, menu button.

@@ -5,6 +5,10 @@
 // The scatter (scatterClutter) is pure and deterministic: it runs once over the map grid, and the result is bucketed by
 // 256u cell x variant into one packed buffer that is already in GPU layout, so the per-frame work is "frustum-test a few
 // dozen cells and memcpy their ranges".
+//
+// Voxel ground (terrain.js voxtEnabled, `?voxt=0` off): the low-poly TUFT / FERN scatter is replaced by "sparse raised tufts" as in the offline reference
+// (tools/art/terrain.mjs): 1-3 axis-aligned cubes of one ground cell (VOX_CELL), snapped to the terrain's cell grid, in the ground preset's top[4] tone
+// (tops lightened toward the preset light, sides darkened), mostly 2-3 stacked. The two slots keep their ids: V.TUFT = base tone cubes, V.FERN = highlight tone cubes (palette = the side field), drawn by a second material (VOXC).
 import * as THREE from 'three';
 import { WIND_GLSL } from './wind.js';
 import { COMMON_GLSL } from './shaderlib.js';
@@ -12,6 +16,9 @@ import { DEPTH_FRAG } from './shadow.js';
 import { createKit, instancedGeo, flushInstances, hash01, DEPTH_GLSL } from './mesh3d.js';
 import { tileSide, waterDepth, isDeepVoid } from './terrainGeo.js';
 import { getMap, heightAt, TT, sideOf } from '../../../shared/map.js';
+import { voxtEnabled, VOX_CELL, VOX_FOREST_DIM, VOX_MACRO } from './terrain.js';
+import { TERRAINS } from '../../../shared/vox/terrain.js';
+import { hex, mix } from '../../../shared/vox/vox.js';
 
 export const V = { ROCK: 0, BOULDER: 1, SCREE: 2, TUFT: 3, FERN: 4, BUSH: 5, SHROOM: 6, LOG: 7, TWIGS: 8, BONES: 9, PILLAR: 10, REED: 11, LILY: 12, CARGO: 13, BANNER: 14 };
 export const NV = 15;
@@ -19,6 +26,12 @@ export const CELL = 256;
 const STRIDE = 7;                       // x, y(up), z, yaw, scale, phase, side
 const GRID = 64;                        // jittered-grid pitch (world units)
 const CASTERS = [V.ROCK, V.BOULDER, V.LOG, V.PILLAR, V.CARGO];
+const VOX = voxtEnabled;                // voxel ground on: TUFT / FERN become cell-snapped cubes (see header)
+const VOX_P = { grass: 0.0045, road: 0.0015, forest: 0.0045 };   // base-cell probability of a tuft: share of ground cells
+const VOX_SHAPE = [0.1, 0.22, 0.58, 0.85];   // cumulative: single / flat pair / stack of 2 / stack of 3 / L (pair, one of them stacked); biased tall
+const VOX_HI = 0.3;                     // share of lone / flat cubes in the highlight tone (top[4] lightened; the rest top[4]); stack tops are always highlight
+const VOX_LITE = 0.3, VOX_SIDE_K = 0.58, VOX_TOP_K = 1.06;   // highlight tint toward the preset light colour; side face / top face albedo factors (sides clearly darker)
+const VOX_MAX = 8000;                   // instance buffer of each voxel tone variant (cubes are 1 instance each)
 const BIG = new Set([V.ROCK, V.BOULDER, V.LOG, V.PILLAR, V.CARGO, V.BANNER]);   // keep clear of tree trunks
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -31,6 +44,9 @@ function blade(k, bx, bz, h, r, t, a, col, seg = 3, o = {}) {
 }
 const GRASS = [P(0x2f6a3e, 0x6e6030), P(0x3c7a47, 0x85703a), P(0x275a38, 0x5a4e2a)];
 const STONE = [P(0x565f5c, 0x6a584a), P(0x646d69, 0x7a6554), P(0x4a5350, 0x5c4a3e)];
+
+/** one ground cell cube, base at y 0 (aPart = tone: 0 top[4], 1 top[4] lightened) */
+const voxCube = (tone) => ({ ramp: 0, fn(k) { k.box(VOX_CELL, VOX_CELL, VOX_CELL, { part: tone }); } });
 
 const MESHES = {
   [V.ROCK]: { ramp: 0, fn(k) {
@@ -46,13 +62,13 @@ const MESHES = {
     const at = [[0, 0, 11], [26, 10, 8], [-22, 18, 9], [10, -26, 7], [-30, -10, 6]];
     at.forEach(([x, z, r], i) => k.oct(r, r * 0.6, r * 0.85, { ...STONE[i % 3], x, z, y: r * 0.35, ry: i * 1.3 }));
   } },
-  [V.TUFT]: { ramp: 34, fn(k) {
+  [V.TUFT]: VOX ? voxCube(0) : { ramp: 34, fn(k) {
     for (let i = 0; i < 8; i++) {
       const a = i * 2.4, rr = 3 + (i % 3) * 3;
       blade(k, Math.cos(a) * rr, Math.sin(a) * rr, 30 + (i * 7) % 18, 4.2, 0.2 + (i % 4) * 0.12, a + 0.6, GRASS[i % 3]);
     }
   } },
-  [V.FERN]: { ramp: 26, fn(k) {
+  [V.FERN]: VOX ? voxCube(1) : { ramp: 26, fn(k) {
     for (let i = 0; i < 6; i++) {
       const a = i * 1.047 + 0.2, col = P(i & 1 ? 0x2c6a48 : 0x347852, i & 1 ? 0x6a5a2c : 0x7c6834);
       blade(k, 0, 0, 44, 10, 1.0 + (i % 2) * 0.12, a, col, 4, { sx: 1.0, sz: 0.35, by: 6 });
@@ -177,11 +193,80 @@ function weightsFor(w, c) {
   if (roadEdge) { for (let i = 0; i < NV; i++) w[i] *= 0.35; w[V.SCREE] += 0.03; }                // keep lanes readable
 }
 
+/** palettes of the voxel tufts (the side field of an instance): ground presets as terrain.js picks them; [top[4], top[4] toward the preset light] per palette */
+const VOX_PAL = [TERRAINS.grass, TERRAINS.dire, TERRAINS.grass, TERRAINS.dire, TERRAINS.dirt].map((T, i) => [0, VOX_LITE].map((l) => { const c = mix(hex(T.top[4]), hex(T.light), l); return i === 2 || i === 3 ? mix(c, hex(T.shadow), VOX_FOREST_DIM) : c; }));
+const NB8 = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];   // tile neighbours (dx, dy), dy + = south
+const VOX_REACH = 26.5, VOX_SIDE = 13.5, VOX_LIP = 22, VOX_WET = 12;   // world units: terrain shader blend reach (4.4 art px), side swap (half), cliff lip / AO, wet edge
+const tprio = (t) => (t === TT.WATER ? 0 : t === TT.ROAD ? 1 : t === TT.GRASS ? 2 : t === TT.TREE ? 3 : 4);   // terrain.js prio(): water < road < grass < forest < rock
+
+/**
+ * Sparse raised tufts for the voxel ground: pushes { v (V.TUFT base tone / V.FERN highlight tone), x, y, yaw 0, sc 1, ph 0, side = palette, lift } per cube. Cubes sit on the
+ * terrain's VOX_CELL grid (cell centres, world xz = three xz with z = -y); only on cells whose ground the terrain shader paints as plain grass / forest floor / road
+ * dirt (no lip, AO, wet edge, side swap or kind bleed within reach of a border), never on water, shore, cliffs, rock or stairs. Pure and deterministic.
+ */
+function scatterVoxTufts(map, ctx, blocked, push) {
+  const { w: MW, h: MH, tile, x0, y1, type, ramp, elev } = map, C = VOX_CELL, info = new Array(MW * MH), taken = new Set();
+  const tileInfo = (tx, ty) => {
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return null;
+    const j = ty * MW + tx; if (info[j] !== undefined) return info[j];
+    const t = type[j], side = tileSide(map, tx, ty); let r = null;
+    if ((t === TT.GRASS || t === TT.TREE || t === TT.ROAD) && !ramp[j] && !(t === TT.GRASS && (ctx.flags[j] & F_SHORE))) {
+      const myP = tprio(t), hz = new Float32Array(8);
+      NB8.forEach(([dx, dy], i) => {
+        const nx = tx + dx, ny = ty + dy; if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) return;
+        const nj = ny * MW + nx, nt = type[nj]; if (nt === TT.OUT) return;
+        if (ramp[nj]) hz[i] = VOX_LIP;
+        else if (elev[nj] !== elev[j]) hz[i] = VOX_LIP;
+        else { const np = tprio(nt); hz[i] = np > myP ? VOX_REACH : np === 0 ? VOX_WET : np === myP && t !== TT.ROAD && tileSide(map, nx, ny) !== side ? VOX_SIDE : 0; }
+      });
+      r = { tx, ty, t, hz, any: hz.some((v) => v > 0), pal: t === TT.ROAD ? 4 : (t === TT.TREE ? 2 : 0) + side, j };
+    }
+    return info[j] = r;
+  };
+  const ok = (tf, cx, cz) => {   // cell (cx, cz) centre lies in tile tf and is clear of every border hazard
+    const px = (cx + 0.5) * C, pz = (cz + 0.5) * C;
+    if (tf.any) {
+      const lx = px - (x0 + tf.tx * tile), ly = (y1 - tf.ty * tile) + pz;
+      for (let i = 0; i < 8; i++) {
+        const r = tf.hz[i]; if (!r) continue;
+        const [dx, dy] = NB8[i], ex = dx < 0 ? lx : dx > 0 ? tile - lx : 0, ey = dy < 0 ? ly : dy > 0 ? tile - ly : 0;
+        if (ex * ex + ey * ey < r * r) return false;
+      }
+    }
+    return !blocked(px, -pz);
+  };
+  const tileAt = (cx, cz) => tileInfo(Math.floor(((cx + 0.5) * C - x0) / tile), Math.floor((y1 + (cz + 0.5) * C) / tile));
+  const key = (cx, cz) => (cx + 4096) * 8192 + (cz + 4096);
+  const ADJ = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (let ty = 0; ty < MH; ty++) for (let tx = 0; tx < MW; tx++) {
+    const tf = tileInfo(tx, ty); if (!tf) continue;
+    const j = tf.j, fo = ctx.forest[j];
+    const P = tf.t === TT.ROAD ? VOX_P.road : tf.t === TT.TREE ? (fo <= 19 ? VOX_P.forest * (1 - fo / 20) : 0) : VOX_P.grass;
+    if (P <= 0) continue;
+    const xa = x0 + tx * tile, za = -y1 + ty * tile, cx0 = Math.ceil(xa / C - 0.5), cz0 = Math.ceil(za / C - 0.5);
+    const nx = Math.ceil((xa + tile) / C - 0.5) - cx0, nz = Math.ceil((za + tile) / C - 0.5) - cz0;
+    const seed = 1500000 + j * 16, h = (n) => hash01(seed + n);
+    const m = Math.floor(P * nx * nz + h(0));
+    for (let q = 0; q < m; q++) {
+      const cx = cx0 + Math.min(nx - 1, Math.floor(h(1 + q * 2) * nx)), cz = cz0 + Math.min(nz - 1, Math.floor(h(2 + q * 2) * nz));
+      if (taken.has(key(cx, cz)) || !ok(tf, cx, cz)) continue;
+      const g = hash01(Math.imul(cx, 7919) + cz * 104729 + 31);   // per-cell, independent of the tile loop
+      const g2 = (n) => hash01(Math.imul(cx, 7919) + cz * 104729 + 31 + n * 977);
+      const cube = (x, z, lift, hi) => { taken.add(key(x, z)); push({ v: hi && tf.t !== TT.ROAD ? V.FERN : V.TUFT, x: (x + 0.5) * C, y: -(z + 0.5) * C, yaw: 0, sc: 1, ph: 0, side: tf.pal, lift }); };
+      const pair = (g >= VOX_SHAPE[0] && g < VOX_SHAPE[1]) || g >= VOX_SHAPE[3], n = g < VOX_SHAPE[1] ? 1 : g < VOX_SHAPE[2] ? 2 : g < VOX_SHAPE[3] ? 3 : 2;
+      for (let k = 0; k < n; k++) cube(cx, cz, k * C, k === n - 1 && n > 1 || g2(1) < VOX_HI);   // stack: tops highlight
+      if (!pair) continue;
+      const [ax, az] = ADJ[Math.floor(g2(2) * 4) & 3], bx = cx + ax, bz = cz + az, tb = tileAt(bx, bz);
+      if (tb && tb.pal === tf.pal && !taken.has(key(bx, bz)) && ok(tb, bx, bz)) cube(bx, bz, 0, g2(3) < VOX_HI);
+    }
+  }
+}
+
 /**
  * Deterministic scatter over the whole map. Returns { n, data (packed GPU layout, sorted by cell then variant), vari (variant of each
  * instance), keyStart (CSR over cell * NV + variant), GW, GH, cellMaxH, counts }.
  */
-export function scatterClutter(map = getMap(), { density = 1 } = {}) {
+export function scatterClutter(map = getMap(), { density = 1, vox = false } = {}) {
   const { w: MW, h: MH, tile, x0, y1, type, ramp } = map;
   const ctx = tileContext(map), wdArr = waterDepth(map), W = MW * tile, H = MH * tile;
   const tileOf = (x, y) => { const tx = Math.floor((x - x0) / tile), ty = Math.floor((y1 - y) / tile); return tx < 0 || ty < 0 || tx >= MW || ty >= MH ? -1 : ty * MW + tx; };
@@ -221,6 +306,7 @@ export function scatterClutter(map = getMap(), { density = 1 } = {}) {
     let acc = 0, v = -1;
     for (let i = 0; i < NV; i++) { acc += wts[i] * density; if (r < acc) { v = i; break; } }
     if (v < 0) continue;
+    if (vox && (v === V.TUFT || v === V.FERN)) continue;               // voxel ground: cubes instead (scatterVoxTufts), same rolls for every other variant
     if (BIG.has(v) && nearTree(x, y, 52)) continue;
     const h = (n) => hash01(seed + 3 + n);
     emit(v, x, y, h, side);
@@ -236,6 +322,8 @@ export function scatterClutter(map = getMap(), { density = 1 } = {}) {
       }
     }
   }
+
+  if (vox) scatterVoxTufts(map, ctx, blocked, (r) => rec.push(r));
 
   // base props: crates / barrels / banners ringed around the buildings of each team
   const okGround = (x, y, skip) => { const j = tileOf(x, y); return j >= 0 && !ramp[j] && type[j] === TT.GRASS && !(ctx.flags[j] & F_ROADEDGE) && !blocked(x, y, 18, skip) && !nearTree(x, y, 60); };
@@ -263,7 +351,7 @@ export function scatterClutter(map = getMap(), { density = 1 } = {}) {
   const fill = keyStart.slice(0, keys), data = new Float32Array(n * STRIDE), vari = new Uint8Array(n), cellMaxH = new Float32Array(GW * GH), counts = new Int32Array(NV);
   for (const r of rec) {
     const key = keyOf(r), i = fill[key]++, z = heightAt(r.x, r.y), o = i * STRIDE;
-    data[o] = r.x; data[o + 1] = z - 1.5; data[o + 2] = -r.y; data[o + 3] = r.yaw; data[o + 4] = r.sc; data[o + 5] = r.ph; data[o + 6] = r.side;
+    data[o] = r.x; data[o + 1] = z - 1.5 + (r.lift || 0); data[o + 2] = -r.y; data[o + 3] = r.yaw; data[o + 4] = r.sc; data[o + 5] = r.ph; data[o + 6] = r.side;
     vari[i] = r.v; counts[r.v]++;
     const ci = (key / NV) | 0; if (z > cellMaxH[ci]) cellMaxH[ci] = z;
   }
@@ -298,6 +386,10 @@ attribute vec3 iPos;
 attribute vec4 iXf;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vLY, vPh, vEm;
+#ifdef VOXC
+attribute float aPart;
+varying float vPal, vTone;
+#endif
 ${DEPTH_GLSL}
 ${WIND_GLSL}
 void main(){
@@ -316,6 +408,9 @@ void main(){
   vW = w; vN = vec3(normal.x * c + normal.z * s, normal.y, -normal.x * s + normal.z * c); vFoot = iPos;
   vLY = position.y; vPh = ph; vEm = aEmit;
   vCol = mix(aCol, aCol2, iXf.w);
+#ifdef VOXC
+  vPal = iXf.w; vTone = aPart;
+#endif
   vec4 cr = projectionMatrix * viewMatrix * vec4(w, 1.);
 #ifdef SHADOW
   gl_Position = cr;
@@ -324,29 +419,56 @@ void main(){
 #endif
 }`;
 
+// voxel tufts (VOXC): flat preset tone per palette (instance side field) x the terrain shader's own low-frequency cool<->warm tint of that ground cell
+const VOXC_GLSL = /* glsl */ `
+const float VOX_CELL = ${VOX_CELL.toFixed(3)};
+const float VOX_MACRO = ${VOX_MACRO.toFixed(2)};
+const vec3 VTC[${VOX_PAL.length * 2}] = vec3[${VOX_PAL.length * 2}](${VOX_PAL.flat().map((c) => 'vec3(' + c.map((v) => (v / 255).toFixed(4)).join(',') + ')').join(',')});
+float tfHash(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float tfNoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(tfHash(i), tfHash(i + vec2(1., 0.)), f.x), mix(tfHash(i + vec2(0., 1.)), tfHash(i + vec2(1., 1.)), f.x), f.y);
+}`;
+
 const FRAG = /* glsl */ `
 precision highp float;
 ${COMMON_GLSL}
+#ifdef VOXC
+${VOXC_GLSL}
+#endif
 uniform float uRimOn;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vLY, vPh, vEm;
+#ifdef VOXC
+varying float vPal, vTone;
+#endif
 void main(){
   vec3 n = normalize(vN);
   bool top = abs(n.y) > .6;
   vec2 dp = top ? floor(vW.xz / 6.) : vec2(floor((vW.x + vW.z) / 6.), floor(vW.y / 6.));
+#ifdef VOXC
+  vec3 alb = VTC[int(vPal + .5) * 2 + int(vTone + .5)];
+  vec2 vc = floor(vFoot.xz / VOX_CELL), dqw = (vc + .5) * (VOX_CELL / 6.);
+  float vq = floor((tfNoise(dqw * .009 + 3.) * .6 + tfNoise(dqw * .034 + 9.) * .4) * 5. + mix(tfHash(vc), bayer4(vc), .5)) / 5.;
+  alb *= top ? ${VOX_TOP_K.toFixed(2)} : ${VOX_SIDE_K.toFixed(2)};                    // side faces clearly darker than the top
+  alb *= mix(vec3(1.), mix(vec3(.84, .93, .98), vec3(1.07, 1.04, .92), clamp(vq * 1.25, 0., 1.)), VOX_MACRO * (vPal > 3.5 ? .8 : 1.));
+#else
   vec3 alb = vCol;
   alb *= .84 + .32 * fract(sin(vPh * 91.7) * 4375.5);                  // per-instance tint
   alb *= .95 + .1 * fract(sin(dot(floor(dp / 2.), vec2(12.9898, 78.233))) * 43758.5453);
   alb *= mix(.74, 1., smoothstep(0., 14., vLY));                       // contact darkening
+#endif
   vec3 pl = pointLights(vW + n * 8., n, .5);
   float sh = shadowAt(vW, n, dp);
   vec3 L = quantL(shadowAmb(sh) + uKeyCol * (max(dot(n, uKeyDir), 0.) * sh) + pl, dp);
   vec3 col = alb * L;
+#ifndef VOXC
   vec3 v = normalize(uCamPos - vW);
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
   col += uRimOn * .55 * (uRimKey * fr * (.3 + kf) + pl * fr * .5);
   col += vEm * vCol * (.5 * uNight * (.82 + .18 * sin(uTime * 1.3 + vPh * 3.)));   // mushroom caps: faint glow at night only
+#endif
   gl_FragColor = vec4(fogGrade(col, vFoot, dp), 1.);
 }`;
 
@@ -354,18 +476,20 @@ const IFLOATS = [['iPos', 3], ['iXf', 4]];
 
 export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
   const map = getMap();
-  const data = scatter || scatterClutter(map);
+  const data = scatter || scatterClutter(map, { vox: VOX });
   const rimU = { value: 1 };
   const group = new THREE.Group(); group.name = 'clutter3d'; scene.add(group);
   const mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: { ...uniforms, uRimOn: rimU }, side: THREE.FrontSide });
   const depthMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: DEPTH_FRAG, uniforms: mat.uniforms, side: THREE.DoubleSide, defines: { SHADOW: 1 } });
+  const voxMat = VOX ? new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: mat.uniforms, side: THREE.FrontSide, defines: { VOXC: 1 } }) : null;   // voxel tufts: shares the uniform objects
+  const isVox = (v) => VOX && (v === V.TUFT || v === V.FERN);
   const vars = [], stats = { draws: 0, tris: 0, instances: 0, cells: 0, total: data.n, ms: 0 };
   for (let v = 0; v < NV; v++) {
     const kit = createKit(1); MESHES[v].fn(kit);
     const merged = kit.build(), ramp = MESHES[v].ramp;
     if (ramp) { const sw = merged.attributes.aSw, pos = merged.attributes.position; for (let i = 0; i < sw.count; i++) sw.setX(i, sw.getX(i) * Math.min(1, Math.max(0, pos.getY(i) / ramp))); }
-    const inst = instancedGeo(merged, max, IFLOATS);
-    const mesh = new THREE.Mesh(inst.geo, mat); mesh.userData.depthMat = depthMat; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; mesh.name = 'clutter3d_' + v; mesh.renderOrder = 1;
+    const inst = instancedGeo(merged, isVox(v) ? Math.max(max, VOX_MAX) : max, IFLOATS);
+    const mesh = new THREE.Mesh(inst.geo, isVox(v) ? voxMat : mat); mesh.userData.depthMat = depthMat; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; mesh.name = 'clutter3d_' + v; mesh.renderOrder = 1;
     mesh.visible = false; group.add(mesh);
     vars.push({ inst, mesh, n: 0, tris: inst.tris });
   }
@@ -422,8 +546,8 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
     },
     setRim(on) { rimU.value = on ? 1 : 0; },
     /** shadow casters: the big props only. [{ mesh, mat }] */
-    casters() { return CASTERS.map((v) => ({ mesh: vars[v].mesh, mat: depthMat })); },
-    dispose() { for (const t of vars) t.inst.geo.dispose(); mat.dispose(); depthMat.dispose(); scene.remove(group); },
+    casters() { return (VOX ? [...CASTERS, V.TUFT, V.FERN] : CASTERS).map((v) => ({ mesh: vars[v].mesh, mat: depthMat })); },
+    dispose() { for (const t of vars) t.inst.geo.dispose(); mat.dispose(); depthMat.dispose(); if (voxMat) voxMat.dispose(); scene.remove(group); },
   };
   return api;
 }

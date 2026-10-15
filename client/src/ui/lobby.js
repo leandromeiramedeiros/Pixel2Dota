@@ -4,21 +4,22 @@ import { MSG, LOBBY, PHASE, TEAM, TEAM_SIZE, SPEC_MAX, EV } from '@p2d/shared/pr
 import { HEROES, HERO_KEYS } from '@p2d/shared/heroes.js';
 import { DATA } from '@p2d/shared/data.js';
 import { serverKind } from '../net/index.js';
+import { withVoxPortrait } from '../art/portraits.js';
 import './lobby.css';
 
 const UNREACHABLE = 'Cannot reach the server';
 const CONNECTING = 'Connecting…';
 const WAKING = 'Waking up the server, this can take a minute...';
 
-// Hero portraits: sheets/<short>.js 'portrait' frame (ASCII rows) -> 1x PNG data URL, shown pixelated at 1x/3x via CSS.
+// Hero portraits: sheets/<short>.js 'portrait' frame (ASCII rows; the voxel one from art/portraits.js unless ?vox=0) -> 1x PNG data URL, shown pixelated at 1x/3x via CSS.
 const sheetLoaders = import.meta.glob('../art/sheets/*.js');
 const portraitUrl = {};                       // short -> dataURL (filled as sheets load)
 const portraitLoading = new Map();
 function loadPortrait(short) {
   if (portraitLoading.has(short)) return portraitLoading.get(short);
   const load = sheetLoaders['../art/sheets/' + short + '.js'];
-  const p = (load ? load() : Promise.resolve(null)).then((m) => {
-    const sh = m && m.default, rows = sh && sh.frames && sh.frames.portrait;
+  const p = (load ? load() : Promise.resolve(null)).then(async (m) => {
+    const sh = m && await withVoxPortrait(short, m.default), rows = sh && sh.frames && sh.frames.portrait;
     if (!rows) return;
     const w = Math.max(...rows.map((r) => r.length)), h = rows.length;
     const c = document.createElement('canvas'); c.width = w; c.height = h;

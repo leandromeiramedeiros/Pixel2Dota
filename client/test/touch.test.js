@@ -6,7 +6,7 @@ import { TEAM, KIND, ST } from '../../shared/protocol.js';
 import {
   T, touchWanted, isPortrait, castClass, selfCastTarget, arcLayout, angleDiff, joyShouldSend, dragVector, aimWorldOffset,
   snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget, touchScale, aimShape, holdPhase, releaseAction, aimCancelled, inRect,
-  smallArcLayout, loadItemOrder, saveItemOrder, itemMapKey, usableItem, packWheelItems, placeWheelItem, dropAction, BAG_POS, bagBox, edgePanArmed, clampSens, aimRadius, loadAimSens, saveAimSens, SENS, SENS_STEPS,
+  smallArcLayout, loadItemOrder, saveItemOrder, itemMapKey, usableItem, packWheelItems, placeWheelItem, dropAction, BAG_POS, bagBox, edgePanArmed, aimCursor, clampSens, aimRadius, loadAimSens, saveAimSens, SENS, SENS_STEPS,
 } from '../src/ui/touch.js';
 import { targetInfo } from '../src/ui/targeting.js';
 
@@ -302,4 +302,20 @@ test('aim sensitivity: clamp 0.75..2.5 in 0.25 steps, default 1.5 (~64 px full r
   assert.equal(saveAimSens(st, 2.1), true); assert.equal(loadAimSens(st), 2);
   st.setItem(SENS.KEY, 'garbage'); assert.equal(loadAimSens(st), 1.5);
   assert.equal(loadAimSens(null), 1.5); assert.equal(saveAimSens(null, 2), false);
+});
+
+test('aimCursor: starts at the hero preview point, thumb reach sweeps it to each screen edge, rings stop it', () => {
+  const W = 844, H = 390, o = { sx: 422, sy: 195, hx: 422, hy: 195, px: 780, py: 330, W, H, K: 1, rs: 1, ringX: 0, ringY: 0 };
+  assert.deepEqual(aimCursor(0, 0, o), { x: 422, y: 195 }, 'first frame = start, not the button');
+  const L = aimCursor(-T.AIM_REACH_X * W, 0, o), Lb = aimCursor(-1000, 0, o);
+  assert.ok(Math.abs(L.x) < 1e-9 && Lb.x === 0, 'comfortable reach left = left edge');
+  assert.ok(aimCursor(-T.AIM_REACH_X * W / 2, 0, o).x > 0 && aimCursor(-T.AIM_REACH_X * W / 2, 0, o).x < 422, 'half reach: between');
+  assert.equal(aimCursor(60, 0, o).x, W, 'little room right of the button: short reach, right edge');   // 844 - 780 - 12 = 52 px
+  assert.ok(Math.abs(aimCursor(0, -T.AIM_REACH_Y * H, o).y) < 1e-9, 'up reach = top edge');
+  assert.equal(aimCursor(0, 200, o).y, H, 'down = bottom edge');
+  const a = aimCursor(-30, 0, o).x, b = aimCursor(-60, 0, o).x; assert.ok(422 - b > 2 * (422 - a), 'accelerating');
+  assert.ok(aimCursor(-80, 0, Object.assign({}, o, { rs: 2 })).x > aimCursor(-80, 0, o).x, 'rs > 1 = longer reach = slower');
+  const ring = Object.assign({}, o, { ringX: 100, ringY: 60 }), rl = aimCursor(-1000, -1000, ring);
+  assert.ok(Math.abs(rl.x - (422 - 115)) < 1e-9 && Math.abs(rl.y - (195 - 69)) < 1e-9, 'finite ring: sweep ends at 1.15 x ring');
+  assert.equal(aimCursor(0, 0, Object.assign({}, o, { sx: 200, hx: 422, ringX: 100 })).x, 200);
 });

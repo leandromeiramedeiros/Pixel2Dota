@@ -30,25 +30,17 @@ To deploy the public server yourself: on [render.com](https://render.com) choose
 
 ## About
 
-Pixel2Dota is a 5v5 Dota 2-style game that runs in the browser. It plays on the real Dota 2 map with an authoritative Colyseus server (30 Hz simulation) and a Three.js client that draws pixel-art sprites over a 3D tile terrain. Players create or join a custom lobby, bots fill empty slots, and a match runs until one side's ancient is destroyed.
+Pixel2Dota is Dota 2 in the browser, played on the real Dota 2 map. An authoritative Colyseus server runs the simulation at 30 Hz. The Three.js
+client draws every unit, building, tree and the terrain as voxels in a low-res pixel target. Players create or join a lobby, bots fill empty
+slots, and the match runs until an ancient falls.
 
-## Scope
+## Goal
 
-In scope:
-- Custom lobby only. Create a lobby (it gets a 4-letter code), or join one by code or from the open-lobby list. Radiant and Dire have 5 slots each. The host adds or kicks bots, fills empty slots with bots, and starts the match.
-- Normal Dota map: three lanes, creep waves every 30 s from 0:00, towers, barracks, two ancients, fountains, shop at the fountain. Day/night cycle affects vision and lighting only.
-- 13 heroes: Invoker, Sven, Lina, Lion, Crystal Maiden, Axe, Sniper, Zeus, Drow Ranger, Juggernaut, Pudge, Mirana, Rubick. Invoker has the full orb/invoke kit (10 spells); Rubick can steal any of them.
-- Neutral camps, Roshan with the Aegis, observer and sentry wards.
-- Simple item set: consumables, basics, built items, recipes that auto-combine, 6 slots, no stash or courier. Teleport Scroll, Blink, Black King Bar, Power Treads and others.
-- XP, levels, skill points, gold, deaths and respawn.
-- Bots for lane play, fighting, retreat and buying.
-- 30 Hz server simulation. The server sends one state patch per tick. The client interpolates units behind an adaptive delay (70 to 350 ms, following network jitter).
-- 2.5D rendering: 3D tile terrain with height, cliffs and ramps, low-poly 3D buildings, trees and clutter, and 2D pixel sprites for units and creeps. Dota camera at 1134 units distance, 60 degree pitch, 70 degree FOV. Bloom, rim light, point lights with shadows, GPU particle and 3D spell effects, client-side fog of war, Low/Medium/High graphics presets.
-- HUD: portrait, HP/mana, abilities, items, minimap, shop, scoreboard, kill feed, chat.
+The full Dota match experience: in-game feature parity, the full roster and the voxel look. The parity backlog and the conversion state are in
+[docs/PROGRESS.md](docs/PROGRESS.md). Out of scope, for good: ranked, replays, demos, profiles, anything outside the match.
 
-Out of scope: ranked, replays, demos, a learn tab, player profiles. The match rules also leave out runes, outposts, couriers, glyph, buyback, talents and Aghanim's Scepter.
-
-Note: fog of war is drawn on the client only. The server sends all unit positions to every client.
+Today: 13 heroes (Invoker with the full orb kit; Rubick can steal any spell), lanes, creeps, towers, barracks, neutrals, Roshan + Aegis, wards,
+about 41 items, bots, day/night, fog of war, and desktop and touch controls.
 
 ## Requirements
 
@@ -109,13 +101,19 @@ From the header of `client/src/input.js`, plus Esc from the same file:
 | Mouse wheel | Zoom |
 | Screen edge, arrow keys, middle-drag | Pan |
 
-## Tests and headless tools
+## Develop
 
 ```
-npm test                              # node --test over shared, server and client test folders
-node tools/soak.mjs                   # short headless sim run; prints timing and event counts
-node tools/fullmatch.mjs [minutes] [seed]   # headless 10-bot match (default 40 min, seed 1); reports progression and whether it ends
+npm test                                    # node --test over shared, server and client (includes voxel mesh checks)
+node tools/soak.mjs                         # short headless sim run: timing and event counts
+node tools/fullmatch.mjs [minutes] [seed]   # headless 10-bot match; reports progression and whether it ends
 ```
+
+Rules:
+- **Push to `main` deploys** the Pages client and the Render server. Work on a branch, and run `npm test` and `npm run build` before merging.
+- **Public repo.** No secrets, and no Valve files (models, textures, icons, sounds). All art is procedural JS in `tools/art/` and `shared/vox/`.
+- **Never `npm run dev`:** its watcher respawns servers on :2567. Run `node server/src/index.js` and `npx vite client --port 5180` instead.
+- **Visuals need a director verdict.** Send screenshots and never self-certify (see [docs/ART-DIRECTION.md](docs/ART-DIRECTION.md)).
 
 ## Project layout
 
@@ -126,10 +124,11 @@ server/src/sim/  Simulation in plain JS, no Colyseus imports; abilities/ has one
 server/test/     Server tests
 client/src/      Vite client: main.js (boot), game.js (match), input.js (controls)
 client/src/net/  Colyseus client wrapper, state mirror, interpolation
-client/src/render/  Three.js renderer: terrain, sprites, lights, post, particles, fog; fx/ has spell and item VFX
-client/src/art/  Sprite-sheet loader and atlas; sheets/ holds the generated pixel sheets
+client/src/render/  Three.js renderer: voxel units (voxactors, voxmesh), terrain, lights, post, particles, fog; fx/ has spell and item VFX
+client/src/art/  Icon sheets, portraits, and the sprite atlas (sprites retire after the voxel conversion)
+shared/vox/      Voxel models, kit and palettes (browser-safe, also used by the offline tools)
 client/src/ui/   DOM HUD, lobby, shop, minimap, scoreboard
-tools/           bake.mjs and vpk/vdf readers (game-file bake), art/ (pixel-art generators), soak.mjs, fullmatch.mjs
+tools/           bake.mjs and vpk/vdf readers (game-file bake), art/ (voxel renders, portraits, icons, legacy sprite generators), soak.mjs, fullmatch.mjs
 docs/            Architecture, decisions and progress notes
 reference/trainer/  Read-only copies of InvokerTrainer code used for porting; not imported at runtime
 ```
@@ -137,8 +136,9 @@ reference/trainer/  Read-only copies of InvokerTrainer code used for porting; no
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): core concepts and contracts. Layout, coordinates, camera, network, sim, data flow, render systems.
-- [docs/EXTENDING.md](docs/EXTENDING.md): checklists to add a hero, an item, a 3D spell fx, a quality setting.
+- [docs/EXTENDING.md](docs/EXTENDING.md): checklists to add a hero, a voxel model, an item, a 3D spell fx, a quality setting.
 - [docs/ART-DIRECTION.md](docs/ART-DIRECTION.md): the look and the rules for new art.
-- [docs/DECISIONS.md](docs/DECISIONS.md): decisions in force (sources, roster simplifications, items, match rules, rendering).
-- [docs/PROGRESS.md](docs/PROGRESS.md): current state and open items.
+- [docs/VOXEL.md](docs/VOXEL.md): the voxel pipeline (models, kit, mesher, runtime) and the conversion order.
+- [docs/DECISIONS.md](docs/DECISIONS.md): decisions in force (sources, hero simplifications, items, match rules, rendering).
+- [docs/PROGRESS.md](docs/PROGRESS.md): what exists, the parity backlog and the voxel conversion state.
 - [server/src/sim/API.md](server/src/sim/API.md): the simulation API for abilities, items and bots.

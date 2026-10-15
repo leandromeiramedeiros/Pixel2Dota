@@ -10,10 +10,10 @@ export const h = (tag, cls, text) => { const e = document.createElement(tag); if
 export const sizeU = (c, w, hh) => { c.style.width = `calc(${w} * var(--u))`; if (hh) c.style.height = `calc(${hh} * var(--u))`; return c; };
 const teamCls = (t) => (t === TEAM.RADIANT ? 'rad' : t === TEAM.DIRE ? 'dire' : '');
 
-/** Face crop of a hero's portrait frame (24x24 raster px). */
+/** Face crop of a hero's portrait frame (24x24 raster px; a voxel portrait carries its own sheet.faceCrop). */
 export function faceEl(sheets, heroKey, w = 24) {
   const sh = sheets && sheets[heroShort(heroKey)];
-  const c = sh && sh.frames && sh.frames.portrait ? pixelEl(sh, 'portrait', 1, [4, 2, 24, 24]) : document.createElement('canvas');
+  const c = sh && sh.frames && sh.frames.portrait ? pixelEl(sh, 'portrait', 1, sh.faceCrop || [4, 2, 24, 24]) : document.createElement('canvas');
   c.classList.add('px');
   return sizeU(c, w, w);
 }
