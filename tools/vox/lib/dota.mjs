@@ -1,5 +1,5 @@
 // Unit key / short name -> model files of the LOCAL Dota 2 install, and the Source2Viewer-CLI glb export (cached under tools/.cache/ref/_export/).
-// Private visual reference only: nothing from here may reach shared/, client/ or any committed file (docs/VOXEL.md, test/legal.test.js).
+// Reference renders of the local game files (output: gitignored tools/.cache/ref/).
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';

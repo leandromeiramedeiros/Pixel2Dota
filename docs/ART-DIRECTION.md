@@ -22,8 +22,7 @@ The user is the creative director: every visual change gets a screenshot and a v
    pilot (`shared/vox/lina.js`). Death = the model breaks into falling voxels.
 2. **Portraits:** rendered offline from the voxel model with dramatic studio light (key, warm fill, strong rim, dark backdrop), shown at 32x42 in the HUD.
    Ability and item icons are the only sprites left (the sprite pipeline is removed after the voxel conversion); they stay painted pixel art, close to the Dota 2 art (likeness, composition, colour key), readable at 20x20.
-3. **Hand-authored only.** Never copy, trace or extract Valve files (models, textures, icons, sounds). Procedural generators in `tools/art/` are the medium.
-4. **Lights, bloom and depth** follow the limits in [ARCHITECTURE.md](ARCHITECTURE.md) "Render systems": big lights only from spells and items, attacks/towers/creeps
+3. **Lights, bloom and depth** follow the limits in [ARCHITECTURE.md](ARCHITECTURE.md) "Render systems": big lights only from spells and items, attacks/towers/creeps
    under the bloom threshold, ground fx as 3D discs at terrain height.
 
 ## Palette anchors

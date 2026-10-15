@@ -7,10 +7,8 @@ description: Create or rework voxel units (heroes, creeps, neutrals, buildings) 
 
 Read `docs/VOXEL.md` (grids, kit, rules) once. Samples: `shared/vox/heroes/lina.js`, `shared/vox/creeps/melee_radiant.js`.
 
-## Hard rule (public repo)
-Valve models, textures and renders of them NEVER enter the repo tree, runtime, a commit, or a voxelization. `npm run vox:ref` writes private
-reference renders into the gitignored `tools/.cache/ref/` (a visual reference, like the wiki): look at them, model by hand. Never copy, trace,
-sample or import their pixels / vertices. `shared/test/legal.test.js` fails if shipped code touches the cache. Never attach ref renders to sheets, docs or commits.
+## Reference
+`npm run vox:ref` renders the game model into the gitignored `tools/.cache/ref/` (a cache, regenerated on demand).
 
 ## Loop (per unit)
 1. **Reference.** `npm run vox:ref -- <short|npc key>` (`list` shows every game unit; `heroes` / `creeps` / `neutrals` / `buildings` / `props` / `all` for batches; `props` = static map props `prop_<group>_<name>_<radiant|dire|any>`: trees, cliffs, rocks, clutter, views + sheet only, no anims;

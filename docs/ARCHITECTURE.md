@@ -41,7 +41,7 @@ reference/trainer/   read-only InvokerTrainer code + LIGHTING-v6.md (never impor
 ```
 Commands: `npm test` (node --test over shared/server/client), `npm run build` (client/dist), `node server/src/index.js` + `npx vite client --port 5190`
 (don't use `npm run dev`: its watcher respawns servers), `npm run bake`. Cheats: `node --env-file=tools/cheats.env server/src/index.js` then chat `-gold N`, `-lvlup N`, `-killancient`.
-Deploy: every push to `main` rebuilds the GitHub Pages client (.github/workflows/pages.yml) and the Render server (render.yaml). Repo is public: no secrets, no Valve binaries.
+Deploy: every push to `main` rebuilds the GitHub Pages client (.github/workflows/pages.yml) and the Render server (render.yaml). Repo is public: no secrets.
 
 ## Coordinates and scale
 - Sim/world: Dota units, x east, y north, map box [-8832, 8832]. Ground z from `shared/map.js heightAt(x, y)` (elevation tier x 128, ramps interpolate).

@@ -122,7 +122,7 @@ model.
 4. **No runtime skinning:** frames are rebuilt per pose at load. Sway (`aSw`, trees today; planned for hair / capes) is the only vertex animation.
 5. **Every model has checks:** one line in `shared/vox/index.js` and `npm run vox:check -- <short>` covers it (feet on z 0, off the walls, winding, footprint, tiers, memory).
 6. **Director gate per model:** an offline sheet + an in-game shot to the creative director before registering. Never self-certify visuals.
-7. **Hand-authored only:** no Valve models / textures / renders in the repo, at runtime or voxelized. `tools/vox/ref.mjs` renders the local game files into the gitignored `tools/.cache/` as a private visual reference (like the wiki); a legal test (`shared/test/legal.test.js`) fails if shipped code touches it. `.vox` (MagicaVoxel) import only for one-off props.
+7. **Reference:** `tools/vox/ref.mjs` renders the local game files into the gitignored `tools/.cache/ref/`. `.vox` (MagicaVoxel) import only for one-off props.
 
 ## Conversion order
 One director gate per batch, with in-game shots.
