@@ -29,7 +29,7 @@ export const MAX_ROCKS = 4;
 const BOLTS = 20;
 const STRIDE = 16;                   // 4 vec4 per instance (disc, ribbon)
 const TUBE_STRIDE = 24;              // 6 vec4
-const SOLID_STRIDE = 20;             // 5 vec4 (orb, shard, rock)
+const SOLID_STRIDE = 24;             // 6 vec4 (orb, shard, rock)
 const TUBE_SEG = 24;
 const TAU = Math.PI * 2;
 /** solid shading modes */
@@ -208,6 +208,7 @@ attribute vec4 aQ;         // orientation quaternion (three space)
 attribute vec4 aS;         // local stretch x, y (long axis), z; lump amount (vertex noise, fraction of size)
 attribute vec4 aC;         // rgb (HDR), alpha gain
 attribute vec4 aM;         // mode (0 GLOW, 1 ICE, 2 MOLTEN), seed, p1, p2
+attribute vec4 aD;         // sprite depth: x = ground height (three y), y = on (> .5), z = pull toward the camera (world units)
 varying vec3 vW, vL, vC; varying float vK; varying vec4 vM;
 vec3 qrot(vec4 q, vec3 v){ return v + 2. * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 float h31(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
@@ -215,7 +216,12 @@ void main(){
   vec3 lp = position * (1. + aS.w * (h31(position * 3.1 + aM.y) - .5));       // shared vertices move together: lumpy, never cracked
   vec3 wp = aP.xyz + qrot(aQ, lp * aS.xyz * aP.w);
   vW = wp; vL = position; vC = aC.rgb; vK = aC.w; vM = aM;
-  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.);
+  vec4 cr = projectionMatrix * viewMatrix * vec4(wp, 1.);
+  if (aD.y > .5) {   // depth of the vertex dropped to the ground, like a sprite / voxel unit foot (mesh3d DEPTH_GLSL): units occlude it by where it stands
+    vec4 cf = projectionMatrix * viewMatrix * vec4(wp.x, aD.x, wp.z + aD.z, 1.);
+    cr.z = cf.z / cf.w * cr.w;
+  }
+  gl_Position = cr;
 }`;
 const FACET = /* glsl */ `
 vec3 facetN(vec3 w){ vec3 c = cross(dFdx(w), dFdy(w)), V = uCamPos - w; float l = length(c);   // edge-on facets: zero cross -> NaN -> poisons bloom
@@ -405,7 +411,7 @@ export function createGeo3d({ scene, uniforms, particles }) {
   // ribbon
   const rg = QUAD(); const Rb = makeBatch(rg, ['aA', 'aB', 'aC', 'aM'], MAX_RIB);
   // solids
-  const SOL = ['aP', 'aQ', 'aS', 'aC', 'aM'];
+  const SOL = ['aP', 'aQ', 'aS', 'aC', 'aM', 'aD'];
   const ico = icoGeo(), ico2 = icoGeo();
   const O = makeBatch(ico.g, SOL, MAX_ORBS, SOLID_STRIDE);
   const sg = shardGeo(); const S = makeBatch(sg, SOL, MAX_SHARDS, SOLID_STRIDE);
@@ -458,10 +464,16 @@ export function createGeo3d({ scene, uniforms, particles }) {
     d[i + 8] = sx; d[i + 9] = sy; d[i + 10] = sz; d[i + 11] = o.lump || 0;
     d[i + 12] = col[0]; d[i + 13] = col[1]; d[i + 14] = col[2]; d[i + 15] = a;
     d[i + 16] = mode; d[i + 17] = o.seed || 0; d[i + 18] = o.p1 || 0; d[i + 19] = o.p2 || 0;
+    if (o.foot != null) { d[i + 20] = o.foot; d[i + 21] = 1; d[i + 22] = o.footPull == null ? 8 : o.footPull; } else { d[i + 20] = 0; d[i + 21] = 0; d[i + 22] = 0; }
+    d[i + 23] = 0;
     return true;
   }
   /** Low-poly sphere / ellipsoid at its centre (x,y,z), radius R. mode GLOW (fresnel shell, o.p2 = centre fill) or ICE (lit facets, o.p1 = glint share).
-   *  o: {sx, sy (long / vertical axis), sz (stretch, default 1), yaw, pitch, roll, lump (vertex noise, fraction of R), seed, p1, p2} */
+   *  o: {sx, sy (long / vertical axis), sz (stretch, default 1), yaw, pitch, roll, lump (vertex noise, fraction of R), seed, p1, p2,
+   *      foot (world z of the ground: sprite depth, see below), footPull (default 8)}
+   *  foot (all solids): voxel units / props write the depth of their FOOT (mesh3d propDepth), not of each voxel, so a solid floating at body
+   *  height would win the depth test even behind them. With o.foot the solid writes the depth of its own ground point instead: it hides
+   *  behind a unit iff it sits behind that unit's foot (Invoker orbs, anything circling a hero). */
   function orb(x, y, z, R, col, a, mode, o) {
     o = o || DEF;
     return solid(O, x, y, z, R, o.sx || 1, o.sy || 1, o.sz || 1, o.yaw, o.pitch, o.roll, col, a, mode || 0, o);

@@ -1,6 +1,7 @@
 // Ambient status visuals (stun stars, hex, magic immunity, slow, invis, channel ...) and the Invoker orbs.
 import { ST } from '../../../../shared/protocol.js';
 import { PAL, ORB, elemMul, rnd, TAU } from './common.js';
+import { LEAN_TO, LEAN_K } from '../voxactors.js';
 
 const STUN_COL = [3.4, 2.8, 0.7];
 const GOLD = PAL.gold;
@@ -11,58 +12,65 @@ export function register(c, R) {
   const fDecalFrost = c.frame('decal_frost');
   const orbBuf = [0, 0, 0];
 
-  // Orbs = real 3D geometry (fx/geo3d.js G.orb, GLOW): a small HDR core inside a fresnel shell (+ a faint halo shell on medium and up).
-  // Everything is a depth-tested solid, so an orb passing behind Invoker is hidden per pixel by his body, glow included: no billboard
-  // halo (the old 'glow' particles bled over his face) and no sprite quad (it was cut into a hard-edged square).
+  // Orbs = real 3D geometry (fx/geo3d.js G.orb, GLOW): a small HDR core inside a fresnel shell, no billboard glow and no sprite quad.
+  // Depth: voxel units write the depth of their FOOT (mesh3d propDepth), so the orbs use o.foot (depth of their own ground point): an orb
+  // behind his foot is hidden by his whole silhouette (shell, core, glow), one in front is drawn whole; never chopped mid-body.
   // [file: particles/units/heroes/hero_invoker/invoker_{quas,wex,exort}_orb.vpcf_c] sphere r 16, light r 130, beam_jagged rope trail.
-  // Ring: shoulder height, R0 38 (true to Dota: small orbs circling the upper body), tilted so the half NEAR THE CAMERA rides low over the
-  // chest and the far half rises behind the head (never across the face, from the 60 deg game camera or the low showcase orbit).
-  const ORB_LOOK = {   // shells stay < 1.4 (no bloom), cores HDR (soft bloom); colours from the orb vpcfs, tuned to the Invoker palette
-    Q: { shell: [0.16, 0.42, 0.8], core: [0.95, 1.6, 2.1], lump: 0, fill: 0.55 },
-    W: { shell: [0.5, 0.2, 0.62], core: [1.75, 0.95, 2.05], lump: 0.18, fill: 0.45 },
-    E: { shell: [0.85, 0.36, 0.07], core: [2.1, 1.2, 0.42], lump: 0.24, fill: 0.5 },
+  // Ring: flat, shoulder height, R0 outside the head / shoulder silhouette, so from the low showcase orbit the near half passes over the
+  // chest (below the chin) and the far half behind the head; from the 60 deg game camera the ring reads as an ellipse round the body.
+  const ORB_LOOK = {   // shells stay < 1.4 (no bloom), cores just over (a touch of bloom, no blob); colours from the orb vpcfs, tuned to the Invoker palette
+    Q: { shell: [0.16, 0.42, 0.8], core: [0.75, 1.3, 1.65], lump: 0, fill: 0.5 },
+    W: { shell: [0.5, 0.2, 0.62], core: [1.4, 0.8, 1.65], lump: 0.18, fill: 0.42 },
+    E: { shell: [0.85, 0.36, 0.07], core: [1.65, 0.95, 0.35], lump: 0.24, fill: 0.45 },
   };
-  const R0 = 38, ORB_R = 6.5, CORE_R = 3.2, HALO_R = 11, TILT = 12;
-  const oShell = { lump: 0, seed: 0, p2: 0.5, yaw: 0, roll: 0 }, oCore = { p2: 1 }, oHalo = { p2: 0, lump: 0, seed: 0 };
-  const hcol = [0, 0, 0];
+  const R0 = 52, ORB_R = 6.5, CORE_R = 3.2;
+  const oShell = { lump: 0, seed: 0, p2: 0.5, yaw: 0, roll: 0, foot: 0 }, oCore = { p2: 1, foot: 0 };
   function orbs(u, dt) {
     const s = u.orbs; if (!s) return;
     const n = Math.min(3, s.length); if (!n) return;
     const alive = !(u.status & ST.DEAD) && u.hp > 0; if (!alive) return;
-    const G = c.G, lod = G.lod;
-    // camera direction in the ground plane (three: X = x, Z = -y): the ring tilts toward the eye, whatever the showcase orbit yaw
+    const G = c.G;
+    // camera direction in the ground plane (three: X = x, Z = -y): which half of the ring is near (particles use real depth, see below)
     const cp = c.uniforms && c.uniforms.uCamPos ? c.uniforms.uCamPos.value : null;
-    let vx = 0, vy = -1;
-    if (cp) { const dx = cp.x - u.x, dy = -cp.z - u.y, l = Math.hypot(dx, dy); if (l > 1) { vx = dx / l; vy = dy / l; } }
-    const zc = c.head(u) - 48 + Math.sin(c.T * 2) * 2;   // shoulder height
+    const z0 = u.z || 0, zc = c.chest(u) + 4 + Math.sin(c.T * 2) * 2;   // shoulder height
+    let vx = 0, vy = -1, lc = 1, ls = 0;
+    if (cp) {
+      const dx = cp.x - u.x, dy = -cp.z - u.y, l = Math.hypot(dx, dy);
+      if (l > 1) { vx = dx / l; vy = dy / l; }
+      // follow the voxel lean (voxactors.js): the body tilts back about its feet so the camera sees it from LEAN_TO; the ring tilts with it,
+      // so from the 60 deg game camera the orbs sit round the chest as in the showcase (not at the knees in front, hidden above the head behind)
+      const th = Math.max(0, Math.atan2(cp.y - z0, l) - LEAN_TO) * LEAN_K; lc = Math.cos(th); ls = Math.sin(th);
+    }
+    const hz = zc - z0;
+    oShell.foot = oCore.foot = z0;
     const ph = c.T * 1.8;
     for (let i = 0; i < n; i++) {
       const ch = s[i] === 'q' || s[i] === 'w' || s[i] === 'e' ? s[i].toUpperCase() : s[i];
       const o = ORB[ch], L = ORB_LOOK[ch]; if (!o || !L) continue;
       const a = ph + i * (TAU / 3), ca = Math.cos(a), sa = Math.sin(a);
-      const ox = u.x + ca * R0, oy = u.y + sa * R0, near = ca * vx + sa * vy;   // near: +1 = toward the camera
-      const oz = zc - near * TILT;
+      const near = ca * vx + sa * vy, aw = -near * R0, aw2 = aw * lc + hz * ls - aw;   // near: +1 = toward the camera; aw = offset away from it
+      const ox = u.x + ca * R0 - vx * aw2, oy = u.y + sa * R0 - vy * aw2, oz = z0 + hz * lc - aw * ls;
+      oShell.footPull = oCore.footPull = 8 + hz * ls;   // depth as before the lean (the body's depth ignores its lean too)
       const mul = elemMul(ch, c.T, i * 7.3 + u.id.length);
-      // body: core + shell (+ halo); W re-seeds its lumps on every strobe, E boils at ~12 Hz, Q stays a smooth sphere
+      // body: core + shell; W re-seeds its lumps on every strobe, E boils at ~12 Hz, Q stays a smooth sphere
       const seed = ch === 'E' ? ((c.T * 12) | 0) + i * 17 : ch === 'W' ? (mul > 1 ? ((c.T * 30) | 0) : 3) + i * 17 : i;
       oShell.lump = L.lump; oShell.seed = seed; oShell.p2 = L.fill; oShell.yaw = c.T * 2 + i; oShell.roll = c.T * 1.3;
       const k = ch === 'W' ? (mul > 1 ? 1.15 : 0.8) : mul;
       G.orb(ox, oy, oz, CORE_R, L.core, 0.85 + 0.15 * k, G.GLOW, oCore);
       G.orb(ox, oy, oz, ORB_R, L.shell, k, G.GLOW, oShell);
-      if (lod) { for (let j = 0; j < 3; j++) hcol[j] = L.shell[j] * 0.35; oHalo.seed = seed; G.orb(ox, oy, oz, HALO_R + (ch === 'W' ? 2 * (mul > 1) : 0), hcol, 1, G.GLOW, oHalo); }
       // per-orb light (trainer behaviour: E flickers, W strobes, Q steady): tints its own side of him and the ground
-      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 130 : 120, 0.5 * mul, 0);
-      // element-specific wisps: crisp single pixels (depth-tested squares, no soft billboards)
-      const nn = c.n((ch === 'E' ? 36 : ch === 'W' ? 24 : 26) * dt);
-      for (let k2 = 0; k2 < nn; k2++) {
-        if (ch === 'E') P.spawn(c.pix(o.pal, { x: ox + rnd(-3, 3), y: oy + rnd(-3, 3), z: oz + 3, life: [0.3, 0.6], px: [0.8, 1.2], speed: [0, 8], up: [30, 70], settle: false }));
-        else if (ch === 'W') { if (mul > 1) P.spawn(c.pix(o.pal, { x: ox, y: oy, z: oz, life: [0.12, 0.3], px: [0.8, 1.2], speed: [50, 140], shape: 'sphere', gravity: -200, drag: 1.2, settle: false })); }
-        else P.spawn(c.pix(o.pal, { x: ox - sa * 7 + rnd(-2, 2), y: oy + ca * 6 + rnd(-2, 2), z: oz + rnd(-3, 3), life: [0.35, 0.7], px: [0.8, 1.2], speed: [0, 5], up: [-8, 10], settle: false }));
-      }
-      // orbit trail: short comet tail of single pixels along the ring, so the circling reads in a still frame
-      for (let t = 1; t <= 4; t++) {
-        const b = a - t * 0.16, cb = Math.cos(b), sb = Math.sin(b);
-        P.spawn(c.pix(o.pal, { x: u.x + cb * R0, y: u.y + sb * R0, z: zc - (cb * vx + sb * vy) * TILT, life: 0.05, px: 1, a0: 0.8 - t * 0.17, a1: 0, speed: 0, settle: false, keep: true }));
+      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 130 : 120, 0.45 * mul, 0);
+      // pixels use real depth (they would show through him from behind): only the near half emits. Few, short, no cold ramp steps
+      // (a cooled grey / dark-red art pixel left hanging reads as a big square from the close showcase camera)
+      if (near < -0.1) continue;
+      if (ch === 'E') { for (let nn = c.n(14 * dt); nn > 0; nn--) P.spawn(c.pix(o.pal, { x: ox + rnd(-2, 2), y: oy + rnd(-2, 2), z: oz + 4, ramp: null, col0: L.core, col1: L.shell, life: [0.15, 0.3], px: 1, speed: [0, 6], up: [40, 70], settle: false })); }
+      else if (ch === 'W' && mul > 1) { for (let nn = c.n(16 * dt); nn > 0; nn--) P.spawn(c.pix(o.pal, { x: ox, y: oy, z: oz, ramp: null, col0: L.core, col1: L.shell, life: [0.08, 0.16], px: 1, speed: [60, 120], shape: 'sphere', drag: 1.2, settle: false })); }
+      // orbit trail: 3 single pixels in the shell colour (no HDR) along the ring, one frame each, so the circling reads in a still frame
+      for (let t = 1; t <= 3; t++) {
+        const b = a - t * 0.2, cb = Math.cos(b), sb = Math.sin(b);
+        const nb = cb * vx + sb * vy; if (nb < -0.1) break;
+        const ab = -nb * R0, ab2 = ab * lc + hz * ls - ab;
+        P.spawn(c.pix(o.pal, { x: u.x + cb * R0 - vx * ab2, y: u.y + sb * R0 - vy * ab2, z: z0 + hz * lc - ab * ls, ramp: null, col0: L.shell, life: 0.016, px: 1, a0: 0.75 - t * 0.2, a1: 0, speed: 0, settle: false, keep: true }));
       }
     }
   }
