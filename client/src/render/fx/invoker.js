@@ -383,47 +383,109 @@ export function register(c, R) {
   });
 
   // ---------------------------------------------------------------------------------------------------------------- sun strike (x,y,r,dur = delay)
-  R.spell('invoker_sun_strike', (ev) => {
+  // [file: invoker_sun_strike.vpcf_c (impact, 19 children) + invoker_sun_strike_team.vpcf_c (delay indicator, 9 children)]; CP1.x = the
+  // radius (175) sizes the column, ground glows and lights. Ring waves travel under per-frame drag (30 Hz): ssDrag.
+  // Delay, caster's team + spectators only (as in Dota): faint light column narrowing r 175 -> 9 (team / team_b ropes, fading upward),
+  // ground flares growing to r 105 / 197 / 256 (glow_small / glow_large / edge, white -> #c49021), glints on the circle from 0.5 s (edge_c,
+  // #d3ffbf -> #ffa56e), an orange flare at z 384 (team_c), a warm light r -> 437 (team_light); the warp sprite (distortion) is not drawn.
+  // Impact: the ray column (one 16-node rope up to +2000 z: r 175 -> 9 by 0.36 s -> 87 at 0.6 s, #fffbea -> #d27123), the beam haze
+  // (#8b4715 trails from z 128, 0.3 s), ring_c (white rope ring -> r 172, rising, 0.55 s), ring (#959db5 puffs from 0.25 s -> r 234 + puff
+  // r 132, 1.1 s), ring_b (#8b4715, r 240, 0.35 s), ground glows glow_b / c / d (white -> #833839, #febc80 / #fde06b), glow_e (peach,
+  // 0.25-0.45 s), light (r 700 -> 175, 1.25 s), dark smoke burst (#081830, alpha over) + ambient smoke (#5a5955, 2.8 s + 2-2.5 s), sparks /
+  // ash / flame / ambient sparks as 1/4-count pixels, crater (#ceb5a4, 5.2 s) + scorch (8 s) decals.
+  const SS = {
+    team: [0.42, 0.41, 0.36], teamB: [0.55, 0.57, 0.6], edge0: [0.5, 0.5, 0.5], edge1: [0.42, 0.3, 0.07], glowS: [0.4, 0.44, 0.48],
+    flare0: [1.0, 0.93, 0.85], flare1: [1.0, 0.24, 0.0],
+    ray0: [1.0, 0.98, 0.92], ray1: [0.82, 0.44, 0.14], beam: [0.55, 0.28, 0.08], ringB: [0.9, 0.46, 0.13], ringC: [0.66, 0.68, 0.72],
+    ring: [0.62, 0.64, 0.7], glwB0: [0.5, 0.48, 0.44], glwB1: [0.26, 0.11, 0.11], glw: [1.0, 0.81, 0.46], grey0: [0.15, 0.15, 0.15],
+    glowE: [1.0, 0.78, 0.68], dark: [0.03, 0.09, 0.19], smoke: [0.42, 0.42, 0.4],
+  };
+  const SS_SPK = { hot: [1.25, 0.88, 0.6], mid: [0.9, 0.62, 0.4], low: [0.55, 0.16, 0.03], dim: [0.2, 0.05, 0.01], lt: [1, 0.6, 0.3], ramp: null };   // #876146 / #5d5235 -> #591805
+  const SS_ASH = { hot: [0.42, 0.44, 0.47], mid: [0.34, 0.37, 0.41], low: [0.16, 0.18, 0.2], dim: [0.08, 0.08, 0.1], lt: [0.6, 0.64, 0.7], ramp: null };   // white / #95a4b5 at alpha .1
+  const SS_FLM = { hot: [1.3, 0.6, 0.4], mid: [0.9, 0.3, 0.14], low: [0.35, 0.06, 0.04], dim: [0.12, 0.02, 0.02], lt: [1, 0.5, 0.3], ramp: null };   // #ffc4aa over #1d0404..#340b0b
+  const SS_GLT = { hot: [0.8, 1.0, 0.72], mid: [0.9, 0.85, 0.55], low: [0.9, 0.55, 0.36], dim: [0.3, 0.15, 0.1], lt: [1, 0.65, 0.43], ramp: null };   // #d3ffbf -> #ffa56e
+  const SS_SMK = { hot: [0.22, 0.22, 0.21], mid: [0.18, 0.18, 0.17], low: [0.08, 0.08, 0.08], dim: [0.04, 0.04, 0.04], lt: [0.5, 0.5, 0.5], ramp: null };
+  const ssBias = (x, b) => x / ((1 / b - 2) * (1 - x) + 1);                                            // Source interpolation bias (0.5 = linear)
+  const ssDrag = (v0, d, t) => v0 / 30 * (1 - d) / d * (1 - Math.pow(1 - d, 30 * t));                  // travel at v0 under drag d per 30 Hz frame
+  const mix3 = (o, a, b, k, g) => { o[0] = (a[0] + (b[0] - a[0]) * k) * g; o[1] = (a[1] + (b[1] - a[1]) * k) * g; o[2] = (a[2] + (b[2] - a[2]) * k) * g; return o; };
+  R.spell('invoker_sun_strike', (ev, su) => {
     const x = ev.x, y = ev.y; if (x == null) return;
-    const rad = ev.r || 175, dur = ev.dur || 1.7, z = c.zAt(x, y), pal = PAL.sun, G = c.G;
-    // 3D geometry colours: shells stay below the 1.4 bloom threshold, the core is HDR
-    const GOLD = [0.48, 0.34, 0.08], AMB = [0.32, 0.16, 0.03], CORE = [1.05, 0.88, 0.45], HOT = [0.9, 0.68, 0.26];   // toned down (director: too bright)
-    const tgt = { n: 10, seed: Math.random() * 50, p0: 0, p1: 0.25, p2: 1.2 }, wave = { n: 24, seed: Math.random() * 40, p0: 0, p1: 0.2, p2: 0.4 }, wave2 = { n: 16, seed: 7.3, p0: 0, p1: 0.16, p2: 0.2 };
+    const rad = ev.r || 175, dur = ev.dur || 1.7, z = c.zAt(x, y), G = c.G;
     const gs = G.groundSpan(c.zAt, x, y, rad * 2), gz = gs.z;
-    wave.pull = wave2.pull = tgt.pull = gs.pull;
-    const glowD = { p0: 0, p1: 1.4, p2: 0.55, p3: 0.5, n: 0, pull: gs.pull }, shell = { swirl: 0.75, pow: 1.6, flare: 0, top: 0.8, phase: 0, front: 0 }, halo = { swirl: 0.2, pow: 2.6, top: 0.7 }, core = { swirl: 0.3, pow: 0.7, flare: 1, top: 0.6, front: 0, phase: 0 };
-    const lt = c.glow(x, y, z + 40, pal.lt, rad * 3, 0.3, dur, { mode: 'flat', elem: 'E' });
-    // telegraph: golden targeting circle (rotating dashed rings, sun rays) tightening in with a pixel-noisy fill
-    c.run(dur + 0.12, (r, dt) => {
-      const k = Math.min(1, r.t / dur), a = Math.min(1, r.t / 0.12) * (r.t > dur ? Math.max(0, 1 - (r.t - dur) / 0.12) : 1);
-      tgt.p0 = c.T * 1.1; tgt.p1 = 0.35 + 0.6 * k; tgt.p2 = 0.6 + k;
-      G.disc(x, y, gz, rad, 1, GOLD, a * (0.75 + 0.25 * Math.sin(c.T * 12)), tgt);
-      lt.int = 0.3 + 1.4 * k;
-      const n = c.n((60 + 160 * k) * dt);
-      for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rr = rad * Math.sqrt(Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rr, y: y + Math.sin(an) * rr, z: z + 4, life: [0.5, 1.0], speed: 0, up: [120, 300 + 500 * k], gravity: -520 })); }
-    });
-    c.later(dur, () => {
-      // impact: light column drops from the sky (bright head), swirling gold shell around a white-hot core, ground shockwaves, ember glow
-      c.run(1.05, (r, dt) => {
-        const t = r.t, k = r.k, drop = Math.min(1, t / 0.07), fade = Math.min(1, (1 - k) / 0.35), shrink = t > 0.55 ? 1 - Math.pow((t - 0.55) / 0.5, 2) : 1;
-        shell.front = 1 - drop; core.front = 1 - drop; halo.front = 1 - drop; shell.phase = core.phase = c.T * 7;
-        G.tube(x, y, z, 1700, rad * 0.66 * shrink, rad * 0.62 * shrink, GOLD, fade, shell);
-        G.tube(x, y, z, 1700, rad * 0.98 * shrink, rad * 0.9 * shrink, AMB, fade * 0.45, halo);
-        G.tube(x, y, z, 1700, rad * 0.2 * shrink, rad * 0.18 * shrink, CORE, fade, core);
-        const f1 = 1 - Math.pow(1 - Math.min(1, t / 0.5), 3);
-        if (t < 0.5) { wave.p0 = 0.12 + 0.88 * f1; G.disc(x, y, gz, rad * 2.0, 2, GOLD, 1 - f1 * 0.7, wave); }
-        if (t < 0.32) { const f2 = 1 - Math.pow(1 - t / 0.32, 3); wave2.p0 = 0.1 + 0.9 * f2; G.disc(x, y, gz, rad * 1.25, 2, HOT, 1 - f2 * 0.6, wave2); }
-        G.disc(x, y, gz, rad * 1.1, 3, AMB, Math.min(1, (1 - k) * 1.6), glowD);
-        // pixel motes spiralling up the shell
-        const n = c.n(30 * dt) * (t < 0.7 ? 1 : 0);
-        for (let i = 0; i < n; i++) { const an = Math.random() * TAU, rw = rad * (0.2 + 0.45 * Math.random()); P.spawn(c.pix(pal, { x: x + Math.cos(an) * rw, y: y + Math.sin(an) * rw, z: z + Math.random() * 60, life: [0.4, 0.9], px: [1, 2], speed: 0, vel: [-Math.sin(an) * rw * 3, Math.cos(an) * rw * 3, 0], up: [900, 1900], drag: 0.4, settle: false })); }
+    const own = !c.view || c.view.spectator || (su && su.team === c.view.myTeam);   // the delay indicator is the caster's team's only
+    if (own) {
+      const L = dur + 0.1;   // team systems live 1.8 s
+      const oA = { pow: 1.6, top: 0, foot: z, footPull: 20 }, oB = { pow: 0.8, top: 0, foot: z, footPull: 20 };
+      const dE = { p1: 0.9, pull: gs.pull }, dS = { p1: 2.2, pull: gs.pull }, dL = { p1: 1.4, pull: gs.pull }, oF = { sz: 0.7 };
+      const cE = [0, 0, 0], cF = [0, 0, 0];
+      const lt = c.glow(x, y, z + 64, SS.glw, 20, 0, L, { mode: 'flat' });
+      c.run(L, (r, dt) => {
+        const t = r.t, k = r.k;
+        const aT = Math.min(1, k / 0.95, (1 - k) / 0.25), rT = rad * 0.5 * (2 - 1.9 * Math.min(1, k / 0.85));
+        G.tube(x, y, z, 1000, rT, rT, SS.team, 0.4 * aT, oA);                                           // team: r 175 -> 9, alpha .04
+        const aB = Math.min(1, k / 0.65, (1 - k) / 0.05), rB = rad * 0.5 * (0.1 + 0.2 * ssBias(Math.min(1, k / 0.95), 0.75));
+        G.tube(x, y, z, 1000, rB, rB, SS.teamB, 0.9 * aB, oB);                                          // team_b: r 9 -> 26, alpha .11
+        const fin = Math.min(1, (1 - k) / 0.08);
+        G.disc(x, y, gz, 256 * ssBias(k, 0.5), 3, mix3(cE, SS.edge0, SS.edge1, Math.max(0, k - 0.5) * 2, 1), 1.1 * Math.min(1, k / 0.95) * fin, dE);   // edge / edge_b
+        G.disc(x, y, gz, rad * 0.9 * (0.1 + 1.15 * ssBias(k, 0.75)), 3, SS.glowS, 0.25 * fin, dL);                                              // glow_large
+        G.disc(x, y, gz, rad * 0.8 * (0.1 + 0.65 * ssBias(k, 0.4)), 3, SS.glowS, 1.1 * fin, dS);                                                // glow_small
+        if (t < 1) G.orb(x, y, z + 384, 26, mix3(cF, SS.flare0, SS.flare1, t, 0.45), Math.min(1, t / 0.2, (1 - t) / 0.8), G.GLOW, oF);       // team_c
+        lt.rad = rad * 1.25 * (0.1 + 1.9 * ssBias(k, 0.75)); lt.int = 0.75 * Math.min(1, k / 0.25, (1 - k) / 0.75);                     // team_light
+        if (t > 0.5 && t < 1) {                                                                                                          // edge_c glints
+          const n = c.n(24 * dt);
+          for (let i = 0; i < n; i++) { const an = Math.random() * TAU; P.spawn(c.pix(SS_GLT, { x: x + Math.cos(an) * rad, y: y + Math.sin(an) * rad, z: z + 4, life: 1, px: [1, 2], speed: 0, settle: false, a0: 0.6 })); }
+        }
       });
-      P.burst(c.pix(pal, { x, y, z: z + 6, count: 36, shape: 'ring', radius: rad * 0.7, speed: [80, 300], up: [200, 520], gravity: -620, linger: [0.8, 2.0], px: [1, 2] }));
-      c.ring(x, y, z, pal, { R: rad * 1.8, life: [0.4, 0.7] });
-      c.embers(x, y, z + 40, pal, { count: 10, speed: [200, 650] });
-      c.smoke(x, y, z + 20, { count: 8 }, PAL.smoke);
-      c.glow(x, y, z + 120, pal.lt, rad * 4.5, 1.4, 0.9, { elem: 'E' });   // lights + shadows the surroundings
-      c.decal(x, y, 'decal_scorch', rad / 80, 6, { tint: [1.2, 0.8, 0.35], emit: 0.8, fadeOut: 0.6 });
+    }
+    c.later(dur, () => {
+      const oRay = { pow: 1.1, top: 0, foot: z, footPull: 20 }, oCore = { pow: 0.6, top: 0, foot: z, footPull: 20 };
+      const oBeam = { pow: 2.5, top: 0.3, foot: z, footPull: 20 }, oRingC = { pow: 0.1, top: 0.9, foot: z, footPull: 20 };
+      const dRing = { n: 40, seed: Math.random() * 40, p0: 1, p1: 0.4, p2: 0.2, pull: gs.pull }, dRingB = { rin: 0.6, p1: 1.2, p2: 0.6, pull: gs.pull };
+      const dGB = { p1: 6, pull: gs.pull }, dGC = { p1: 2.5, pull: gs.pull }, dGD = { p1: 2, pull: gs.pull }, oE = { sz: 0.6 };
+      const oDark = { swirl: 0.4, pow: 0.5, top: 0.6, phase: 0, smoke: true, foot: z, footPull: 20 };
+      const cRay = [0, 0, 0], cCore = [0, 0, 0], cB = [0, 0, 0], cC = [0, 0, 0];
+      const lt = c.glow(x, y, z + 64, SS.glw, rad * 4, 0, 1.25, { mode: 'flat' });
+      c.run(1.6, (r, dt) => {
+        const t = r.t;
+        if (t < 0.6) {                                                                                  // ray (0.6 s) + ray_b (0.5 s, the hot core)
+          const k = t / 0.6, s = k < 0.6 ? 2 - 1.9 * k / 0.6 : k < 0.75 ? 0.1 : 0.1 + 0.9 * ssBias((k - 0.75) / 0.25, 0.15);
+          const R0 = rad * 0.5 * s;
+          G.tube(x, y, z, 1000, R0, R0, mix3(cRay, SS.ray0, SS.ray1, k, 0.75), Math.min(1, k / 0.25, (1 - k) / 0.5), oRay);
+          if (t < 0.5) G.tube(x, y, z, 1000, R0 * 0.3, R0 * 0.3, mix3(cCore, SS.ray0, SS.ray1, t / 0.5, 1.5), Math.min(1, t / 0.125, (0.5 - t) / 0.375), oCore);
+          const kb = Math.min(1, t / 0.3), Rb = 288 - 252 * ssBias(kb, 0.85);                           // beam: trails r 576 -> 32 (half), alpha ~.05
+          G.tube(x, y, z + 128, 1700 * kb, Rb, Rb * 0.5, SS.beam, 0.45 * (1 - k), oBeam);
+        }
+        if (t < 0.55) {                                                                                 // ring_c: rope ring at 2200 u/s, drag .3, rising
+          const k = t / 0.55, Rc = 1 + ssDrag(2200, 0.3, t), w = 128 * ssBias(k, 0.75);
+          G.tube(x, y, z + 117 * t, w * 0.5, Rc, Rc + w * 0.4, SS.ringC, 0.67 * (1 - k), oRingC);
+        }
+        const tr = t - 0.25;
+        if (tr > 0 && tr < 1.1) {                                                                       // ring: swirl puffs at 1100-1300 u/s, drag .165
+          const k = tr / 1.1, puff = 11 * (1 + 11 * ssBias(k, 0.75)), Ro = 32 + ssDrag(1200, 0.165, tr) + puff;
+          dRing.p1 = Math.min(0.95, 2 * puff / Ro); G.disc(x, y, gz, Ro, 2, SS.ring, 0.38 * (1 - k), dRing);
+        }
+        if (t < 0.35) G.disc(x, y, gz, 15 * (1 + 15 * ssBias(t / 0.35, 0.85)), 0, SS.ringB, 0.3 * (1 - t / 0.35), dRingB);   // ring_b
+        if (t < 0.8) { const k = t / 0.8; G.disc(x, y, gz, 1120 * ssBias(k, 0.75), 3, mix3(cB, SS.glwB0, SS.glwB1, k, 1), 0.7 * (1 - k), dGB); }   // glow_b
+        { const k = t / 1.5; G.disc(x, y, gz, 560 * ssBias(Math.min(1, k), 0.75), 3, mix3(cC, SS.glw, SS.grey0, Math.max(0, k - 0.33) / 1.0, 0.3), 1 - k, dGC); }   // glow_c (mod2x)
+        if (t < 1) G.disc(x, y, gz, rad * 0.8 * (2 - 1.9 * Math.min(1, t / 0.5)), 3, SS.glw, 0.55 * (1 - t), dGD);               // glow_d
+        if (t < 0.45) { const k = Math.min(1, t / 0.35); G.orb(x, y, z + 8, 6 * (1 + 47 * ssBias(k, 0.65)) * 0.35, SS.glowE, 0.3 * (1 - k), G.GLOW, oE); }   // glow_e (mod2x)
+        if (t < 1.25) { const k = t / 1.25; lt.rad = rad * 2 * (2 - 1.5 * ssBias(k, 0.25)); lt.int = 1.2 * Math.min(1, k / 0.25, (1 - k) / 0.75); }   // light
+        if (t < 0.6) { const e = 1 - (1 - t / 0.6) * (1 - t / 0.6); oDark.phase = c.T * 2; G.tube(x, y, z, 30 + 140 * e, 50 + 110 * e, 40 + 130 * e, SS.dark, 0.6 * (1 - t / 0.6), oDark); }   // orange_smoke (dark)
+        // pixels at 1/4 of the game counts
+        if (t < 0.25) { const n = c.n(112 * dt); for (let i = 0; i < n; i++) { const an = Math.random() * TAU; P.spawn(c.pix(SS_SPK, { x: x + Math.cos(an) * 72, y: y + Math.sin(an) * 72, z: z + 4, life: [0.5, 1], px: [1, 2], speed: 0, vel: [rnd(-400, 400), rnd(-400, 400), 0], up: [250, 600], gravity: -650, drag: 0.3 })); } }   // sparks
+        if (t < 0.5) { const n = c.n(100 * dt); for (let i = 0; i < n; i++) P.spawn(c.pix(SS_ASH, { x: x + rnd(-30, 30), y: y + rnd(-30, 30), z: z + rnd(3, 300), life: [1, 1.2], px: 1, speed: 0, jitter: 24, up: [100, 200], gravity: -100, drag: 1.5, settle: false })); }   // ashes
+        if (t < 0.2) { const n = c.n(50 * dt); for (let i = 0; i < n; i++) P.spawn(c.pix(SS_FLM, { x: x + rnd(-4, 4), y: y + rnd(-20, 20), z: z + rnd(300, 1000), life: 0.5, px: [1, 2], speed: 0, vel: [rnd(-24, 14), rnd(-424, 424), rnd(-16, 16)], gravity: 25, drag: 3, settle: false })); }   // flame
+      });
+      const oSmk = { swirl: 0.6, pow: 0.5, top: 0.5, phase: 0, smoke: true, foot: z, footPull: 20 };
+      c.run(5.3, (r, dt) => {                                                                           // smoke_ambient 20/s for 2.8 s, life 2-2.5 + sparks_ambient
+        const t = r.t, env = Math.min(1, t / 0.4) * (t < 2.8 ? 1 : Math.max(0, 1 - (t - 2.8) / 2.5));
+        oSmk.phase = c.T * 1.2;
+        G.tube(x, y, z, 120 + 25 * t, 110 + 8 * t, 90 + 10 * t, SS.smoke, 0.7 * env, oSmk);
+        if (t < 2.8) { const n = c.n(5 * dt); for (let i = 0; i < n; i++) P.spawn(c.pix(SS_SMK, { x, y, z: z + 20, shape: 'sphere', radius: 75, life: [2, 2.5], px: 1, speed: 0, up: [20, 60], gravity: 80, drag: 1.5, settle: false })); }
+        if (t > 0.45 && t < 3.45) { const n = c.n(3.5 * dt); for (let i = 0; i < n; i++) { const an = Math.random() * TAU; P.spawn(c.pix(SS_SPK, { x: x + Math.cos(an) * 84, y: y + Math.sin(an) * 84, z: z + 4, life: [0.5, 1], px: 1, speed: 0, jitter: 20, up: [45, 65], gravity: 85, settle: false })); } }
+      });
+      c.decal(x, y, 'decal_scorch', rad / 70, 8, { tint: [0.9, 0.6, 0.3], emit: 0.5, fadeIn: 0.0125, fadeOut: 0.2 });                    // crater_scorch 8 s
+      c.decal(x, y, 'decal_scorch', rad / 80, 5.2, { tint: [0.81, 0.71, 0.64], emit: 0, roll: 1.3, fadeIn: 0.02, fadeOut: 0.09 });      // crater_proj (#ceb5a4) + crater model, 5-5.4 s
     });
   });
 
