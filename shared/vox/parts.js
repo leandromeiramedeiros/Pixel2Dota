@@ -258,7 +258,7 @@ export function gripDir(rig, k, aim) {
   return norm3(add3(t, mul3(f, 0.35)));
 }
 /**
- * Weapon held in hand k ('R' | 'L'): type 'sword' | 'club' | 'spear' | 'axe'. o: { len, w, aim ([el, hd] body frame), mats: { blade, guard, grip, edge? } }.
+ * Weapon held in hand k ('R' | 'L'): type 'sword' | 'club' | 'spear' | 'axe' | 'katana' (+ o.curve, edgeOff, edgeSide, guardR). o: { len, w, aim ([el, hd] body frame), mats: { blade, guard, grip, edge? } }.
  * Returns the tip position.
  */
 export function weapon(v, rig, k, type, o) {
@@ -275,6 +275,18 @@ export function weapon(v, rig, k, type, o) {
   } else if (type === 'spear') {
     v.capsule(add3(h, mul3(d, -4)), tip, 0.5, M.grip);
     obox(v, tip, add3(tip, mul3(d, 3)), side, t => 1.1 * (1 - t) + 0.1, 0.4, M.blade);
+  } else if (type === 'katana') {
+    // round tsuba, slim blade curving toward the spine (o.curve voxels at the tip), cutting edge = a parallel chain offset by o.edgeOff along
+    // the edge side (o.edgeSide: 1 / -1 flips it), M.edge (often emissive) drawn last so the edge line reads; tapers to the tip
+    const e = mul3(norm3(cross3(d, side)), o.edgeSide ?? 1), cv = o.curve ?? len * 0.08, eo = o.edgeOff ?? 0.8, N = Math.max(4, Math.ceil(len));
+    disc(v, add3(h, mul3(d, 1.3)), d, o.guardR ?? 1.6, 0.9, M.guard);
+    const at = t => add3(add3(b0, mul3(d, len * t)), mul3(e, -cv * t * t));
+    for (let i = 0; i < N; i++) {
+      const t0 = i / N, t1 = (i + 1) / N, r0 = w * (1 - t0 * 0.45), r1 = w * (1 - t1 * 0.45);
+      v.capsule(at(t0), at(t1), r0 * 0.7, M.blade, r1 * 0.7);
+      if (M.edge && t1 < 0.97) v.capsule(add3(at(t0), mul3(e, eo * (1 - t0 * 0.4))), add3(at(t1), mul3(e, eo * (1 - t1 * 0.4))), r0 * 0.55, M.edge, r1 * 0.55);
+    }
+    return at(1);
   } else if (type === 'axe') {
     v.capsule(b0, tip, 0.55, M.grip);
     obox(v, add3(tip, mul3(d, -2.6)), tip, side, 1.2, 0.45, M.blade);
