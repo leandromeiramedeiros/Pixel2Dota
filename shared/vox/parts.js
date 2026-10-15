@@ -76,7 +76,7 @@ export function feet(v, f, type, m, o = {}) {
       if (px < fx - hw || px > fx + hw || py < by - front || py > by + back || qz < 0 || qz > h) return;
       if (py < by - toeY && qz > toeZ) return;                 // rounded toe
       if (py < by - tipY && Math.abs(px - fx) > tipW) return;
-      return m;
+      return typeof m === 'function' ? m(px, py, pz) : m;
     });
   } else if (type === 'bare') {
     v.ellipsoid(fx, by - (o.front ?? 1.2), bz + 0.9, o.hw ?? 1.4, o.len ?? 2.4, 1.1, m);

@@ -15,6 +15,7 @@ import * as melee_radiant from './creeps/melee_radiant.js';
 import * as pudge from './heroes/pudge.js';
 import * as sniper from './heroes/sniper.js';
 import * as sven from './heroes/sven.js';
+import * as zuus from './heroes/zuus.js';
 
 export const VOX = {   // alphabetical (parallel branches merge clean)
   axe: { kind: 'hero', unit: 'npc_dota_hero_axe', mod: axe },
@@ -30,4 +31,5 @@ export const VOX = {   // alphabetical (parallel branches merge clean)
   pudge: { kind: 'hero', unit: 'npc_dota_hero_pudge', mod: pudge },
   sniper: { kind: 'hero', unit: 'npc_dota_hero_sniper', mod: sniper },
   sven: { kind: 'hero', unit: 'npc_dota_hero_sven', mod: sven },
+  zuus: { kind: 'hero', unit: 'npc_dota_hero_zuus', mod: zuus },
 };
