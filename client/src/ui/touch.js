@@ -9,8 +9,9 @@
 //          shop range); tap outside / BAG closes.
 //          Hold a spell / item button still: 0.75 s = its tooltip (release without moving = NO cast), 1.75 s = rearrange the wheel (drag a spell / small
 //          item onto another slot; DONE or a tap outside exits; saved per hero).  See holdPhase().
-//          Aim cursor = button + drag x sensitivity s (menu, p2d.aimSens; attack drag / pad radius AIM_R / s); the knob shows the cursor.
-//          Spell aim (aimCursor): the cursor starts at the hero's preview point; the thumb's comfortable reach sweeps it to the screen edge (edge pan there).
+//          Spell aim = a skill joystick (aimJoy): its ring appears where the thumb pressed (radius AIM_R / sensitivity s, menu p2d.aimSens); the drag's
+//          on-screen angle is the aim line's angle from the hero, the deflection x range its length (line / cone: direction only, full range).  Long /
+//          global spells: the rim = the visible edge; holding the thumb past the rim pans the camera along the aim.
 //          instant spells: tap casts.  self-castable spells / items: double tap casts on self (blink = toward facing), hold to aim.
 //          other targeted spells: press -> range finder + aim ring; the ICON STAYS PUT, the knob follows the aim cursor; drag aims, release casts.
 //          Cancel: release on the CANCEL target above the wheel, or slide back onto the button.  A short tap only previews the range.
@@ -19,7 +20,7 @@
 //          leans it.  Locked one-finger press (classifyPress): tap = move there (an enemy: attack it); hold still = keep moving to the finger (WALK_MS
 //          repeat); quick deliberate drag = peek (look around, springs back on release).  Unlocked: drag pans.  Pinch zooms.  Minimap (top-left, under
 //          the top bar) suspends the lock while pressed (cast on a far spot with the other thumb) and the camera returns when it / that cast ends; the
-//          aim CURSOR of a long-range spell at a screen edge pans fast.  Portrait tap locks + resets the zoom, portrait hold = stats panel (hud.js).
+//          aim joystick of a long-range spell held past its rim pans fast.  Portrait tap locks + resets the zoom, portrait hold = stats panel (hud.js).
 //   Portrait phones get a "turn your phone sideways" overlay that blocks input.
 import { MSG, ORDER, TEAM, ST, KIND, ACTIVE_SLOTS, INV_SLOTS } from '../../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
@@ -68,20 +69,15 @@ export const T = {
   REORDER_MS: 1750,      // hold a spell button still this long to rearrange the wheel
   CANCEL_BACK: 0.9,      // sliding back within this x the button radius (after having left it) cancels the aim
   WALK_MS: 150,          // world finger held (locked camera): a move order to the finger this often
-  EDGE_M: 56,            // px (x K): aiming a long-range spell with the finger this close to a screen edge pans the camera that way
+  EDGE_M: 56,            // px (x K): a long / global aim's joystick rim reaches the visible edge minus this
   EDGE_SPEED: 3200,      // world units / s at the very edge
   EDGE_RANGE: 0.5,       // ... only for spells whose range is over this x the visible width (or global)
   PINCH_MIN: 40,         // px: two fingers closer than this do not zoom (noise)
   PINCH_STEP: 0.1,       // max zoom factor change per move event
-  EDGE_MAG: 0.2,         // aim edge pan arms once the cursor leaves the pressed button or the drag passes this x the aim radius
-  AIM_REACH_X: 0.22,     // spell aim: thumb travel (x screen width, at default sensitivity) that sweeps the cursor from its start to the far left / right edge
-  AIM_REACH_Y: 0.34,     // ... same x screen height, up / down
-  AIM_REACH_MIN: 40,     // px (x K): never a shorter reach than this (the thumb has little room on the button's side of the screen)
-  AIM_PAD: 12,           // px (x K): thumb room stops this far from the physical screen edge
-  AIM_GAMMA: 1.25,       // >1: finer cursor control near the start, faster toward the edge
-  AIM_RING_OVER: 1.15,   // finite-range spells: the sweep ends at this x the cast ring on screen (full reach = the ring, no edge pan)
-  AIM_START_W: 0.25,     // the aim cursor starts at most this x the visible width ahead of the hero (a global spell does not start off-screen)
-  AIM_DEAD: 6,           // px (x K): thumb travel from the press that counts as aiming (below it the preview stays ahead of the hero)
+  AIM_START_W: 0.25,     // a held, undragged aim previews this x the visible width ahead of the hero at most (range x 0.75 for short spells)
+  AIM_DEAD: 8,           // px (x K): thumb travel from the press that counts as aiming (below it the preview stays ahead of the hero)
+  AIM_OVER: 1.15,        // long / global aim: the thumb held past this x the joystick radius pans the camera along the aim ...
+  AIM_OVER_RAMP: 0.5,    // ... reaching EDGE_SPEED this x the radius further out
 };
 
 const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
@@ -252,25 +248,38 @@ export function bagBox(n, cell = 40) {
   const w = 3 * cell + 2 * 4 + 12, hgt = 3 * cell + 4 + 15 + 12, right = -(smallArcLayout(n)[0].r + 26), bottom = 46;
   return { left: right - w, top: bottom - hgt, right, bottom, w, h: hgt };
 }
-/** Edge pan only once the aim cursor (x, y) has left the pressed button's rect, or the drag is past `minMag` of the aim radius. */
-export const edgePanArmed = (x, y, btnRect, mag, minMag = 0.2) => !inRect(btnRect, x, y) || mag > minMag;
 
 /**
- * Spell aim cursor (canvas px) for a thumb offset (dx, dy) from where it pressed.  At 0 the cursor sits at the start (o.sx, o.sy) = the
- * hero's preview point, never at the button; the thumb's comfortable reach (a fraction of the screen, o.rs scales it) sweeps it from the
- * start to the screen edge on that side, per axis (reach = min(T.AIM_REACH_*, the room left between the press and the screen edge)), with a
- * mild acceleration curve.  Finite-range spells (o.ringX / ringY = the cast ring's radius on screen, px, around the hero at o.hx / hy; 0 = none)
- * stop the sweep at the ring.   o = { sx, sy, px, py, hx, hy, W, H, K, rs, ringX, ringY }
+ * Skill joystick (Wild Rift / Honor of Kings): the thumb's drag (fx, fy) px from where it PRESSED -> world offset from the hero.
+ *   Direction is isotropic on screen: the aim line leaves the hero at the thumb's on-screen angle under any camera pitch.  basis = screen px
+ *   per world unit along world +x (xx, xy) and +y (yx, yy) at the hero (two projections; null = flat top-down, y flipped).
+ *   mag = (|f| - dead) / (R - dead), 0..1; distance = reach x mag (dirOnly = line / cone shapes: always reach).  reach = range, or for a
+ *   long / global spell (edgePx = screen px from the hero to the visible edge along the thumb, else null) the distance to that edge, capped
+ *   at the range.  over = 0..1, the thumb held past the rim (AIM_OVER .. + AIM_OVER_RAMP x R): drives the camera pan, only when the screen
+ *   edge (not the range) cut the reach.   -> { x, y, mag, over, dx, dy (world unit direction) } | null inside the dead zone.
  */
-export function aimCursor(dx, dy, o, t = T) {
-  const K = o.K || 1, ax = (d, s0, n, p0, h0, frac, ring) => {
-    const dir = d < 0 ? -1 : 1, edge = dir < 0 ? 0 : n;
-    const reach = Math.max(t.AIM_REACH_MIN * K, Math.min(frac * n * (o.rs || 1), Math.abs(p0 - edge) - t.AIM_PAD * K));
-    let ext = Math.abs(edge - s0);
-    if (ring > 0) ext = Math.min(ext, Math.max(0, dir * (h0 + dir * ring * t.AIM_RING_OVER - s0)));   // ring edge on that side of the hero, measured from the start
-    return s0 + dir * ext * Math.pow(Math.min(1, Math.abs(d) / reach), t.AIM_GAMMA);
-  };
-  return { x: ax(dx, o.sx, o.W, o.px, o.hx, t.AIM_REACH_X, o.ringX), y: ax(dy, o.sy, o.H, o.py, o.hy, t.AIM_REACH_Y, o.ringY) };
+export function aimJoy(fx, fy, o, t = T) {
+  const len = Math.hypot(fx, fy), dead = o.dead || 0;
+  if (!(len > dead)) return null;
+  const ux = fx / len, uy = fy / len, b = o.basis || { xx: 1, xy: 0, yx: 0, yy: -1 };
+  const det = b.xx * b.yy - b.yx * b.xy;                       // screen = [xx yx; xy yy] . world  ->  world = inverse . screen
+  let wx = ux, wy = -uy;
+  if (Math.abs(det) > 1e-12) { wx = (ux * b.yy - b.yx * uy) / det; wy = (b.xx * uy - b.xy * ux) / det; }
+  const wl = Math.hypot(wx, wy) || 1; wx /= wl; wy /= wl;
+  const pxPerU = Math.hypot(b.xx * wx + b.yx * wy, b.xy * wx + b.yy * wy) || 1;
+  const R = Math.max(dead + 1, o.R), mag = Math.min(1, (len - dead) / (R - dead));
+  const range = o.range > 0 ? o.range : Infinity, edge = o.edgePx != null ? Math.max(0, o.edgePx) / pxPerU : Infinity;
+  const reach = Math.min(range, edge), dist = Number.isFinite(reach) ? reach * (o.dirOnly ? 1 : mag) : 0;
+  const over = edge < range ? Math.max(0, Math.min(1, (len - R * t.AIM_OVER) / (R * t.AIM_OVER_RAMP))) : 0;
+  return { x: wx * dist, y: wy * dist, mag, over, dx: wx, dy: wy };
+}
+/** Screen px from (px, py) along the unit direction (ux, uy) to the edge of the W x H view inset by m (a point outside is pulled in first). */
+export function rayToEdge(px, py, ux, uy, W, H, m = 0) {
+  const x0 = m, x1 = Math.max(m, W - m), y0 = m, y1 = Math.max(m, H - m);
+  px = Math.max(x0, Math.min(x1, px)); py = Math.max(y0, Math.min(y1, py));
+  const tx = ux > 1e-9 ? (x1 - px) / ux : ux < -1e-9 ? (x0 - px) / ux : Infinity;
+  const ty = uy > 1e-9 ? (y1 - py) / uy : uy < -1e-9 ? (y0 - py) / uy : Infinity;
+  const r = Math.min(tx, ty); return Number.isFinite(r) ? Math.max(0, r) : 0;
 }
 
 // aim sensitivity s: the thumb's drag from the button counts s times (full range at AIM_R / s px).  0.75..2.5 in 0.25 steps, default 1.5.
@@ -719,13 +728,10 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   let mmPtr = null, freeAim = false, lastT = 0, mmEl = null, mmHome = null;
   const tempFree = () => mmPtr != null || !!(aim && freeAim);
   const longAim = (rr) => { const r = rig(), w = (r && r.visibleWidth) || 2100; return !(rr > 0) || rr > w * T.EDGE_RANGE; };   // rr = realRange (0 = global)
-  function edgePan(dt) {   // the aim CURSOR (button + drag x sensitivity, clamped to the canvas) at a screen edge pans
-    if (!aim || !aim.moved || !longAim(aim.rr) || !cam || aim.vx == null) return;
-    if (!aim.edgeOk && !(aim.edgeOk = edgePanArmed(aim.vx, aim.vy, aim.b.el.getBoundingClientRect(), Math.hypot(aim.dx, aim.dy) / aimR(), T.EDGE_MAG))) return;   // a button near an edge: not before the cursor leaves it
-    const cr = canvas.getBoundingClientRect(), d = edgePanDir(aim.vx - cr.left, aim.vy - cr.top, cr.width, cr.height, T.EDGE_M * K);
-    if (!d.x && !d.y) return;
+  function edgePan(dt) {   // a long / global aim with the thumb held past the joystick rim pans the camera along the aim direction
+    if (!aim || !(aim.over > 0) || !aim.wdir || !cam) return;
     freeAim = true; cam.suspend(true);
-    cam.pan(d.x * T.EDGE_SPEED * dt, -d.y * T.EDGE_SPEED * dt);   // screen up = world +y
+    const v = T.EDGE_SPEED * aim.over * dt; cam.pan(aim.wdir.x * v, aim.wdir.y * v);
   }
   /** Joystick direction for the camera lead: world {x, y}, |.| = deflection 0..1, or null. */
   const moveDir = () => (joy && joy.vec && joy.vec.len >= T.JOY_DEAD * K ? { x: Math.cos(joy.vec.ang) * joy.vec.mag, y: Math.sin(joy.vec.ang) * joy.vec.mag } : null);
@@ -967,47 +973,52 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const range = info.range > 0 ? info.range : info.mode === 'point' ? 1600 : 600;
     b.ptr = e.pointerId;
     aim = { b, cls, info: Object.assign({}, info, { range }), rr: realRange(info), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, x0: e.clientX, y0: e.clientY, inCancel: false, overX: false, maxD: 0, point: null, unitId: '' };
-    aimStart(aim, u);
     pointers.set(e.pointerId, { id: e.pointerId, role: 'btn', b });
     try { b.el.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = pad.parentNode.getBoundingClientRect();
     aim.ox = rect.left; aim.oy = rect.top;
-    pad.style.left = (aim.cx - rect.left) + 'px'; pad.style.top = (aim.cy - rect.top) + 'px';
+    pad.style.left = (aim.x0 - rect.left) + 'px'; pad.style.top = (aim.y0 - rect.top) + 'px';   // the joystick ring sits where the thumb pressed
     R.classList.add('aiming'); cancelEl.classList.remove('hot'); aimKnob.classList.add('t-on');
     aim.tg = targetingFor(b, aim.info, key, true, lvl, realRange(info));
+    aimStart(aim);
     if (H.setTargeting) H.setTargeting(aim.tg);
     clearLong(); longTimer = setTimeout(() => { longTimer = 0; if (aim && aim.b === b && !aim.moved) showTip(b, false); }, T.TIP_MS);   // held still: the description tooltip (moving cancels it and keeps aiming)
     armReorder(b, e.pointerId);
     updateAim();
   }
 
-  /** Press: the aim cursor's start = the hero's preview point (ahead of the hero, capped so a global spell starts on screen), as canvas px clamped clear of the edge-pan band. */
-  function aimStart(a, u) {
-    const cr = canvas.getBoundingClientRect(), r = rig(), vw = (r && r.visibleWidth) || 2100, vh = (r && r.visibleHeight) || 1190, f = u.facing || 0;
+  /** Press: the undragged preview distance ahead of the hero (capped so a global spell's preview stays on screen); line / cone = direction only. */
+  function aimStart(a) {
+    const r = rig(), vw = (r && r.visibleWidth) || 2100;
     a.fw = Math.min(a.info.range * 0.75, vw * T.AIM_START_W);
-    const w2s = renderer.worldToScreen, p = w2s ? w2s(u.x + Math.cos(f) * a.fw, u.y + Math.sin(f) * a.fw) : { x: cr.width / 2, y: cr.height / 2 }, hp = w2s ? w2s(u.x, u.y) : p;
-    const m = T.EDGE_M * K + 4, cl = (v, n) => Math.max(m, Math.min(n - m, v));
-    const ring = a.rr > 0 && !longAim(a.rr);   // short spells: the sweep ends at the cast ring; long / global ones sweep to the screen edge (and pan there)
-    a.cur = { sx: cl(p.x, cr.width), sy: cl(p.y, cr.height), hx: hp.x, hy: hp.y, px: a.x0 - cr.left, py: a.y0 - cr.top, ringX: ring ? a.rr * cr.width / vw : 0, ringY: ring ? a.rr * cr.height / vh : 0 };
+    a.dirOnly = a.info.mode === 'point' && !!a.tg && (a.tg.shape.type === 'line' || a.tg.shape.type === 'cone');
+  }
+  /** Where a long aim is measured from: the hero, or once the camera let go of it (edge pan / minimap) the hero's spot carried along with the camera. */
+  function aimAnchor(a, u) {
+    if (!(cam && tempFree() && longAim(a.rr))) { a.fz = null; return { x: u.x, y: u.y }; }
+    const p = cam.position;
+    if (!a.fz) a.fz = { x: u.x - p.x, y: u.y - p.y };
+    return { x: p.x + a.fz.x, y: p.y + a.fz.y };
   }
 
-  /** Recompute the aim point from the current drag (also each frame so snapped units are followed). */
+  /** Recompute the aim point from the current drag (also each frame: the hero / camera move under a still thumb, snapped units are followed). */
   function updateAim() {
     if (!aim) return;
     const u = heroU(); if (!u || dead(u)) { endAim(false); return; }
-    const a = aim, off = aimWorldOffset(a.dx, a.dy, aimR(), a.info.range), cr = canvas.getBoundingClientRect();
-    // thumb travel from the PRESS (not the button centre: no jump when pressed off-centre) sweeps the cursor from its start (the hero's preview point) to the screen edge
-    const fx = a.ex - a.x0, fy = a.ey - a.y0, hasDrag = Math.hypot(fx, fy) > T.AIM_DEAD * K;
-    const c = aimCursor(fx, fy, Object.assign({ rs: SENS.DEF / aimSens, K, W: cr.width, H: cr.height }, a.cur));   // canvas px; the knob shows it (a.ex / ey stay the real finger)
-    const vx = cr.left + Math.max(0, Math.min(cr.width - 1, c.x)), vy = cr.top + Math.max(0, Math.min(cr.height - 1, c.y));
+    const a = aim, cr = canvas.getBoundingClientRect(), R = aimR();
+    const fx = a.ex - a.x0, fy = a.ey - a.y0, fl = Math.hypot(fx, fy);
+    const anc = aimAnchor(a, u), w2s = renderer.worldToScreen;
+    let basis = null, edgePx = null;
+    if (w2s) {   // ground basis at the anchor (flat, z 0): screen px per world unit along +x / +y
+      const s0 = w2s(anc.x, anc.y, 0), sx = w2s(anc.x + 100, anc.y, 0), sy = w2s(anc.x, anc.y + 100, 0);
+      basis = { xx: (sx.x - s0.x) / 100, xy: (sx.y - s0.y) / 100, yx: (sy.x - s0.x) / 100, yy: (sy.y - s0.y) / 100 };
+      if (longAim(a.rr) && fl > 0) { const h = w2s(anc.x, anc.y); edgePx = rayToEdge(h.x, h.y, fx / fl, fy / fl, cr.width, cr.height, T.EDGE_M * K); }
+    }
+    const j = aimJoy(fx, fy, { R, dead: T.AIM_DEAD * K, range: a.rr, basis, edgePx, dirOnly: a.dirOnly });
+    const hasDrag = !!j;
     let ax, ay, unitId = '';
-    // the aim point is the cursor's screen position unprojected through the CURRENT camera every frame, so panning the camera
-    // (minimap / left hand / edge pan) under a stationary thumb moves the aim; finite-range spells clamp to the ring, global ones reach map-wide
-    if (hasDrag && renderer.pick) {
-      const g = renderer.pick(vx - cr.left, vy - cr.top, TOUCH_PICK);
-      ax = g.x; ay = g.y;
-    } else if (hasDrag) { ax = u.x + off.x; ay = u.y + off.y; }
-    else { ax = u.x + Math.cos(u.facing || 0) * a.fw; ay = u.y + Math.sin(u.facing || 0) * a.fw; }   // not dragging yet: the preview ahead of the hero (= the cursor's start)
+    if (j) { ax = anc.x + j.x; ay = anc.y + j.y; a.over = j.over; a.wdir = { x: j.dx, y: j.dy }; }
+    else { ax = u.x + Math.cos(u.facing || 0) * a.fw; ay = u.y + Math.sin(u.facing || 0) * a.fw; a.over = 0; }   // not dragging yet: the preview ahead of the hero
     const unit = a.info.mode === 'unit' || a.info.mode === 'unitpoint';
     if (unit) {
       const o = { team: a.info.team, myTeam: myTeam(), visible, maxD: hasDrag ? T.SNAP : a.info.range + 400 };
@@ -1016,12 +1027,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     }
     const rr = a.tg ? a.tg.ring : 0;
     if (!unitId && rr > 0) { const dd = Math.hypot(ax - u.x, ay - u.y); if (dd > rr) { ax = u.x + (ax - u.x) * rr / dd; ay = u.y + (ay - u.y) * rr / dd; } }
-    a.point = { x: clampW(ax), y: clampW(ay) }; a.unitId = unitId; a.vx = vx; a.vy = vy;
-    if (cam) { if (hasDrag) cam.aimAt(a.point.x, a.point.y); else cam.aimAt(null); }   // aim lookahead from the cursor's point
+    a.point = { x: clampW(ax), y: clampW(ay) }; a.unitId = unitId;
+    if (cam) { if (hasDrag) cam.aimAt(a.point.x, a.point.y); else cam.aimAt(null); }   // aim lookahead
     if (a.tg) { a.tg.unitId = unitId; a.tg.unitOk = !!unitId || a.info.mode === 'point' || a.info.mode === 'unitpoint'; a.tg.cancel = a.inCancel; }
     if (H.setAim) H.setAim(a.point.x, a.point.y);
     if (renderer.setHover) renderer.setHover(unitId || null);
-    aimKnob.style.left = (vx - a.ox) + 'px'; aimKnob.style.top = (vy - a.oy) + 'px';   // the icon stays in its slot; only this knob follows the (scaled) drag
+    const k = fl > R ? R / fl : 1;   // the knob = the thumb, held inside the joystick ring; the world rangefinder shows the aim point
+    aimKnob.style.left = (a.x0 + fx * k - a.ox) + 'px'; aimKnob.style.top = (a.y0 + fy * k - a.oy) + 'px';
   }
 
   function aimMove(e) {

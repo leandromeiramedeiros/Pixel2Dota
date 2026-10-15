@@ -6,7 +6,7 @@ import { TEAM, KIND, ST } from '../../shared/protocol.js';
 import {
   T, touchWanted, isPortrait, castClass, selfCastTarget, arcLayout, angleDiff, joyShouldSend, dragVector, aimWorldOffset,
   snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget, touchScale, aimShape, holdPhase, releaseAction, aimCancelled, inRect,
-  smallArcLayout, loadItemOrder, saveItemOrder, itemMapKey, usableItem, packWheelItems, placeWheelItem, dropAction, BAG_POS, bagBox, edgePanArmed, aimCursor, clampSens, aimRadius, loadAimSens, saveAimSens, SENS, SENS_STEPS,
+  smallArcLayout, loadItemOrder, saveItemOrder, itemMapKey, usableItem, packWheelItems, placeWheelItem, dropAction, BAG_POS, bagBox, aimJoy, rayToEdge, clampSens, aimRadius, loadAimSens, saveAimSens, SENS, SENS_STEPS,
 } from '../src/ui/touch.js';
 import { targetInfo } from '../src/ui/targeting.js';
 
@@ -283,15 +283,6 @@ test('placeWheelItem / dropAction: bag swaps, usable main items onto the wheel, 
   assert.equal(dropAction(wh(1, 3), bag(2)), null);
 });
 
-test('edgePanArmed: not while the aim cursor is still on the pressed button, unless the drag is past 0.2 of the radius', () => {
-  const r = { left: 700, top: 300, right: 760, bottom: 360 };
-  assert.equal(edgePanArmed(730, 330, r, 0.1), false, 'on the button, tiny drag (button near the edge)');
-  assert.equal(edgePanArmed(730, 330, r, 0.25), true, 'past the magnitude');
-  assert.equal(edgePanArmed(780, 330, r, 0.05), true, 'cursor left the button');
-  assert.equal(edgePanArmed(730, 330, r, 0.25, 0.3), false);
-  assert.equal(T.EDGE_MAG, 0.2);
-});
-
 test('aim sensitivity: clamp 0.75..2.5 in 0.25 steps, default 1.5 (~64 px full range), stored', () => {
   assert.equal(SENS.DEF, 1.5); assert.deepEqual(SENS_STEPS, [0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5]);
   assert.equal(clampSens(undefined), 1.5); assert.equal(clampSens(null), 1.5); assert.equal(clampSens('x'), 1.5); assert.equal(clampSens(''), 1.5);
@@ -304,18 +295,37 @@ test('aim sensitivity: clamp 0.75..2.5 in 0.25 steps, default 1.5 (~64 px full r
   assert.equal(loadAimSens(null), 1.5); assert.equal(saveAimSens(null, 2), false);
 });
 
-test('aimCursor: starts at the hero preview point, thumb reach sweeps it to each screen edge, rings stop it', () => {
-  const W = 844, H = 390, o = { sx: 422, sy: 195, hx: 422, hy: 195, px: 780, py: 330, W, H, K: 1, rs: 1, ringX: 0, ringY: 0 };
-  assert.deepEqual(aimCursor(0, 0, o), { x: 422, y: 195 }, 'first frame = start, not the button');
-  const L = aimCursor(-T.AIM_REACH_X * W, 0, o), Lb = aimCursor(-1000, 0, o);
-  assert.ok(Math.abs(L.x) < 1e-9 && Lb.x === 0, 'comfortable reach left = left edge');
-  assert.ok(aimCursor(-T.AIM_REACH_X * W / 2, 0, o).x > 0 && aimCursor(-T.AIM_REACH_X * W / 2, 0, o).x < 422, 'half reach: between');
-  assert.equal(aimCursor(60, 0, o).x, W, 'little room right of the button: short reach, right edge');   // 844 - 780 - 12 = 52 px
-  assert.ok(Math.abs(aimCursor(0, -T.AIM_REACH_Y * H, o).y) < 1e-9, 'up reach = top edge');
-  assert.equal(aimCursor(0, 200, o).y, H, 'down = bottom edge');
-  const a = aimCursor(-30, 0, o).x, b = aimCursor(-60, 0, o).x; assert.ok(422 - b > 2 * (422 - a), 'accelerating');
-  assert.ok(aimCursor(-80, 0, Object.assign({}, o, { rs: 2 })).x > aimCursor(-80, 0, o).x, 'rs > 1 = longer reach = slower');
-  const ring = Object.assign({}, o, { ringX: 100, ringY: 60 }), rl = aimCursor(-1000, -1000, ring);
-  assert.ok(Math.abs(rl.x - (422 - 115)) < 1e-9 && Math.abs(rl.y - (195 - 69)) < 1e-9, 'finite ring: sweep ends at 1.15 x ring');
-  assert.equal(aimCursor(0, 0, Object.assign({}, o, { sx: 200, hx: 422, ringX: 100 })).x, 200);
+test('aimJoy: skill joystick from the press, on-screen angle = aim angle, deflection x range = length', () => {
+  const o = { R: 64, dead: 8, range: 700 };
+  assert.equal(aimJoy(0, 0, o), null, 'no drag');
+  assert.equal(aimJoy(5, -5, o), null, 'inside the dead zone');
+  const full = aimJoy(64, 0, o); assert.ok(Math.abs(full.x - 700) < 1e-9 && Math.abs(full.y) < 1e-9 && full.mag === 1, 'rim = full range');
+  const far = aimJoy(0, -500, o); assert.ok(Math.abs(far.y - 700) < 1e-9 && far.over === 0, 'past the rim: clamped, screen up = world +y, no pan (range-limited)');
+  const half = aimJoy(-36, 0, o); assert.ok(Math.abs(half.x + 350) < 1e-9, 'half deflection = half range (after the dead zone)');
+  assert.ok(Math.abs(aimJoy(20, 0, { ...o, dirOnly: true }).x - 700) < 1e-9, 'line / cone: direction only, full range');
+  // pitched camera: world +y covers 0.5 px / u on screen, +x 1 px / u.  A 45 deg thumb must give a 45 deg line ON SCREEN, so the world
+  // direction stretches along y; the point lands at range along it.
+  const basis = { xx: 1, xy: 0, yx: 0, yy: -0.5 };
+  const d = aimJoy(40, -40, { ...o, basis });
+  const sx = basis.xx * d.x + basis.yx * d.y, sy = basis.xy * d.x + basis.yy * d.y;
+  assert.ok(Math.abs(Math.atan2(sy, sx) + Math.PI / 4) < 1e-9, 'on-screen angle preserved');
+  assert.ok(Math.abs(Math.hypot(d.x, d.y) - 700 * d.mag) < 1e-9, 'length = range x mag in world units');
+  assert.ok(d.y > d.x, 'world y stretched by the foreshortening');
+});
+
+test('aimJoy long / global: rim = the visible edge, held past the rim pans', () => {
+  const o = { R: 64, dead: 8, range: 0, edgePx: 300 };   // global, 300 px to the edge, flat 1 px / u
+  const rim = aimJoy(64, 0, o); assert.ok(Math.abs(rim.x - 300) < 1e-9 && rim.over === 0, 'rim = the edge');
+  assert.equal(aimJoy(64 * 1.15, 0, o).over, 0, 'pan starts past AIM_OVER x R');
+  assert.equal(aimJoy(64 * 1.7, 0, o).over, 1, 'full pan speed AIM_OVER_RAMP x R further');
+  assert.equal(aimJoy(64 * 2, 0, { ...o, range: 200 }).over, 0, 'range shorter than the screen: no pan');
+  assert.ok(Math.abs(aimJoy(64, 0, { ...o, range: 2000 }).x - 300) < 1e-9, 'finite long range: the edge still caps the joystick');
+  assert.equal(aimJoy(30, 0, { R: 64, dead: 8, range: 0 }).x, 0, 'global with no edge info: no point (never infinite)');
+});
+
+test('rayToEdge: distance along a direction to the inset view edge', () => {
+  assert.equal(rayToEdge(400, 200, 1, 0, 800, 400, 0), 400);
+  assert.equal(rayToEdge(400, 200, 0, -1, 800, 400, 50), 150);
+  assert.ok(Math.abs(rayToEdge(400, 200, Math.SQRT1_2, Math.SQRT1_2, 800, 400, 0) - 200 * Math.SQRT2) < 1e-9, 'diagonal hits the bottom first');
+  assert.equal(rayToEdge(-50, 200, -1, 0, 800, 400, 0), 0, 'off-screen point pulled in');
 });

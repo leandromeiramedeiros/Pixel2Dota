@@ -142,19 +142,18 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   packed, in a per-hero order by inventory slot (`p2d.wheelItems.<hero>` v2; new items append). No item row, no hotkey letters. A BAG button left of
   the attack button opens a popover of all 9 slots (6 main + 3 backpack): drag cell -> cell = `ORDER.SWAP`, cell -> small slot = wheel order, tap =
   tooltip + SELL in shop range (desktop rule); tap outside / BAG closes. Spells: tap / double-tap self-cast / drag-to-aim with rangefinder (clipped at
-  the camera near plane). The icon never moves; the knob shows the cursor. Spell aim (`aimCursor`) starts at the hero's preview point; a comfortable
-  thumb reach (`AIM_REACH_X/Y` x screen, scaled by sensitivity 0.75..2.5, default 1.5) sweeps it to the screen edge, where it edge-pans, so one thumb
-  covers the whole screen. Attack drag / pad radius `AIM_R / s`. The move joystick stays live (multi-touch). Cancel: release over the CANCEL X above the wheel, or slide
+  the camera near plane). The icon never moves. Spell aim is a skill joystick (`aimJoy`): its ring appears where the thumb pressed (radius
+  `AIM_R / s`, sensitivity 0.75..2.5, default 1.5); the drag's on-screen angle is the aim line's angle from the hero (isotropic under the camera
+  pitch), deflection x range its length (line / cone: direction only). Long / global spells: rim = the visible edge, thumb held past it pans. Attack drag / pad radius `AIM_R / s`. The move joystick stays live (multi-touch). Cancel: release over the CANCEL X above the wheel, or slide
   back onto the button. Holding a spell/item still 0.75 s shows its tooltip (release does not cast); 1.75 s enters wheel reorder (spells and small
   items, per hero). HUD bottom bar, left to right: minimap, hero portrait, stats (desktop), bars/items;
   portrait: tap/double tap/click centres the camera, press-and-hold 0.5 s shows the full stats panel (`format.heroStats`) while held. Pinch zoom, menu button.
   Desktop camera: Y lock, F1 centre, hold Space = follow while held, edge / arrows / middle-drag pan (drops the lock), an armed cast leans the view.
   Touch camera: locked by default (CAM toggles), led by the joystick; locked one-finger press (`classifyPress`): tap = move (enemy = attack), hold still
   = keep moving to the finger, quick deliberate drag = peek (springs back). The minimap sits top-left under the top bar (left thumb reach, clear of the
-  joystick); pressing it suspends the lock to cast far with the right thumb, release / cast end returns. The aim cursor of a long-range spell at a
-  screen edge pans fast (`edgePanDir`), only once it has left the pressed button or the drag passes 0.2 of the radius (`edgePanArmed`); spell aim
-  leans the view.
-  Pure helpers (`holdPhase`, `releaseAction`, `aimCancelled`, `portraitPhase`, `edgePanDir`, `edgePanArmed`, `packWheelItems`, `dropAction`) in
+  joystick); pressing it suspends the lock to cast far with the right thumb, release / cast end returns. Spell aim leans the view. Peek / aim lean are
+  re-asserted per frame from the live gestures, and a re-lock (CAM / portrait) fully resets zoom, peek and framing.
+  Pure helpers (`holdPhase`, `releaseAction`, `aimCancelled`, `portraitPhase`, `aimJoy`, `rayToEdge`, `packWheelItems`, `dropAction`) in
   `ui/touch.js` / `ui/targeting.js` are node-tested.
 - **Order paths** (`ui/orderpath.js`, drawn by hud.js): every move / attack / attack-move order (desktop and touch, not the joystick) shows marching dashes
   along the A* path from `shared/nav.js` (the same nav the server sim walks) with a cross at the end; green move, red attack, orange attack-move; 1 s fade.
