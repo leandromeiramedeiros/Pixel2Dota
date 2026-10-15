@@ -166,7 +166,8 @@ async function main() {
   const dir = path.join(CACHE, hero, 'fx'), t0 = Date.now();
   fs.mkdirSync(dir, { recursive: true });
   if (!noRef) {
-    const missing = abilities.filter((a) => !fs.existsSync(path.join(dir, a, 'ref.json')) || !fs.existsSync(path.join(dir, a, 'cpu_0.1.png')));
+    const has = (f) => fs.existsSync(f) && fs.readFileSync(f, 'utf8').includes('"palette"');   // pre-v2 ref.json has no palette
+    const missing = abilities.filter((a) => !has(path.join(dir, a, 'ref.json')));
     if (missing.length) { console.log(`ref: ${missing.length} abilit(ies)`); await buildRef(hero, missing, console.log); }
   }
   const refOf = (a) => { try { return JSON.parse(fs.readFileSync(path.join(dir, a, 'ref.json'), 'utf8')); } catch { return null; } };

@@ -231,7 +231,7 @@ async function main() {
   if (bad.length) throw new RefError(`not an ability of ${hero}: ${bad.join(', ')}  (have: ${all.join(', ')})`);
   if (args.includes('--list')) {
     const h = heroInfo(hero);
-    for (const a of want.length ? want : all) { const m = abilityFiles(h, a); console.log(`${a.padEnd(34)} ${String(m.files.length).padStart(3)} files ${String(m.variants.length).padStart(3)} variants  ${m.source === 'precache' ? 'PRECACHE ' : ''}${m.files.slice(0, 5).map((f) => path.basename(f, '.vpcf')).join(' ')}`); }
+    for (const a of want.length ? want : all) { const m = abilityFiles(h, a); console.log(`${a.padEnd(34)} ${String(m.files.length).padStart(3)} files ${String(m.variants.length).padStart(3)} variants  ${m.source === 'precache' ? 'precache' : 'folder  '}  ${m.files.slice(0, 5).map((f) => path.basename(f, '.vpcf')).join(' ')}`); }
     return;
   }
   console.log(`fx ref ${hero} -> ${path.join(CACHE, hero, 'fx')}`);
