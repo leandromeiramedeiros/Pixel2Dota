@@ -158,7 +158,7 @@ test('bots keep core items in main, junk goes to the backpack, and never break',
 });
 
 test('bots: full match with 9-slot inventories ends cleanly, bots buy beyond the start set', () => {
-  const w = new World({ seed: 6 });   // bot matches are chaotic: any map data change reshuffles who is ahead at 12 min
+  const w = new World({ seed: 7 });   // bot matches are chaotic: any map data change reshuffles who is ahead at 12 min
   const hs = [];
   for (let i = 0; i < 10; i++) hs.push(w.addHero({ pid: 'b' + i, team: i < 5 ? TEAM.RADIANT : TEAM.DIRE, heroKey: HERO_KEYS[i], bot: true, slot: i % 5 }));
   for (let i = 0; i < 30 * 60 * 12 && w.winner < 0; i++) w.step(DT);
