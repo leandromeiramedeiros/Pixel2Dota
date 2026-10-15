@@ -117,7 +117,13 @@ const CSS = `
 .h-bar span { position:absolute; left:0; right:0; top:0; bottom:0; display:flex; align-items:center; justify-content:center; font-family:'Press Start 2P',monospace; font-size:6u; color:#fff; text-shadow:1u 1u 0 rgba(0,0,0,.9); }
 .h-bar em { position:absolute; right:2u; top:0; bottom:0; display:flex; align-items:center; font-style:normal; font-family:'Press Start 2P',monospace; font-size:5u; color:rgba(255,255,255,.85); text-shadow:1u 1u 0 rgba(0,0,0,.9); }
 .h-invwrap { display:flex; flex-direction:column; gap:2u; }
-.h-inv { padding:3u; display:grid; grid-template-columns:repeat(3,22u); gap:2u; }
+.h-inv { padding:3u; display:flex; flex-direction:column; gap:3u; }
+.h-invmain, .h-invbp { display:grid; grid-template-columns:repeat(3,22u); gap:2u; }
+.h-invbp { padding-top:3u; border-top:1u dashed #2d3650; }
+.h-is.bp { background:#07090e; box-shadow:0 0 0 1u #05070b, inset 0 0 0 1u #1a2030; }
+.h-is.bp canvas { filter:saturate(.3) brightness(.6); opacity:.7; }
+.h-is.bp .h-key { display:none; }
+.h-is.bp:hover { box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u #3a4560; }
 .h-is { position:relative; width:22u; height:22u; background:#0a0d14; box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u #2d3650; padding:1u; pointer-events:auto; cursor:pointer; }
 .h-is canvas { width:calc(20 * var(--u)); height:calc(20 * var(--u)); }
 .h-is.over { box-shadow:0 0 0 1u var(--gold), inset 0 0 0 1u var(--gold); }

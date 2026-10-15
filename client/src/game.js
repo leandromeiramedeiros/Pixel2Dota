@@ -4,12 +4,12 @@ import { loadSheets } from './art/atlas.js';
 import { createRenderer } from './render/index.js';
 import { createHud } from './ui/hud.js';
 import { createInput } from './input.js';
-import { createTouch } from './ui/touch.js';
+import { createTouch, loadAimSens } from './ui/touch.js';
 import { createPerf } from './ui/perf.js';
 import { createMenu } from './ui/menu.js';
 import { createLoop, measureRefreshHz } from './loop.js';
 import { LABEL, RES_LABEL, fpsLabel, applyQuality, applyOptions, levelOptions, normalizeOptions, loadLevel, saveLevel, loadOptions, saveOption, clearOptions, clearStored, detectDefaults, gatherHardwareInfo } from './render/quality.js';
-import { MSG, TEAM } from '@p2d/shared/protocol.js';
+import { MSG, TEAM, ST } from '@p2d/shared/protocol.js';
 import { POV } from '@p2d/shared/pov.js';
 import { createSpectate } from './ui/spectate.js';
 import { createPovStore, followGoal, stepFollow, visionKey, povStateMsg } from './pov.js';
@@ -48,7 +48,7 @@ export async function startGame({ root, net }) {
   const perfOn = (() => { try { return localStorage.getItem(perfKey) !== '0'; } catch { return true; } })();
   perf.setVisible(perfOn);
   const menu = createMenu(hudRoot, {
-    level, options: opts, perfOn,
+    level, options: opts, perfOn, aimSens: (() => { try { return loadAimSens(localStorage); } catch { return undefined; } })(),
     onLevel(l) {   // preset + the level's option bundle; manual option overrides are forgotten
       level = l; saveLevel(l); clearOptions(); opts = levelOptions(l); apply(); applyLoop(); menu.setOptions(opts);
     },
@@ -63,6 +63,7 @@ export async function startGame({ root, net }) {
       apply(); applyLoop();
       menu.setLevel(level); menu.setOptions(opts); menu.setDetected(detText());
     },
+    onAimSens(v) { touch.setAimSens(v); },   // touch.js clamps + persists (p2d.aimSens)
     onPerf(on) { perf.setVisible(on); try { localStorage.setItem(perfKey, on ? '1' : '0'); } catch { /* storage off */ } },
     onOpen() { input.cancel && input.cancel(); },
   });
@@ -87,7 +88,7 @@ export async function startGame({ root, net }) {
   let povCam = null, lastSel, lastVis = -3, wasPov = false, povSent = null, povSentAt = 0;
 
   const me = () => net.state?.players?.get(net.mySid);
-  let myTeam = -1, spec = false, centred = false, hz = 0;
+  let myTeam = -1, spec = false, wasSpec = false, camInit = false, hz = 0;
 
   const frame = (now, dtMs) => {
     perf.frame(now);
@@ -107,7 +108,7 @@ export async function startGame({ root, net }) {
     if (vk !== lastVis) { if (lastVis !== -3 && renderer.fog && renderer.fog.reset) renderer.fog.reset(); lastVis = vk; }   // another vision perspective: its own explored memory
     const view = net.view(now);
     view.myTeam = myTeam; view.spectator = spec;
-    if (isSpec && !centred) { renderer.setTarget(0, 0); centred = true; }
+    if (isSpec !== wasSpec) { wasSpec = isSpec; renderer.cam.setFollow(!isSpec); if (isSpec) renderer.cam.jumpTo(0, 0); }   // spectators roam free from the map centre
     view.myHeroId = pov ? pov.heroId || '' : p?.heroId || '';
     view.povSid = pov ? pov.sid : '';
     const hero = view.myHeroId ? st.units.get(view.myHeroId) : null;
@@ -117,7 +118,7 @@ export async function startGame({ root, net }) {
       const g = followGoal(e, hv || hero);
       if (g) {
         const first = !povCam; povCam = stepFollow(povCam, g, dt);
-        if (first) renderer.snapTarget(povCam.x, povCam.y); else renderer.setTarget(povCam.x, povCam.y);
+        renderer.cam.jumpTo(povCam.x, povCam.y); if (first) renderer.placeTarget(povCam.x, povCam.y, true);   // pov.js smooths it: a user-style jump each frame
         renderer.setDistance(g.d);
       }
       const sel = e ? e.sel : '';
@@ -136,11 +137,13 @@ export async function startGame({ root, net }) {
         if (m) { povSent = m; send(MSG.POV, m); }
       }
     }
-    if (hero && !centred) { renderer.setTarget(hero.x, hero.y); centred = true; }
-    if (hero && renderer.isShowcase()) {   // showcase close-up stays on the (interpolated) hero
-      const hv = view.units.find((u) => u.id === view.myHeroId);
-      if (hv) renderer.setTarget(hv.x, hv.y);
-    }
+    // camera director: follow / lead / cuts / showcase centring all live in render/camdir.js; it gets the hero as DRAWN (interpolated)
+    const hv = !isSpec && hero ? view.units.find((u) => u.id === view.myHeroId) || hero : null;
+    renderer.stepCamera(dt, {
+      hero: hv ? { x: hv.x, y: hv.y, alive: hv.hp > 0 && !(hv.respawn > 0) && !((hv.status | 0) & ST.DEAD) } : null,
+      moveDir: touch.moveDir ? touch.moveDir() : null,
+    });
+    if (hv && !camInit) { camInit = true; if (!(touch.isActive && touch.isActive())) renderer.cam.setFollow(false); }   // desktop: the first frame cuts to the hero, then the camera is free (Dota; Y locks)
     renderer.update(view, dt);
     hud.update(st, hero, net.mySid, view);
   };

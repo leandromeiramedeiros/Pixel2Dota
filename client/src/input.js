@@ -1,10 +1,11 @@
 // Input: Dota-style mouse + keyboard controls -> orders.  createInput({ canvas, renderer, send, hud, getState, mySid }) -> { destroy(), setQuickCast(bool), cancel() }
 //   Right-click: move / attack.  A + left-click: attack-move.  S stop, H hold.  Q W E R (+D F for Invoker): cast.  Z X C V B N: items (B opens the shop when slot 5 is empty).
-//   Ctrl+key: learn.  Shift: queue.  Alt+key / same key twice: self cast.  Y: camera lock.  F1 / Space: centre on hero.  F4: shop.  Tab: scoreboard.  Enter: chat.
-//   Wheel: zoom.  Edge / arrows / middle-drag: pan.  Showcase (zoomed in past the close camera): middle-drag, Alt + left-drag or left-drag on empty ground
+//   Ctrl+key: learn.  Shift: queue.  Alt+key / same key twice: self cast.  F4: shop.  Tab: scoreboard.  Enter: chat.
+//   Camera = intents to renderer.cam (render/camdir.js): Y lock toggle, F1 centre, hold Space follow, edge / arrows (edgeRamp) / middle-drag pan
+//   (drops the lock), an armed targeted cast feeds aimAt.  Wheel: zoom.  Showcase (zoomed in past the close camera): middle-drag, Alt + left-drag or left-drag on empty ground
 //   orbit the hero (yaw / pitch), edge pan is off.  Touch orbit: ui/orbit.js.
-import { MSG } from '../../shared/protocol.js';
-import { MAP_MIN, MAP_MAX } from '../../shared/constants.js';
+import { MSG, ACTIVE_SLOTS } from '../../shared/protocol.js';
+import { edgeRamp, edgeHold, dragToWorld } from './render/camdir.js';
 import { GLYPHS } from './ui/glyphs.js';
 import { ORBIT, dragToOrbit, createOrbitTouch } from './ui/orbit.js';
 import { glyphCanvas } from './ui/pixels.js';
@@ -25,7 +26,8 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   const call = (name, ...a) => (H[name] ? H[name](...a) : undefined);
 
   let mode = null;                // { kind:'ability'|'item'|'amove', slot, info, name }
-  let camLock = false, quickCast = false, touchMode = false;
+  let quickCast = false, touchMode = false, edgeMs = 0, aimFed = false;
+  const cam = renderer.cam || null;   // camera director (absent on the HUD preview page)
   let mouse = { x: 0, y: 0, in: false, overCanvas: false };
   const held = new Set();
   let midDrag = null, orbitDrag = null, rightHeld = false, lastMoveAt = 0, hoverId = null, pickDirty = true;
@@ -64,6 +66,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
 
   function setMode(m) {
     mode = m;
+    if (!m && aimFed) { aimFed = false; if (cam) cam.aimAt(null); }
     call('setTargeting', m && m.kind !== 'amove' ? m : m ? { kind: 'amove', slot: -1, info: { range: 0, radius: 0 }, name: '' } : null);
     setCursor();
   }
@@ -75,6 +78,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
 
   // ---- casting
   function activate(kind, slot, e) {
+    if (kind === 'item' && slot >= ACTIVE_SLOTS) return;   // backpack items are inert (sell via right-click in hud.js)
     const u = hero(); if (!u) return;
     const queue = !!(e && e.shiftKey);
     const self = !!(e && e.altKey);
@@ -162,10 +166,9 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
       if (!orbitDrag.moved && Math.hypot(e.clientX - orbitDrag.x0, e.clientY - orbitDrag.y0) > ORBIT.slop) { orbitDrag.moved = true; setCursor(); }
       if (orbitDrag.moved) { const o = dragToOrbit(dx, dy); if (!(renderer.orbit && renderer.orbit(o.dYaw, o.dPitch))) orbitDrag = null; }
     } else if (midDrag) {
-      const rig = renderer.rig; const t = renderer.getTarget();
-      const r = rect();
-      const wx = ((rig && rig.visibleWidth) || 2100) / r.width, wy = (((rig && rig.visibleHeight) || 1190) / r.height) / 0.866;
-      renderer.setTarget(clampW(t.x - dx * wx), clampW(t.y + dy * wy));
+      const rig = renderer.rig, r = rect();
+      const w = dragToWorld(dx, dy, r.width, r.height, (rig && rig.visibleWidth) || 2100, (rig && rig.visibleHeight) || 1190);
+      if (cam) cam.pan(w.x, w.y);
     }
   }
   function onLeave() { mouse.in = false; mouse.overCanvas = false; }
@@ -195,8 +198,9 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
       return;
     }
     if (code === 'F4') { e.preventDefault(); call('toggleShop'); return; }
-    if (code === 'F1' || code === 'Space') { e.preventDefault(); const u = hero(); if (u) renderer.setTarget(u.x, u.y); return; }
-    if (code === 'KeyY' && !e.ctrlKey && !e.altKey) { camLock = !camLock; call('message', camLock ? 'Camera lock: on' : 'Camera lock: off'); return; }
+    if (code === 'F1') { e.preventDefault(); if (cam) cam.centre(); return; }
+    if (code === 'Space') { e.preventDefault(); if (cam) cam.holdFollow(true); return; }   // follow while held; release leaves the camera there
+    if (code === 'KeyY' && !e.ctrlKey && !e.altKey) { if (cam) call('message', cam.toggleFollow() ? 'Camera lock: on' : 'Camera lock: off'); return; }
 
     const u = hero();
     // abilities
@@ -228,11 +232,11 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
   function onKeyUp(e) {
     if (ARROWS[e.code]) held.delete(e.code);
     if (e.code === 'Tab') { e.preventDefault(); call('setScoreboard', false); }
+    if (e.code === 'Space' && cam) cam.holdFollow(false);
   }
-  function onBlur() { held.clear(); call('setScoreboard', false); rightHeld = false; midDrag = null; orbitDrag = null; }
+  function onBlur() { held.clear(); call('setScoreboard', false); rightHeld = false; midDrag = null; orbitDrag = null; if (cam) cam.holdFollow(false); }
 
-  // ---- per-frame: pan, camera lock, hover, held right-click
-  const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
+  // ---- per-frame: pan, hover, held right-click
   let raf = 0, last = performance.now();
   function frame(now) {
     raf = requestAnimationFrame(frame);
@@ -246,12 +250,10 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
       if (mouse.x <= r.left + EDGE) vx -= 1; else if (mouse.x >= r.right - EDGE) vx += 1;
       if (mouse.y <= r.top + EDGE) vy += 1; else if (mouse.y >= r.bottom - EDGE) vy -= 1;
     }
-    if (call('isPovLocked')) { /* the follow camera owns the target */ } else if (vx || vy) {
-      const n = Math.hypot(vx, vy) || 1; const t = renderer.getTarget();
-      renderer.setTarget(clampW(t.x + (vx / n) * vh * PAN_SPEED * dt), clampW(t.y + (vy / n) * vh * PAN_SPEED * dt));
-      camLock = false;
-    } else if (camLock) {
-      const u = hero(); if (u) renderer.setTarget(u.x, u.y);
+    edgeMs = edgeHold(edgeMs, !!(vx || vy), dt * 1000);
+    if (call('isPovLocked')) { /* the spectator follow camera owns the target */ } else if ((vx || vy) && cam) {
+      const n = Math.hypot(vx, vy) || 1, sp = vh * PAN_SPEED * dt * edgeRamp(edgeMs);   // ramps up over CAMERA_FEEL.edgeRampMs
+      cam.pan((vx / n) * sp, (vy / n) * sp);
     }
     // hover + aim
     if (pickDirty && mouse.in) {
@@ -261,6 +263,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
         const id = p.unitId || null;
         if (id !== hoverId) { hoverId = id; renderer.setHover && renderer.setHover(id); }
         if (mode) call('setAim', p.x, p.y);
+        if (mode && mode.kind !== 'amove' && cam && !touchMode) { cam.aimAt(p.x, p.y); aimFed = true; }   // aim lookahead: the camera leans toward the cast
         if (rightHeld && !mode && !id && now - lastMoveAt > MOVE_REPEAT_MS) { lastMoveAt = now; order(orderMove(Math.round(p.x), Math.round(p.y), false)); }
       } else if (hoverId) { hoverId = null; renderer.setHover && renderer.setHover(null); }
       setCursor();
@@ -285,7 +288,7 @@ export function createInput({ canvas, renderer, send, hud, getState, mySid }) {
     setTouchMode(v) { touchMode = !!v; },
     setQuickCast(v) { quickCast = !!v; },
     get quickCast() { return quickCast; },
-    get camLock() { return camLock; },
+    get camLock() { return !!(cam && cam.following); },
     get mode() { return mode; },
     cancel,
     activate, learn,

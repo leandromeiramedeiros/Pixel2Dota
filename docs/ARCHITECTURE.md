@@ -47,11 +47,22 @@ Deploy: every push to `main` rebuilds the GitHub Pages client (.github/workflows
 
 ## Camera (`shared/constants.js CAMERA`, `render/camera.js`)
 - Yaw is 0 (looking north) everywhere except the showcase; there the player orbits the hero. Default distance 1134, pitch 60 deg, horizontal FOV 70 at 4:3 (vertical ~55.4 deg, constant across aspects).
-- Zoom: 1134 (desktop max) -> closeDistance 900 (pitch 38, fov 45) -> showcase 800 (pitch 14, fov 50, eye ~260u up = tree-canopy height, looking at the hero's chest, hero ~1/4 of the screen) -> dolly to showcaseMin 480. Showcase = `distanceGoal < closeDistance`; the game keeps the hero centred, DoF ramps to full.
+- Zoom: 1134 (desktop max) -> closeDistance 900 (pitch 38, fov 45) -> showcase 800 (pitch 14, fov 50, eye ~260u up = tree-canopy height, looking at the hero's chest, hero ~1/4 of the screen) -> dolly to showcaseMin 480. Showcase = `distanceGoal < closeDistance`; the director keeps the hero centred, DoF ramps to full.
 - Orbit (showcase only, `rig.orbit(dYaw, dPitch)`): yaw free, pitch `orbitPitchMin..Max` (5..60); yaw eases back to 0 (shortest way) once out of the showcase. Eye = look + d (sin yaw cos pitch, sin pitch, cos yaw cos pitch). Desktop: middle-drag, Alt + left-drag or left-drag on empty ground (a click still deselects), wheel zooms, edge pan off. Touch: `ui/orbit.js` (attaches to the canvas, capture phase): one-finger drag rotates, pinch zooms, left joystick zone and taps untouched.
 - Anything that depends on the view direction uses the camera matrices or `rig.yaw` (picking / `worldToScreen` / rangefinder do): sprite frame = `dirOf(viewFacing(facing, yaw))`, key-light rim direction rotates with yaw, clutter cull box is symmetric while `yaw != 0`. Don't hard-code "screen up = north" in render code.
 - Touch: max and starting distance 1450 (`ui/touch.js T.ZOOM_FAR/ZOOM_START`), pinch in only. Sprites always scale with perspective (`spritePersp: 1`).
 - `renderer.setViewInset({top, bottom})` frames the target in the part of the screen the HUD leaves free (touch); the DoF focus band follows.
+- **Director** (`render/camdir.js`, pure, node-tested; `renderer.cam`): the ONE owner of where the camera looks. Writers send intents (`pan`, `jumpTo`,
+  `centre`, `setFollow`, `holdFollow`, `suspend`, `peekStart/Move/End`, `aimAt`); game.js calls `renderer.stepCamera(dt, {hero, moveDir})` once a frame
+  (interpolated hero + alive, touch joystick), which places the rig (`rig.place`, no rig lerp). `renderer.setTarget/snapTarget` = a user jump (legacy;
+  sandbox.js / fxdemo.js still drive the rig directly). Tunables: `CAMERA_FEEL`.
+  - Modes: follow | free | peek (touch look-around over the base mode) | orbit (showcase: hero centred; pan / peek / jumps ignored).
+  - Player moves (pan, edge / arrows with `edgeRamp`, middle-drag, minimap, centre, peek drag) are instant. Automatic moves (follow, return to follow,
+    peek spring-back, aim lean) use a critically damped spring (`smoothDamp`, exact, frame-rate independent).
+  - Follow anchor = hero + lead (velocity x `leadTau` + joystick, capped `leadCap` x visible height) + aim lean (capped) + the spring's lag, so the
+    camera never trails a moving hero. Follow error > `cutVH` visible heights (TP, long blink, respawn, far return) = a cut (`snap`: ground height snaps too).
+  - Never moves on its own otherwise: no auto-zoom, nothing on kills; follow pauses while the hero is dead, cuts to it on respawn.
+  - Any user pan / jump while following drops to free (Dota); `suspend` = temporary free that keeps the lock (touch minimap press, aim edge pan).
 
 ## Network
 - Server authoritative, no client prediction. Sim 30 Hz fixed step (own accumulator in MatchRoom). Patches flushed manually once per tick (`setPatchRate(null)`).
@@ -118,14 +129,22 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
 - **World UI in the showcase**: hp bars and combat text fade out where the showcase fog starts and behind the camera (`uiFade` in `render/index.js`), and bars are size-capped.
 - **Fog** (`fog.js`): tile-resolution vision grid, Dota rules (three levels river < lane < high ground: rays blocked by higher ground and live trees, a higher level sees down, `state.vision` sources are flying unless `ground`); radius from DATA (hero visionDay/visionNight, unit `vision`, night mirrors the sim). Three looks: visible / fogged (explored) / never seen (`FOG_UNSEEN_DARKEN`, 0 = pure Dota); soft eased edge; enemy structures stay drawn as last seen (`fog.ghost`).
 - **Input**: `input.js` (desktop, header lists every key). `ui/touch.js`: joystick, attack button (tap / drag-to-target with hero priority), last-hit button,
-  ability arc with tap / double-tap self-cast / drag-to-aim with rangefinder (clipped at the camera near plane). The spell icon never moves while aiming
-  (a small knob follows the finger) and the move joystick stays live (multi-touch). Cancel: release over the CANCEL X above the wheel, or slide back onto the
-  button after leaving it (a quick tap keeps its preview behaviour). Holding a spell/item still 0.75 s shows its tooltip (release does not cast, moving
-  resumes aiming); 1.75 s enters wheel reorder (per hero). HUD bottom bar, left to right: minimap, hero portrait, stats (desktop), bars/items;
+  and the wheel: spell arc (`arcLayout`) + an outer arc of up to 6 small item slots (`smallArcLayout`) holding only usable (non-passive) main items,
+  packed, in a per-hero order by inventory slot (`p2d.wheelItems.<hero>` v2; new items append). No item row, no hotkey letters. A BAG button left of
+  the attack button opens a popover of all 9 slots (6 main + 3 backpack): drag cell -> cell = `ORDER.SWAP`, cell -> small slot = wheel order, tap =
+  tooltip + SELL in shop range (desktop rule); tap outside / BAG closes. Spells: tap / double-tap self-cast / drag-to-aim with rangefinder (clipped at
+  the camera near plane). The icon never moves; the knob shows the aim cursor = button + drag x sensitivity s (menu "Aim sensitivity", 0.75..2.5,
+  default 1.5; attack / pad radius `AIM_R / s`). The move joystick stays live (multi-touch). Cancel: release over the CANCEL X above the wheel, or slide
+  back onto the button. Holding a spell/item still 0.75 s shows its tooltip (release does not cast); 1.75 s enters wheel reorder (spells and small
+  items, per hero). HUD bottom bar, left to right: minimap, hero portrait, stats (desktop), bars/items;
   portrait: tap/double tap/click centres the camera, press-and-hold 0.5 s shows the full stats panel (`format.heroStats`) while held. Pinch zoom, menu button.
-  Touch camera: locked to the hero by default (CAM toggles); tap the world = move (enemy = attack), hold = keep moving to the finger. The minimap sits
-  top-left under the top bar (left thumb reach, clear of the joystick); pressing it frees the camera to cast far with the right thumb, release / cast end
-  snaps back. Aiming a long-range spell at a screen edge pans fast (`edgePanDir`).
-  Pure helpers (`holdPhase`, `releaseAction`, `aimCancelled`, `portraitPhase`, `edgePanDir`) in `ui/touch.js` / `ui/targeting.js` are node-tested.
+  Desktop camera: Y lock, F1 centre, hold Space = follow while held, edge / arrows / middle-drag pan (drops the lock), an armed cast leans the view.
+  Touch camera: locked by default (CAM toggles), led by the joystick; locked one-finger press (`classifyPress`): tap = move (enemy = attack), hold still
+  = keep moving to the finger, quick deliberate drag = peek (springs back). The minimap sits top-left under the top bar (left thumb reach, clear of the
+  joystick); pressing it suspends the lock to cast far with the right thumb, release / cast end returns. The aim cursor of a long-range spell at a
+  screen edge pans fast (`edgePanDir`), only once it has left the pressed button or the drag passes 0.2 of the radius (`edgePanArmed`); spell aim
+  leans the view.
+  Pure helpers (`holdPhase`, `releaseAction`, `aimCancelled`, `portraitPhase`, `edgePanDir`, `edgePanArmed`, `packWheelItems`, `dropAction`) in
+  `ui/touch.js` / `ui/targeting.js` are node-tested.
 - **Order paths** (`ui/orderpath.js`, drawn by hud.js): every move / attack / attack-move order (desktop and touch, not the joystick) shows marching dashes
   along the A* path from `shared/nav.js` (the same nav the server sim walks) with a cross at the end; green move, red attack, orange attack-move; 1 s fade.

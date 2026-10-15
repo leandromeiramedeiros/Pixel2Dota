@@ -1,7 +1,7 @@
 // HUD (DOM overlay). createHud(hudRoot, { send, renderer, sheets }) -> { update(state, myHeroUnit, mySid, view), fx(events), destroy(), ...input hooks }
 // Input hooks used by input.js: setHandlers, setTargeting, setAim, message, toggleShop, closeShop, isShopOpen, isTyping, openChat, setScoreboard, select.
 import { DATA } from '../../../shared/data.js';
-import { MSG, ORDER, EV, KIND, TEAM, INV_SLOTS } from '../../../shared/protocol.js';
+import { MSG, ORDER, EV, KIND, TEAM, INV_SLOTS, ACTIVE_SLOTS, BACKPACK_SWAP_CD } from '../../../shared/protocol.js';
 import { HEROES } from '../../../shared/heroes.js';
 import { injectStyle, hudScale } from './style.js';
 import {
@@ -19,6 +19,10 @@ import { createScoreboard, createFeed, createMessages, createChat, createEnd, h,
 
 const teamCls = (t) => (t === TEAM.RADIANT ? 'rad' : t === TEAM.DIRE ? 'dire' : '');
 const ORB_CLS = { q: 'q', w: 'w', e: 'e' };
+/** hotkey label of inventory slot i (backpack slots have none) */
+export const invKeyLabel = (i) => (i < ACTIVE_SLOTS ? ITEM_LETTERS[i] || '' : '');
+/** tooltip note for an inventory slot: backpack items give no stats / use until moved to the main inventory */
+export const invSlotNote = (i) => (i < ACTIVE_SLOTS ? 'Right-click: sell. Drag: swap slots.' : `Backpack: no stats or use. Drag to main to use (${BACKPACK_SWAP_CD} s lock).`);
 
 /** unit.key -> display name (heroes, creeps, buildings). */
 export function unitName(u) {
@@ -56,12 +60,14 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   let handlers = { activate() {}, };
   let ctxState = { state: null, hero: null, mySid: '', myTeam: -1, time: 0 };
   let lastView = null;
-  // Centre the camera on a unit (portrait clicks). Pure setTarget: no zoom change; the renderer applies its own free-playfield inset.
+  // Centre the camera on a unit (portrait clicks), no zoom change. Own hero = camera director centre() (keeps the lock); anyone else = a jump (drops it).
   function focusUnit(id) {
-    if (!id || !renderer.setTarget) return;
+    if (!id) return;
+    const cam = renderer.cam;
+    if (cam && ctxState.hero && id === ctxState.hero.id) { cam.centre(); return; }
     const v = lastView && lastView.units && lastView.units.find ? lastView.units.find((x) => x.id === id) : null;   // interpolated (what is on screen)
     const u = v || (ctxState.state ? ctxState.state.units.get(id) : null);
-    if (u) renderer.setTarget(u.x, u.y);
+    if (u) { if (cam) cam.jumpTo(u.x, u.y); else if (renderer.setTarget) renderer.setTarget(u.x, u.y); }
   }
 
   const message = (t, warn) => msgs.show(t, warn);
@@ -285,6 +291,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   goldRow.style.flex = '1'; goldRow.append(goldIco, goldT);
   const shopBtn = h('div', 'h-shopbtn h-panel', 'SHOP');
   botRow.append(goldRow, shopBtn); invWrap.append(botRow);
+  const invMain = h('div', 'h-invmain'), invBp = h('div', 'h-invbp');   // 2x3 main inventory + dimmed 3-slot backpack row
+  inv.append(invMain, invBp);
   const itemEls = [];
   const itemSeen = [];
   let dragFrom = -1;
@@ -294,10 +302,11 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   addEventListener('mousedown', (e) => { if (!ctxMenu.contains(e.target)) closeCtx(); }, true);
 
   for (let i = 0; i < INV_SLOTS; i++) {
-    const el = h('div', 'h-is'); el.draggable = true;
+    const bp = i >= ACTIVE_SLOTS;
+    const el = h('div', bp ? 'h-is bp' : 'h-is'); el.draggable = true;
     const cv = sizeU(h('canvas', 'px'), 20, 20); cv.width = cv.height = 20;
-    const sweep = h('div', 'h-sweep'), cdt = h('div', 'h-cdt'), key = h('div', 'h-key', ITEM_LETTERS[i]), ch = h('div', 'h-ch');
-    el.append(cv, sweep, cdt, key, ch); inv.append(el);
+    const sweep = h('div', 'h-sweep'), cdt = h('div', 'h-cdt'), key = h('div', 'h-key', invKeyLabel(i)), ch = h('div', 'h-ch');
+    el.append(cv, sweep, cdt, key, ch); (bp ? invBp : invMain).append(el);
     const s = { el, cv, sweep, cdt, ch, key: '' };
     itemEls.push(s);
     el.addEventListener('click', (e) => handlers.activate('item', i, e));
@@ -319,7 +328,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
     el.addEventListener('dragend', () => { dragFrom = -1; for (const o of itemEls) o.el.classList.remove('over'); });
     tooltip.bind(el, () => {
       const it = ctxState.hero && ctxState.hero.items[i]; if (!it || !it.key) return null;
-      return { type: 'item', key: it.key, items: ctxState.hero.items, extra: [{ text: 'Right-click: sell. Drag: swap slots.', cls: 'note' }] };
+      return { type: 'item', key: it.key, items: ctxState.hero.items, extra: [{ text: invSlotNote(i), cls: 'note' }] };
     });
   }
   tooltip.bind(shopBtn, () => ({ type: 'text', title: 'Shop (B / F4)', lines: ['Buy items near your fountain'] }));

@@ -67,6 +67,14 @@ export function showcaseK(d, cfg = CAMERA) {
 }
 
 /** World height (units) visible across the screen at the target distance. */
+/** Pure: camera ray (eye o, unit dir d, Three coords) -> world ground point {x, y} on the flat plane at height gz. Rays that miss the plane (at/above the horizon) or land
+ *  further than maxDist (horizontal, from the eye) are clamped to maxDist along their ground direction, so a low showcase camera still gives a finite point. */
+export function rayToGround(o, d, gz, maxDist = 6000) {
+  const h = Math.hypot(d.x, d.z);
+  if (h < 1e-9) return { x: o.x, y: -o.z };
+  const t = d.y < -1e-6 ? (gz - o.y) / d.y : Infinity, run = Math.min(t * h, maxDist);
+  return { x: o.x + (d.x / h) * run, y: -(o.z + (d.z / h) * run) };
+}
 export const visibleHeight = (d, vfovDeg) => 2 * d * Math.tan((vfovDeg * D2R) / 2);
 
 export class CameraRig {
@@ -104,6 +112,8 @@ export class CameraRig {
   /** Showcase = zoomed in past the normal close camera: the game keeps the hero centred, the player may orbit. */
   get showcase() { return this.distanceGoal < CAMERA.closeDistance - 1; }
   setTarget(x, y, snap = false) { this.goal.x = x; this.goal.y = y; if (snap) { this.target.x = x; this.target.y = y; this.tz = heightAt(x, y); } }
+  /** Put the target exactly here, no lerp (the camera director, render/camdir.js, owns the motion). snap = also snap the ground height. */
+  place(x, y, snap = false) { this.goal.x = this.target.x = x; this.goal.y = this.target.y = y; if (snap) this.tz = heightAt(x, y); }
   getTarget() { return { x: this.goal.x, y: this.goal.y }; }
   /** Wheel notch delta (positive = zoom out). ~9 notches from 1134 to the showcase close-up. */
   zoom(delta) { this.zoomBy(Math.pow(1.12, delta)); }

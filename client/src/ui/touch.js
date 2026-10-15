@@ -2,30 +2,38 @@
 //   Active when `?touch=1`, or a coarse pointer, or the first touch event.  Desktop mouse + keyboard play is untouched.
 //   LEFT   floating joystick (left 40%, below the top bar) -> move orders toward hero + dir * 300, ~8 Hz, stop on release.
 //   RIGHT  attack button: tap = target lock > nearest enemy hero > nearest enemy unit > attack-move forward; press-and-drag = aim (the enemy closest to the
-//          drag highlights, heroes first; release attacks it, drag back / onto CANCEL cancels).  LH = last-hit / structure button.  Ability arc, item row, lock/cycle button.
-//          Hold a spell / item button still: 0.75 s = its tooltip (release without moving = NO cast), 1.75 s = rearrange the wheel (spells: drag a
-//          button onto another slot; DONE or a tap outside exits; saved per hero).  See holdPhase().
+//          drag highlights, heroes first; release attacks it, drag back / onto CANCEL cancels).  LH = last-hit / structure button, lock/cycle button.
+//          Wheel = spell arc (arcLayout) + an outer arc of up to 6 small item slots (smallArcLayout): only USABLE main items, packed, in the player's
+//          per-hero order (by inventory slot; new items append).  No item row and no hotkey letters on touch.  BAG button (left of attack) opens a
+//          popover: 6 main + 3 backpack cells (all items); drag cell -> cell = ORDER.SWAP, cell -> small slot = wheel order, tap = tooltip (+ SELL in
+//          shop range); tap outside / BAG closes.
+//          Hold a spell / item button still: 0.75 s = its tooltip (release without moving = NO cast), 1.75 s = rearrange the wheel (drag a spell / small
+//          item onto another slot; DONE or a tap outside exits; saved per hero).  See holdPhase().
+//          Aim cursor = button + drag x sensitivity s (menu, p2d.aimSens; attack drag / pad radius AIM_R / s); the knob shows the cursor.
 //          instant spells: tap casts.  self-castable spells / items: double tap casts on self (blink = toward facing), hold to aim.
-//          other targeted spells: press -> range finder + aim ring; the ICON STAYS PUT, a small knob follows the finger; drag aims, release casts.
+//          other targeted spells: press -> range finder + aim ring; the ICON STAYS PUT, the knob follows the aim cursor; drag aims, release casts.
 //          Cancel: release on the CANCEL target above the wheel, or slide back onto the button.  A short tap only previews the range.
 //          The move joystick keeps working while a spell / attack is aimed (the other thumb), the rangefinder stays on the hero.
-//   WORLD  the camera is locked to the hero by default (CAM toggles it).  Tap = move there (an enemy: attack it); hold / drag = keep moving to the finger
-//          (WALK_MS repeat).  Unlocked: drag pans.  Pinch zooms.  Minimap (top-left, under the top bar) frees the camera while pressed (cast on a far
-//          spot with the other thumb) and snaps back to the hero on release / when that cast ends; aiming a long-range spell at a screen edge pans fast.
-//          Portrait tap recentres + locks + resets the zoom, portrait hold shows the stats panel (hud.js).
+//   WORLD  camera = intents to renderer.cam (render/camdir.js); locked to the hero by default (CAM toggles it), the joystick leads it, the aim point
+//          leans it.  Locked one-finger press (classifyPress): tap = move there (an enemy: attack it); hold still = keep moving to the finger (WALK_MS
+//          repeat); quick deliberate drag = peek (look around, springs back on release).  Unlocked: drag pans.  Pinch zooms.  Minimap (top-left, under
+//          the top bar) suspends the lock while pressed (cast on a far spot with the other thumb) and the camera returns when it / that cast ends; the
+//          aim CURSOR of a long-range spell at a screen edge pans fast.  Portrait tap locks + resets the zoom, portrait hold = stats panel (hud.js).
 //   Portrait phones get a "turn your phone sideways" overlay that blocks input.
-import { MSG, ORDER, TEAM, ST, KIND } from '../../../shared/protocol.js';
+import { MSG, ORDER, TEAM, ST, KIND, ACTIVE_SLOTS, INV_SLOTS } from '../../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
 import { GLYPHS } from './glyphs.js';
 import { pixelEl, paintInto } from './pixels.js';
-import { fmtCd, sweepDeg, prettyName } from './format.js';
+import { fmtCd, sweepDeg, prettyName, fmtGold } from './format.js';
+import { inShopRange, sellValue } from './shopdata.js';
 import { h } from './panels.js';
 import {
-  heroKeyLetters, ITEM_LETTERS, targetInfo, abilityReady, itemReady, canLearn, orderMove, orderCast, orderAttack, orderAmove, teamOk,
-  swapOrder, loadWheelOrder, saveWheelOrder, nearestIndex, hudInset,
+  targetInfo, abilityReady, itemReady, canLearn, orderMove, orderCast, orderAttack, orderAmove, teamOk,
+  swapOrder, loadWheelOrder, saveWheelOrder, nearestIndex, hudInset, normalizeOrder,
 } from './targeting.js';
 import { DATA } from '../../../shared/data.js';
 import { injectTouchStyle } from './style.js';
+import { classifyPress, dragToWorld } from '../render/camdir.js';
 
 // ------------------------------------------------------------------------------------------------ tunables
 export const T = {
@@ -58,13 +66,13 @@ export const T = {
   LH_EXTRA: 200,         // last-hit button search radius = attack range + this
   REORDER_MS: 1750,      // hold a spell button still this long to rearrange the wheel
   CANCEL_BACK: 0.9,      // sliding back within this x the button radius (after having left it) cancels the aim
-  RECENTRE_SNAP: 1500,   // camera jumps further than this snap instead of gliding
   WALK_MS: 150,          // world finger held (locked camera): a move order to the finger this often
   EDGE_M: 56,            // px (x K): aiming a long-range spell with the finger this close to a screen edge pans the camera that way
   EDGE_SPEED: 3200,      // world units / s at the very edge
   EDGE_RANGE: 0.5,       // ... only for spells whose range is over this x the visible width (or global)
   PINCH_MIN: 40,         // px: two fingers closer than this do not zoom (noise)
   PINCH_STEP: 0.1,       // max zoom factor change per move event
+  EDGE_MAG: 0.2,         // aim edge pan arms once the cursor leaves the pressed button or the drag passes this x the aim radius
 };
 
 const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
@@ -170,6 +178,80 @@ export function arcLayout(n, r1 = 124, r2 = 198) {
   spread(inner, 152, 30, r1, 0, outer);
   return out;
 }
+
+/**
+ * Small item-shortcut slots: one outer arc past the spell rings (r 192 for <= 4 spells, 262 past the Invoker outer ring), clear of the
+ * bag button / attack below, the CANCEL target straight up (6, -252) and the top bar on an 844x390 phone.  Always `count` slots.
+ */
+export function smallArcLayout(n, count = 6) {
+  const far = n > 4, r = far ? 262 : 192, a0 = far ? 172 : 170, step = far ? 14 : 15;
+  return Array.from({ length: count }, (_, i) => ({ ring: 2, r, a: a0 - i * step }));
+}
+
+/** Can this item be cast (anything not passive: actives, consumables with charges)?  Only these go on the wheel. */
+export const usableItem = (key, data = DATA) => !!(key && data.items[key]) && targetInfo('item', key, 1, data).mode !== 'passive';
+// wheel item order: a per-hero preference over main slots 0..5 (by SLOT index), stored { v:2, order:[slot, ...] }.  A v1 { v:1, map:[perm] }
+// (first wheel build) reads as that order; bad data = [] (= inventory order).  Usable items not in it append in slot order.
+export const itemMapKey = (heroKey) => 'p2d.wheelItems.' + String(heroKey);
+const cleanOrder = (a) => { const out = []; if (Array.isArray(a)) for (const v of a) if (Number.isInteger(v) && v >= 0 && v < ACTIVE_SLOTS && !out.includes(v)) out.push(v); return out; };
+export function loadItemOrder(storage, heroKey) {
+  try {
+    const o = JSON.parse(storage.getItem(itemMapKey(heroKey)));
+    if (o && o.v === 2) return cleanOrder(o.order);
+    if (o && o.v === 1) return normalizeOrder(o.map, ACTIVE_SLOTS);
+  } catch { /* storage off / bad json */ }
+  return [];
+}
+export function saveItemOrder(storage, heroKey, order) {
+  try {
+    const o = cleanOrder(order);
+    if (!o.length && storage.removeItem) storage.removeItem(itemMapKey(heroKey)); else storage.setItem(itemMapKey(heroKey), JSON.stringify({ v: 2, order: o }));
+    return true;
+  } catch { return false; }
+}
+/** The wheel's item slots: usable main-inventory items, packed, in `order` first then the rest by slot; at most `max`. */
+export function packWheelItems(items, order, usable = usableItem, max = ACTIVE_SLOTS) {
+  const out = [], ok = (i) => !out.includes(i) && !!(items && items[i] && items[i].key && usable(items[i].key));
+  for (const i of cleanOrder(order)) if (ok(i)) out.push(i);
+  for (let i = 0; i < ACTIVE_SLOTS; i++) if (ok(i)) out.push(i);
+  return out.slice(0, max);
+}
+/** New order after dropping inventory `slot` on wheel position j of the packed list: swap if shown, else insert there (j past the end = last). */
+export function placeWheelItem(packed, slot, j) {
+  const o = packed.slice(), i = o.indexOf(slot);
+  if (i >= 0) { if (j >= o.length) { o.splice(i, 1); o.push(slot); } else [o[i], o[j]] = [o[j], o[i]]; } else o.splice(Math.max(0, Math.min(j, o.length)), 0, slot);
+  return o.slice(0, ACTIVE_SLOTS);
+}
+/**
+ * Drag drop: src / dst = { where:'bag'|'wheel'|undefined (= ability), slot, pos (wheel index), empty, usable }.
+ *   { t:'ability' } spell <-> spell | { t:'swap', a, b } bag <-> bag (ORDER.SWAP) | { t:'place', slot, j } usable main item -> wheel position | null
+ */
+export function dropAction(src, dst) {
+  if (!src || !dst || src === dst) return null;
+  const sw = src.where || 'ability', dw = dst.where || 'ability';
+  if (sw === 'ability') return dw === 'ability' ? { t: 'ability' } : null;
+  if (src.empty || !(src.slot >= 0)) return null;
+  if (sw === 'bag' && dw === 'bag') return src.slot !== dst.slot ? { t: 'swap', a: src.slot, b: dst.slot } : null;
+  if (dw === 'wheel' && src.slot < ACTIVE_SLOTS && (sw === 'wheel' || src.usable)) return sw === 'wheel' && src.pos === dst.pos ? null : { t: 'place', slot: src.slot, j: dst.pos };
+  return null;
+}
+/** Bag button (scale-1 px from the attack centre, y down): bottom-left of the attack button, under the first spell. */
+export const BAG_POS = { x: -80, y: 24, size: 40 };
+/** Bag popover box (y down, from the attack centre): 3 x 2 main + 3 backpack cells of `cell`, right edge just left of the small item arc. */
+export function bagBox(n, cell = 40) {
+  const w = 3 * cell + 2 * 4 + 12, hgt = 3 * cell + 4 + 15 + 12, right = -(smallArcLayout(n)[0].r + 26), bottom = 46;
+  return { left: right - w, top: bottom - hgt, right, bottom, w, h: hgt };
+}
+/** Edge pan only once the aim cursor (x, y) has left the pressed button's rect, or the drag is past `minMag` of the aim radius. */
+export const edgePanArmed = (x, y, btnRect, mag, minMag = 0.2) => !inRect(btnRect, x, y) || mag > minMag;
+
+// aim sensitivity s: the thumb's drag from the button counts s times (full range at AIM_R / s px).  0.75..2.5 in 0.25 steps, default 1.5.
+export const SENS = { MIN: 0.75, MAX: 2.5, STEP: 0.25, DEF: 1.5, KEY: 'p2d.aimSens' };
+export const SENS_STEPS = Array.from({ length: Math.round((SENS.MAX - SENS.MIN) / SENS.STEP) + 1 }, (_, i) => SENS.MIN + i * SENS.STEP);
+export function clampSens(s) { const v = Number(s); if (s == null || s === '' || !Number.isFinite(v)) return SENS.DEF; return Math.max(SENS.MIN, Math.min(SENS.MAX, Math.round(v / SENS.STEP) * SENS.STEP)); }
+export const aimRadius = (base, s) => base / clampSens(s);
+export function loadAimSens(storage) { try { return clampSens(storage.getItem(SENS.KEY)); } catch { return SENS.DEF; } }
+export function saveAimSens(storage, s) { try { storage.setItem(SENS.KEY, String(clampSens(s))); return true; } catch { return false; } }
 
 export function angleDiff(a, b) { const d = Math.abs(a - b) % (Math.PI * 2); return d > Math.PI ? Math.PI * 2 - d : d; }
 
@@ -366,11 +448,31 @@ const TOUCH_CSS2 = `
 .t-reorder b { font-family:'Press Start 2P',monospace; font-size:calc(10px * var(--bk, 1)); padding:calc(6px * var(--bk, 1)) calc(10px * var(--bk, 1)); border-radius:calc(6px * var(--bk, 1)); background:#2a7f4a; color:#fff; box-shadow:inset 0 0 0 2px #7dffa8; }
 .t-root.reorder .t-reorder { display:flex; }
 @keyframes t-wig { 0% { transform:rotate(-4deg); } 50% { transform:rotate(4deg); } 100% { transform:rotate(-4deg); } }
-.t-root.reorder .t-ab { animation:t-wig .26s ease-in-out infinite; box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #7aeaff, inset 0 0 0 4px rgba(5,7,11,.85), 0 0 12px rgba(120,235,255,.7); }
-.t-root.reorder .t-ab:nth-child(odd) { animation-delay:-.13s; }
-.t-root.reorder .t-ab.rdrag { animation:none; z-index:8; transition:none; }
-.t-root.reorder .t-ab.rdrop { animation:none; transform:scale(1.18); box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 3px #7dffa8, 0 0 16px rgba(125,255,168,.9); }
-.t-root.reorder .t-atk, .t-root.reorder .t-lock, .t-root.reorder .t-lh, .t-root.reorder .t-items, .t-root.reorder .t-joy { opacity:.3; }
+.t-root.reorder .t-ab, .t-root.reorder .t-wi:not(.gone) { animation:t-wig .26s ease-in-out infinite; box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #7aeaff, inset 0 0 0 4px rgba(5,7,11,.85), 0 0 12px rgba(120,235,255,.7); }
+.t-root.reorder .t-ab:nth-child(odd), .t-root.reorder .t-wi:nth-child(odd) { animation-delay:-.13s; }
+.t-btn.rdrag { animation:none !important; z-index:8; transition:none; }
+.t-btn.rdrop { animation:none !important; transform:scale(1.18); opacity:1 !important; box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 3px #7dffa8, 0 0 16px rgba(125,255,168,.9); }
+.t-root.reorder .t-atk, .t-root.reorder .t-lock, .t-root.reorder .t-lh, .t-root.reorder .t-joy { opacity:.3; }
+.t-wi .t-cdt, .t-bagp .t-it .t-cdt { font-size:max(10px, calc(12px * var(--bk, 1))); }
+.t-wi .t-ch, .t-bagp .t-ch { font-size:9px; padding:1px 2px 0; }
+.t-wi.gone { display:none; }
+.t-root.reorder .t-wi.gone, .t-root.idrag .t-wi.gone { display:flex; opacity:.25; animation:none; }
+.t-root.nohero .t-wi, .t-root.nohero .t-bagb { opacity:.35; }
+.t-bagb .t-glyph { width:58%; }
+.t-bagb.has::after { content:''; position:absolute; right:8%; top:8%; width:7px; height:7px; border-radius:50%; background:#e8b83a; box-shadow:0 0 0 1px #05070b; }
+.t-root.bag .t-bagb { box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #e8c24f, 0 0 10px rgba(232,194,79,.6); }
+.t-bagp { position:absolute; display:none; pointer-events:auto; padding:calc(6px * var(--bk, 1)); border-radius:calc(8px * var(--bk, 1)); background:rgba(10,13,20,.9);
+  box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #6b5a2c; z-index:7; }
+.t-root.bag .t-bagp { display:block; }
+.t-bagp .t-bg { display:grid; grid-template-columns:repeat(3, auto); gap:calc(4px * var(--bk, 1)); }
+.t-bagp .t-bg.bpk { margin-top:calc(7px * var(--bk, 1)); padding-top:calc(7px * var(--bk, 1)); border-top:1px dashed rgba(232,184,58,.45); }
+.t-bagp .t-it { position:relative; }
+.t-bagp .t-it.empty { opacity:.28; pointer-events:none; }
+.t-bagp .t-it.bp:not(.empty) { opacity:.8; }
+.t-bagp .t-it.sel { box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #e8c24f, 0 0 10px rgba(232,194,79,.7); }
+.t-sell { position:absolute; left:0; right:0; bottom:100%; margin-bottom:calc(6px * var(--bk, 1)); display:none; padding:calc(7px * var(--bk, 1)) 4px calc(5px * var(--bk, 1)); border-radius:calc(6px * var(--bk, 1));
+  background:#7a5a18; box-shadow:0 0 0 2px rgba(5,7,11,.92), inset 0 0 0 2px #e8c24f; color:#fff; font-family:'Press Start 2P',monospace; font-size:max(9px, calc(10px * var(--bk, 1))); text-align:center; white-space:nowrap; }
+.t-sell.on { display:block; }
 .t-btn.down { filter:brightness(1.35); }
 `;
 function injectTouchStyle2(doc = document) {
@@ -417,8 +519,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const atk = h('div', 't-btn t-atk'); const atkIco = pixelEl(GLYPHS.sword, null, 1); atkIco.classList.add('t-glyph'); atk.append(atkIco); anchor.append(atk);
   const lockBtn = h('div', 't-btn t-lock'); const lockIco = pixelEl(GLYPHS.reticle, null, 1); lockIco.classList.add('t-glyph'); lockBtn.append(lockIco); anchor.append(lockBtn);
   const lhBtn = h('div', 't-btn t-lh', 'LH'); anchor.append(lhBtn);                       // last hit / structure
-  const reorderBar = h('div', 't-reorder'); reorderBar.append(h('span', null, 'DRAG A SPELL ONTO ANOTHER SLOT'), h('b', 't-done', 'DONE')); R.append(reorderBar);
-  const itemsEl = h('div', 't-items'); R.append(itemsEl);
+  const reorderBar = h('div', 't-reorder'); reorderBar.append(h('span', null, 'DRAG A SPELL OR ITEM ONTO A SLOT'), h('b', 't-done', 'DONE')); R.append(reorderBar);
   const topEl = h('div', 't-top'); R.append(topEl);
   const topBtn = (glyph, label, cls) => {
     const b = h('div', 't-btn t-sm ' + cls); const g = pixelEl(glyph, null, 1); g.classList.add('t-glyph'); b.append(g, h('i', null, label)); topEl.append(b); return b;
@@ -430,28 +531,38 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   // ---- ability / item buttons
   let abBtns = [], abKey = '';
-  const itBtns = [];
   const mkIcon = () => { const cv = h('canvas', 'px t-ico'); cv.width = cv.height = 20; return cv; };
-  for (let i = 0; i < 6; i++) {
-    const el = h('div', 't-btn t-it empty');
-    const cv = mkIcon(), sweep = h('div', 't-sweep'), cdt = h('div', 't-cdt'), key = h('div', 't-key', ITEM_LETTERS[i]), ch = h('div', 't-ch');
-    el.append(cv, sweep, cdt, key, ch); itemsEl.append(el);
-    itBtns.push({ kind: 'item', slot: i, el, cv, sweep, cdt, ch, k: '', ptr: null, tapAt: 0 });
-  }
+  const mkItem = (slot, cls) => {
+    const el = h('div', 't-btn empty ' + cls);
+    const cv = mkIcon(), sweep = h('div', 't-sweep'), cdt = h('div', 't-cdt'), ch = h('div', 't-ch');
+    el.append(cv, sweep, cdt, ch);
+    return { kind: 'item', slot, el, cv, sweep, cdt, ch, k: '', ptr: null, tapAt: 0 };
+  };
+  // BAG button + popover (6 main + 3 backpack cells, every item; drag = ORDER.SWAP / wheel order, tap = tooltip + SELL in shop range)
+  const bagB = h('div', 't-btn t-bagb'); { const g = pixelEl(BAG, null, 1); g.classList.add('t-glyph'); bagB.append(g); } anchor.append(bagB);
+  const bagP = h('div', 't-bagp'), bgMain = h('div', 't-bg'), bgBp = h('div', 't-bg bpk'), sellEl = h('div', 't-sell');
+  bagP.append(sellEl, bgMain, bgBp); anchor.append(bagP);
+  let bagOpen = false, selSlot = -1, shopPos = null;
+  const bagCells = Array.from({ length: INV_SLOTS }, (_, i) => { const b = mkItem(i, i < ACTIVE_SLOTS ? 't-it' : 't-it bp'); b.where = 'bag'; b.size = 'bc'; (i < ACTIVE_SLOTS ? bgMain : bgBp).append(b.el); return b; });
+  const seen = [];   // per slot { key, t }: game time an item appeared (sell refund window, as hud.js)
+  function setBag(v) { bagOpen = !!v; R.classList.toggle('bag', bagOpen); if (!bagOpen) { selSlot = -1; for (const c of bagCells) c.el.classList.remove('sel'); sellEl.classList.remove('on'); } }
+  // small wheel item slots: b.slot = the inventory slot shown (packWheelItems), -1 = none; btnDown / updateButtons treat them like any item button
+  let itemOrder = [], packed = [];
+  const wiBtns = Array.from({ length: ACTIVE_SLOTS }, (_, j) => { const b = mkItem(-1, 't-wi gone'); b.where = 'wheel'; b.pos = j; b.size = 'wi'; b.polar = smallArcLayout(0)[j]; anchor.append(b.el); return b; });
   function buildAbilities(u) {
     for (const b of abBtns) b.el.remove();
     abBtns = [];
-    const letters = heroKeyLetters(u.key);
     const n = u.abilities.length;
     exitReorder();
     wheelHero = u.key; wheelOrder = loadWheelOrder(store(), u.key, n);
+    itemOrder = loadItemOrder(store(), u.key);
     const slots = arcLayout(n);
     slots.forEach((_, i) => {
       const p = slots[wheelOrder.indexOf(i)];
       const el = h('div', 't-btn t-ab ring' + p.ring);
-      const cv = mkIcon(), sweep = h('div', 't-sweep'), cdt = h('div', 't-cdt'), key = h('div', 't-key', letters[i] || ''), mc = h('div', 't-mc');
+      const cv = mkIcon(), sweep = h('div', 't-sweep'), cdt = h('div', 't-cdt'), mc = h('div', 't-mc');
       const learn = h('div', 't-learn', '+');
-      el.append(cv, sweep, cdt, key, mc, learn); anchor.append(el);
+      el.append(cv, sweep, cdt, mc, learn); anchor.append(el);
       const b = { kind: 'ability', slot: i, el, cv, sweep, cdt, mc, learn, k: '', ptr: null, tapAt: 0, polar: p };
       learn.addEventListener('pointerdown', (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -466,7 +577,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   // ---- layout.  Two scales: --k (panels, text; ~0.78 on a 6" phone, ~1.1 on a 7" tablet) and K = --bk (touch buttons: shrink
   //      less so they stay big enough: attack >= 76 px, abilities >= 50, items >= 40 on a phone).  Pure: see touchScale().
   let K = 1, W = 844, Hh = 390;
-  const SZ = { atk: 88, ab: 59, it: 47, lock: 44, sm: 50, lh: 40 };
+  const SZ = { atk: 88, ab: 59, lock: 44, sm: 50, lh: 40, wi: 40, bc: 40, bag: BAG_POS.size };
+  const aimR = () => aimRadius(T.AIM_R, aimSens) * K;           // px of drag = full range (attack aim, pad, no-pick fallback)
   function layout() {
     W = root.clientWidth || innerWidth; Hh = root.clientHeight || innerHeight;
     const sc = touchScale(W, Hh); K = sc.bk;
@@ -484,13 +596,16 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const ha = 120 * RAD, hr = SZ.atk / 2 + SZ.lh / 2 + 2;
     place(lhBtn, SZ.lh, Math.cos(ha) * hr, -Math.sin(ha) * hr);
     for (const b of abBtns) place(b.el, SZ.ab, Math.cos(b.polar.a * RAD) * b.polar.r, -Math.sin(b.polar.a * RAD) * b.polar.r);
+    const sm = smallArcLayout(abBtns.length);
+    wiBtns.forEach((b, j) => { b.polar = sm[j]; place(b.el, SZ.wi, Math.cos(b.polar.a * RAD) * b.polar.r, -Math.sin(b.polar.a * RAD) * b.polar.r); });
     place(cancelEl, 58, 6, -252);
     aimKnob.style.width = aimKnob.style.height = px(30); aimKnob.style.marginLeft = aimKnob.style.marginTop = -Math.round(15 * K) + 'px';
-    const padD = T.AIM_R * 2 * K;
+    const padD = aimR() * 2;
     pad.style.width = pad.style.height = padD + 'px'; pad.style.marginLeft = pad.style.marginTop = -padD / 2 + 'px';
-    itemsEl.style.right = `calc(env(safe-area-inset-right, 0px) + ${px(10 + SZ.atk + 14)})`;
-    itemsEl.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${px(8)})`;
-    for (const b of itBtns) b.el.style.width = b.el.style.height = px(SZ.it);
+    place(bagB, SZ.bag, BAG_POS.x, BAG_POS.y);
+    const bx = bagBox(abBtns.length, SZ.bc);
+    bagP.style.right = Math.round(-bx.right * K) + 'px'; bagP.style.bottom = Math.round(-bx.bottom * K) + 'px';   // anchored by its bottom-right corner
+    for (const b of bagCells) b.el.style.width = b.el.style.height = px(SZ.bc);
     joyBase.style.width = joyBase.style.height = px(T.JOY_R * 2); joyKnob.style.width = joyKnob.style.height = px(50);
     document.documentElement.classList.toggle('p2d-narrow', W < 760);
     reorderBar.style.top = (topLimit() + 8) + 'px';
@@ -540,8 +655,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       tc(b.learn, 'on', canLearn(u, b.slot));
       tc(b.el, 'aiming', !!(aim && aim.b === b));
     }
-    for (const b of itBtns) {
-      const it = u.items[b.slot], k = it && it.key ? it.key : '';
+    packed = packWheelItems(u.items, itemOrder);
+    for (const b of wiBtns) { if (b.ptr == null && !(rdrag && rdrag.b === b)) b.slot = b.pos < packed.length ? packed[b.pos] : -1; tc(b.el, 'gone', !(b.slot >= 0)); }
+    let bagHas = false;
+    const t = state().time || 0;
+    for (const b of bagCells.concat(wiBtns)) {
+      const it = b.slot >= 0 ? u.items[b.slot] : null, k = it && it.key ? it.key : '';
+      if (b.where === 'bag') { if (k && b.slot >= ACTIVE_SLOTS) bagHas = true; if (!seen[b.slot] || seen[b.slot].key !== k) seen[b.slot] = { key: k, t }; }
       if (b.k !== k) { b.k = k; const g = b.cv.getContext('2d'); g.clearRect(0, 0, 20, 20); if (k && icons) paintInto(b.cv, icons, k, 1); }
       tc(b.el, 'empty', !k);
       tc(b.el, 'passive', !!k && targetInfo('item', k, 1).mode === 'passive');
@@ -550,40 +670,35 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       const ch = it && it.charges > 0; ts(b.ch, 'display', ch ? 'block' : 'none'); if (ch) tt(b.ch, it.charges);
       tc(b.el, 'aiming', !!(aim && aim.b === b));
     }
+    tc(bagB, 'has', bagHas);
+    if (bagOpen) updateSell(u);
     tc(lockBtn, 'on', !!lockId);
   }
 
-  // ---- camera: follow (own lock flag; input.js's camLock stays off so minimap taps are not overridden)
+  // ---- camera: intents to the camera director (renderer.cam, render/camdir.js); `locked` mirrors cam.following for the CAM button
+  const cam = renderer.cam || null;
   let locked = true;
-  const setLocked = (v) => { locked = !!v; bCam.classList.toggle('on', locked); bCam.replaceChild((() => { const g = pixelEl(locked ? LOCK : OPEN_LOCK, null, 1); g.classList.add('t-glyph'); return g; })(), bCam.firstChild); };
-  setLocked(true);
-  // the hero as DRAWN (interpolated render position); the raw state position steps with every server snapshot
-  const heroPos = (u) => { const pk = renderer.actors && renderer.actors.picks; if (pk) for (const p of pk) if (p.id === u.id && Number.isFinite(p.x)) return p; return u; };
-  function recentre() {
-    const u = heroU(); if (!u) return;
-    const p = heroPos(u), tg = renderer.getTarget ? renderer.getTarget() : null;
-    if (tg && Math.hypot(tg.x - p.x, tg.y - p.y) > T.RECENTRE_SNAP && renderer.snapTarget) renderer.snapTarget(p.x, p.y);   // far flight: jump (the ground height under the camera glides slower than x/y)
-    else renderer.setTarget(p.x, p.y);
+  const lockUI = (v) => { locked = !!v; bCam.classList.toggle('on', locked); bCam.replaceChild((() => { const g = pixelEl(locked ? LOCK : OPEN_LOCK, null, 1); g.classList.add('t-glyph'); return g; })(), bCam.firstChild); };
+  const setLocked = (v) => { if (cam) cam.setFollow(v); lockUI(v); };   // on: the camera glides back to the hero (cuts when far)
+  lockUI(true);   // the lock itself is taken in enable(): desktop play keeps a free camera
+  function recentre() {   // an explicit re-lock is also "reset the view": back to the default zoom
     const r = rig();
-    if (r) r.distanceGoal = Math.min(r.maxDist, Math.max(r.minDist, T.ZOOM_START));   // an explicit re-lock is also "reset the view": back to the default zoom
+    if (r) r.distanceGoal = Math.min(r.maxDist, Math.max(r.minDist, T.ZOOM_START));
   }
-  // temporary free camera while locked: the minimap is pressed (mmPtr), or this aim moved it (minimap / edge pan) -> snap back when it ends
+  // temporary free camera (cam.suspend, the lock stays): the minimap is pressed (mmPtr), or this aim panned it (minimap / edge pan) until the cast ends
   let mmPtr = null, freeAim = false, lastT = 0, mmEl = null, mmHome = null;
-  const following = () => locked && mmPtr == null && !(aim && freeAim);
-  function snapHome() {
-    const u = heroU(); if (!u || isSpec()) return;
-    const p = heroPos(u);
-    if (renderer.snapTarget) renderer.snapTarget(p.x, p.y); else renderer.setTarget(p.x, p.y);
-  }
+  const tempFree = () => mmPtr != null || !!(aim && freeAim);
   const longAim = (rr) => { const r = rig(), w = (r && r.visibleWidth) || 2100; return !(rr > 0) || rr > w * T.EDGE_RANGE; };   // rr = realRange (0 = global)
-  function edgePan(dt) {
-    if (!aim || !aim.moved || !longAim(aim.rr) || !renderer.getTarget) return;
-    const cr = canvas.getBoundingClientRect(), d = edgePanDir(aim.ex - cr.left, aim.ey - cr.top, cr.width, cr.height, T.EDGE_M * K);
+  function edgePan(dt) {   // the aim CURSOR (button + drag x sensitivity, clamped to the canvas) at a screen edge pans
+    if (!aim || !aim.moved || !longAim(aim.rr) || !cam || aim.vx == null) return;
+    if (!aim.edgeOk && !(aim.edgeOk = edgePanArmed(aim.vx, aim.vy, aim.b.el.getBoundingClientRect(), Math.hypot(aim.dx, aim.dy) / aimR(), T.EDGE_MAG))) return;   // a button near an edge: not before the cursor leaves it
+    const cr = canvas.getBoundingClientRect(), d = edgePanDir(aim.vx - cr.left, aim.vy - cr.top, cr.width, cr.height, T.EDGE_M * K);
     if (!d.x && !d.y) return;
-    freeAim = true;
-    const tg = renderer.getTarget();
-    renderer.setTarget(clampW(tg.x + d.x * T.EDGE_SPEED * dt), clampW(tg.y - d.y * T.EDGE_SPEED * dt));   // screen up = world +y
+    freeAim = true; cam.suspend(true);
+    cam.pan(d.x * T.EDGE_SPEED * dt, -d.y * T.EDGE_SPEED * dt);   // screen up = world +y
   }
+  /** Joystick direction for the camera lead: world {x, y}, |.| = deflection 0..1, or null. */
+  const moveDir = () => (joy && joy.vec && joy.vec.len >= T.JOY_DEAD * K ? { x: Math.cos(joy.vec.ang) * joy.vec.mag, y: Math.sin(joy.vec.ang) * joy.vec.mag } : null);
 
   // ---- target lock
   let lockId = '';
@@ -681,7 +796,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   function updateAtkAim() {
     const s = atkS; if (!s || !s.aiming) return;
     const u = heroU(); if (!u || dead(u)) { endAtk(false); return; }
-    const off = aimWorldOffset(s.dx, s.dy, T.AIM_R * K, s.reach);
+    const off = aimWorldOffset(s.dx, s.dy, aimR(), s.reach);
     const ax = clampW(u.x + off.x), ay = clampW(u.y + off.y);
     const id = Math.hypot(s.dx, s.dy) < T.ATK_BACK * K ? null : pickDragTarget(unitList(), u, ax, ay, myTeam(), visible);
     const tu = id ? state().units.get(id) : null;
@@ -712,6 +827,21 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (s.unitId) { setLock(s.unitId); order(orderAttack(s.unitId)); noteOrder(); flash(atk); }
     else if (s.mag > 0.3 && s.point) { order(orderAmove(Math.round(s.point.x), Math.round(s.point.y), false)); noteOrder(); flash(atk); }   // nobody there: attack-move toward the point
     else { warn('No target'); flash(atk, 'f-bad'); }
+  }
+
+  // ---- bag popover: SELL for the selected cell when in my fountain's shop range (desktop hud.js context-menu rule)
+  function shopNear(u) {
+    if (!shopPos) { const s = state(); if (s && s.units) s.units.forEach((x) => { if (x.kind === KIND.FOUNTAIN && x.team === myTeam()) shopPos = { x: x.x, y: x.y }; }); }
+    return inShopRange(u, shopPos);
+  }
+  function updateSell(u) {
+    const it = selSlot >= 0 ? u.items[selSlot] : null, ok = !!(it && it.key) && !isSpec() && shopNear(u);
+    tc(sellEl, 'on', ok);
+    if (ok) { const sd = seen[selSlot], age = (state().time || 0) - (sd && sd.key === it.key ? sd.t : -999); tt(sellEl, `SELL ${fmtGold(sellValue(it.key, age))}g`); }
+  }
+  function bagTap(b) {
+    selSlot = b.slot; for (const c of bagCells) c.el.classList.toggle('sel', c === b);
+    showTip(b, false); const u = heroU(); if (u) updateSell(u);
   }
 
   // ---- casting
@@ -774,6 +904,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     e.preventDefault();
     if (e.target && e.target.classList && e.target.classList.contains('t-learn')) return;
     if (reorderOn) { rdragStart(b, e); return; }
+    if (b.where === 'bag') { if (!isSpec()) rdragStart(b, e, true); return; }   // bag cells never cast: tap = tooltip / sell, drag = swap / wheel order
+    if (!(b.slot >= 0)) return;
     const u = heroU(); if (!u || dead(u) || isSpec()) return;
     const ent = itemOrAbility(u, b), key = ent && ent.key; if (!key) return;
     const lvl = b.kind === 'ability' ? ent.level : 1;
@@ -822,14 +954,16 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   function updateAim() {
     if (!aim) return;
     const u = heroU(); if (!u || dead(u)) { endAim(false); return; }
-    const a = aim, off = aimWorldOffset(a.dx, a.dy, T.AIM_R * K, a.info.range);
+    const a = aim, off = aimWorldOffset(a.dx, a.dy, aimR(), a.info.range);
+    const cr = canvas.getBoundingClientRect();                                  // aim cursor = button + drag x sensitivity (the knob shows it; a.ex / ey stay the real finger)
+    const vx = Math.max(cr.left, Math.min(cr.right - 1, a.cx + a.dx * aimSens)), vy = Math.max(cr.top, Math.min(cr.bottom - 1, a.cy + a.dy * aimSens));
     const hasDrag = Math.hypot(a.dx, a.dy) > 6 * K;
     let ax, ay, unitId = '';
     const f = u.facing || 0;
     // the aim point is the thumb's screen position unprojected through the CURRENT camera every frame, so panning the camera
     // (minimap / left hand) under a stationary thumb moves the aim; finite-range spells clamp to the ring, global ones reach map-wide
     if (hasDrag && renderer.pick) {
-      const cr = canvas.getBoundingClientRect(), g = renderer.pick(a.ex - cr.left, a.ey - cr.top);
+      const g = renderer.pick(vx - cr.left, vy - cr.top);
       ax = g.x; ay = g.y;
     } else if (hasDrag) { ax = u.x + off.x; ay = u.y + off.y; }
     else { ax = u.x + Math.cos(f) * a.info.range * 0.75; ay = u.y + Math.sin(f) * a.info.range * 0.75; }
@@ -841,11 +975,12 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     }
     const rr = a.tg ? a.tg.ring : 0;
     if (!unitId && rr > 0) { const dd = Math.hypot(ax - u.x, ay - u.y); if (dd > rr) { ax = u.x + (ax - u.x) * rr / dd; ay = u.y + (ay - u.y) * rr / dd; } }
-    a.point = { x: clampW(ax), y: clampW(ay) }; a.unitId = unitId;
+    a.point = { x: clampW(ax), y: clampW(ay) }; a.unitId = unitId; a.vx = vx; a.vy = vy;
+    if (cam) { if (hasDrag) cam.aimAt(a.point.x, a.point.y); else cam.aimAt(null); }   // aim lookahead from the cursor's point
     if (a.tg) { a.tg.unitId = unitId; a.tg.unitOk = !!unitId || a.info.mode === 'point' || a.info.mode === 'unitpoint'; a.tg.cancel = a.inCancel; }
     if (H.setAim) H.setAim(a.point.x, a.point.y);
     if (renderer.setHover) renderer.setHover(unitId || null);
-    aimKnob.style.left = (a.ex - a.ox) + 'px'; aimKnob.style.top = (a.ey - a.oy) + 'px';   // the icon stays in its slot; only this knob follows the finger
+    aimKnob.style.left = (vx - a.ox) + 'px'; aimKnob.style.top = (vy - a.oy) + 'px';   // the icon stays in its slot; only this knob follows the (scaled) drag
   }
 
   function aimMove(e) {
@@ -856,7 +991,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (dist > aim.maxD) aim.maxD = dist;
     if (dist > T.TAP_MOVE * K && !aim.moved) { aim.moved = true; clearReorderTimer(); clearLong(); hideTip(); }   // past the threshold: no tooltip, no reorder, keep aiming
     aim.overX = inRect(cancelEl.getBoundingClientRect(), e.clientX, e.clientY, 10);
-    aim.inCancel = aimCancelled(aim.overX, aim.dx, aim.dy, aim.maxD, SZ.ab * K / 2);
+    aim.inCancel = aimCancelled(aim.overX, aim.dx, aim.dy, aim.maxD, SZ[aim.b.size || 'ab'] * K / 2);
     cancelEl.classList.toggle('hot', aim.overX);
     aim.b.el.classList.toggle('bad', aim.inCancel);
     updateAim();
@@ -865,7 +1000,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   function endAim(cast) {
     const a = aim; if (!a) return;
     aim = null; clearLong(); clearReorderTimer(); hideTip();
-    if (freeAim) { freeAim = false; if (locked && mmPtr == null) snapHome(); }   // the camera went off for this cast: straight back to the hero (a.point is already fixed)
+    freeAim = false; if (cam) cam.aimAt(null);   // the frame lifts the suspend: the camera returns to the hero (a.point is already fixed)
     pointers.delete(a.ptr); a.b.ptr = null;
     a.b.el.classList.remove('bad'); aimKnob.classList.remove('t-on');
     R.classList.remove('aiming'); cancelEl.classList.remove('hot');
@@ -892,6 +1027,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   //      Only the wheel POSITION changes (slots and keys stay), saved per hero in localStorage.
   let reorderOn = false, reorderTimer = 0, rdrag = null, wheelOrder = [], wheelHero = '';
   const store = () => { try { return localStorage; } catch { return null; } };
+  let aimSens = loadAimSens(store());
   const clearReorderTimer = () => { clearTimeout(reorderTimer); reorderTimer = 0; };
   function armReorder(b, ptr) { clearReorderTimer(); reorderTimer = setTimeout(() => startReorder(b, ptr), T.REORDER_MS); }
   function startReorder(b, ptr) {
@@ -902,7 +1038,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     else if (p) { pointers.delete(ptr); b.ptr = null; b.el.classList.remove('down'); }
     clearLong(); hideTip(); clearRange(); if (H.setTargeting) H.setTargeting(null);
     reorderOn = true; R.classList.add('reorder');
-    if (H.message) H.message('Reorder: drag a spell onto another slot');
+    if (H.message) H.message('Reorder: drag a spell or item onto another slot');
     try { if (navigator.vibrate) navigator.vibrate(35); } catch { /* */ }
     rdragStart(b, { pointerId: ptr, clientX: x, clientY: y });                           // the finger is still down: it can drag right away
   }
@@ -911,35 +1047,45 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     reorderOn = false; R.classList.remove('reorder');
     if (rdrag) rdragEnd(false);
   }
-  function rdragStart(b, e) {
+  const itemAt = (b) => { const u = heroU(); return b.kind === 'item' && b.slot >= 0 && u && u.items ? u.items[b.slot] : null; };
+  const desc = (b) => { const it = itemAt(b), k = it && it.key; return { where: b.where, slot: b.slot, pos: b.pos, empty: b.kind === 'item' && !k, usable: !!k && usableItem(k) }; };
+  function rdragStart(b, e, tip) {                                                       // tip: a backpack press outside reorder (tap = tooltip)
     if (rdrag || b.ptr != null) return;
-    b.ptr = e.pointerId; rdrag = { b, ptr: e.pointerId, x0: e.clientX, y0: e.clientY, to: null };
+    if (b.kind === 'item' && !(itemAt(b) && itemAt(b).key)) return;
+    b.ptr = e.pointerId; rdrag = { b, ptr: e.pointerId, x0: e.clientX, y0: e.clientY, to: null, tip: !!tip, moved: false };
     pointers.set(e.pointerId, { id: e.pointerId, role: 'rdrag', b });
-    b.el.classList.add('rdrag');
+    b.el.classList.add('rdrag'); if (b.kind === 'item') R.classList.add('idrag');   // empty wheel positions show as drop targets
     try { b.el.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
   }
   const btnCentre = (b) => { const r = b.el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
   function rdragMove(e) {
     const d = rdrag; if (!d) return;
     const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.moved && Math.hypot(dx, dy) > T.TAP_MOVE * K) d.moved = true;
+    if (!d.moved) return;
     d.b.el.style.transform = `translate(${dx}px, ${dy}px) scale(1.12)`;
     const home = btnCentre(d.b);                                                        // already includes the drag translate
-    const others = abBtns.filter((x) => x !== d.b), c = others.map(btnCentre);
-    const i = nearestIndex(c, home.x, home.y, SZ.ab * K * 0.75);
+    const pool = d.b.kind === 'ability' ? abBtns : (bagOpen ? bagCells : []).concat(wiBtns);
+    const src = desc(d.b), others = pool.filter((x) => dropAction(src, desc(x))), c = others.map(btnCentre);
+    const i = nearestIndex(c, home.x, home.y, (d.b.kind === 'ability' ? SZ.ab * 0.75 : SZ.bc * 0.8) * K);
     const to = i >= 0 ? others[i] : null;
     if (to !== d.to) { if (d.to) d.to.el.classList.remove('rdrop'); if (to) to.el.classList.add('rdrop'); d.to = to; }
   }
   function rdragEnd(commit) {
     const d = rdrag; if (!d) return;
     rdrag = null; pointers.delete(d.ptr); d.b.ptr = null;
-    d.b.el.style.transform = ''; d.b.el.classList.remove('rdrag');
+    d.b.el.style.transform = ''; d.b.el.classList.remove('rdrag'); R.classList.remove('idrag');
     try { d.b.el.releasePointerCapture(d.ptr); } catch { /* */ }
     if (d.to) d.to.el.classList.remove('rdrop');
-    if (commit && d.to) {
+    const act = commit && d.to ? dropAction(desc(d.b), desc(d.to)) : null;
+    if (!act) { if (commit && d.tip && !d.moved) bagTap(d.b); return; }
+    if (act.t === 'ability') {
       wheelOrder = swapOrder(wheelOrder, wheelOrder.indexOf(d.b.slot), wheelOrder.indexOf(d.to.slot));
       saveWheelOrder(store(), wheelHero, wheelOrder);
-      applyWheelOrder(); flash(d.b.el); flash(d.to.el);
-    }
+      applyWheelOrder();
+    } else if (act.t === 'swap') order({ t: ORDER.SWAP, a: act.a, b: act.b });
+    else { itemOrder = placeWheelItem(packed, act.slot, act.j); saveItemOrder(store(), wheelHero, itemOrder); }
+    flash(d.b.el); flash(d.to.el);
   }
   function applyWheelOrder() {
     const slots = arcLayout(abBtns.length);
@@ -971,7 +1117,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     e.preventDefault();
     if (e.isPrimary && e.pointerType === 'touch') {   // first finger down = no other touch is live: a world pointer still in the map lost its pointerup and would turn this touch into a runaway pinch
       for (const [id, q] of pointers) if (q.role === 'pan' || q.role === 'pinch' || q.role === 'dead' || q.role === 'walk' || q.role === 'joy') { pointers.delete(id); if (q.role === 'joy') endJoy(); }
-      pinch = null;
+      pinch = null; if (cam) cam.peekEnd();
     }
     try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = canvas.getBoundingClientRect();
@@ -984,15 +1130,22 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const pans = [...pointers.values()].filter((q) => q.role === 'pan' || q.role === 'pinch' || (q.role === 'walk' && !q.sent));   // two fresh world fingers = pinch
     if (pans.length >= 2) {
       const [a, b] = pans; a.role = b.role = 'pinch';
+      if (cam) cam.peekEnd();
       const r = rig();
       const dd = Math.hypot(a.x - b.x, a.y - b.y);
       pinch = { a, b, d0: dd, last: dd, g0: r ? r.distanceGoal : 0 };
     }
   }
-  function panBy(dx, dy) {
-    const r = rig(), rect = canvas.getBoundingClientRect(), t = renderer.getTarget();
-    const wx = ((r && r.visibleWidth) || 2100) / rect.width, wy = (((r && r.visibleHeight) || 1190) / rect.height) / 0.866;
-    renderer.setTarget(clampW(t.x - dx * wx), clampW(t.y + dy * wy));
+  const toWorld = (dx, dy) => { const r = rig(), rect = canvas.getBoundingClientRect(); return dragToWorld(dx, dy, rect.width, rect.height, (r && r.visibleWidth) || 2100, (r && r.visibleHeight) || 1190); };
+  function panBy(dx, dy) { const w = toWorld(dx, dy); if (cam) cam.pan(w.x, w.y); }
+  /** Locked world finger: tap / hold (walk) / peek (camdir classifyPress, sticky). Entering peek applies the whole drag so far (returns true). */
+  function classifyWalk(p, t, released) {
+    p.maxD = Math.max(p.maxD || 0, Math.hypot(p.x - p.x0, p.y - p.y0));
+    const prev = p.cls || 'pending';
+    p.cls = classifyPress(p.maxD / K, t - p.t0, released, prev, !!(renderer.isShowcase && renderer.isShowcase()));
+    if (p.cls === 'hold') p.walking = true;
+    if (p.cls === 'peek' && prev !== 'peek' && cam) { cam.peekStart(); const w = toWorld(p.x - p.x0, p.y - p.y0); cam.peekMove(w.x, w.y); return true; }
+    return false;
   }
   function onMove(e) {
     const p = pointers.get(e.pointerId); if (!p) return;
@@ -1004,7 +1157,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (p.role === 'rdrag') { rdragMove(e); return; }
     if (p.role === 'tip') { if (p.moved) { clearLong(); clearReorderTimer(); hideTip(); } return; }
     if (p.role === 'joy') { moveJoy(p); return; }
-    if (p.role === 'walk') { if (!p.walking && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) p.walking = true; return; }
+    if (p.role === 'walk') { if (!classifyWalk(p, now(), false) && p.cls === 'peek' && cam) { const w = toWorld(dx, dy); cam.peekMove(w.x, w.y); } return; }
     if (p.role === 'pan') {
       if (!p.panning && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) { p.panning = true; if (locked) setLocked(false); panBy(p.x - p.x0, p.y - p.y0); return; }
       if (p.panning) panBy(dx, dy);
@@ -1036,7 +1189,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       endJoy();
       if (quick && !cancelled) worldTap(p, canvas.getBoundingClientRect());
     } else if (p.role === 'walk') {
-      if (!cancelled && !p.sent) worldTap(p, canvas.getBoundingClientRect());   // never held / dragged: a tap
+      if (p.cls === 'peek') { if (cam) cam.peekEnd(); }                          // look-around ends: the view springs back
+      else if (!cancelled && !p.sent) worldTap(p, canvas.getBoundingClientRect());   // never held: a tap
     } else if (p.role === 'pan') {
       if (!cancelled && !p.aimPan && !p.panning && !p.moved && now() - p.t0 < T.TAP_MS) worldTap(p, canvas.getBoundingClientRect());
     } else if (p.role === 'pinch') {
@@ -1073,8 +1227,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const sb = root.querySelector('.h-sb'); if (sb) on(sb, 'click', () => setSb(false));
     if (H.setPortraitCentre) H.setPortraitCentre(() => { setLocked(true); recentre(); });      // portrait tap/double-tap centres on the hero (hold = stats panel, in hud.js)
     const mm = root.querySelector('.h-mm');
-    if (mm) on(mm, 'pointerdown', (e) => { mmPtr = e.pointerId; }, true);   // free while pressed (hud.js moves the camera)
-    const mmUp = (e) => { if (e.pointerId !== mmPtr) return; mmPtr = null; if (aim) freeAim = true; else if (locked) snapHome(); };   // aiming: stay there until the cast
+    if (mm) on(mm, 'pointerdown', (e) => { mmPtr = e.pointerId; if (cam) cam.suspend(true); }, true);   // suspended before minimap.js jumps (keeps the lock)
+    const mmUp = (e) => { if (e.pointerId !== mmPtr) return; mmPtr = null; if (aim) freeAim = true; };   // aiming: stay there until the cast
     on(window, 'pointerup', mmUp); on(window, 'pointercancel', mmUp);
   }
 
@@ -1092,7 +1246,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (aim) endAim(false);
     exitReorder(); clearReorderTimer(); endAtk(false);
     endJoy(); atkHeld = null; atk.classList.remove('down');
-    pointers.clear(); pinch = null;
+    pointers.clear(); pinch = null; if (cam) cam.peekEnd();
     clearRange(); clearLong(); hideTip();
   }
   // ---- frame
@@ -1106,9 +1260,9 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (turnShown) return;
     const dt = lastT ? Math.min(0.05, (t - lastT) / 1000) : 0; lastT = t;
     edgePan(dt);
-    if (following() && u && !isSpec()) { const p = heroPos(u); renderer.setTarget(p.x, p.y); }
+    if (cam) { cam.suspend(tempFree()); if (cam.following !== locked) lockUI(cam.following); }   // the director follows (game.js steps it); mirror its lock
     for (const p of pointers.values()) if (p.role === 'walk') {   // hold-to-walk
-      if (!p.walking && t - p.t0 >= T.TAP_MS) p.walking = true;
+      classifyWalk(p, t, false);
       if (p.walking && t >= (p.next || 0)) { walkTo(p); p.next = t + T.WALK_MS; }
     }
     if ((fc = (fc + 1) % 45) === 0) updateInset(false);
@@ -1123,6 +1277,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   function enable() {
     if (enabled || destroyed) return;
     enabled = true;
+    setLocked(true);
     if (bootTouch) { removeEventListener('pointerdown', bootTouch, true); bootTouch = null; }
     injectTouchStyle(); injectTouchStyle2();
     document.documentElement.classList.add('p2d-touch');
@@ -1136,10 +1291,18 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     on(atk, 'pointerdown', attackDown);
     on(lockBtn, 'pointerdown', lockDown);
     on(lhBtn, 'pointerdown', lhDown);
-    for (const b of itBtns) on(b.el, 'pointerdown', (e) => btnDown(b, e));
+    for (const b of bagCells.concat(wiBtns)) on(b.el, 'pointerdown', (e) => btnDown(b, e));
+    on(bagB, 'pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (!turnShown && !isSpec()) setBag(!bagOpen); });
+    on(sellEl, 'pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const u = heroU(); if (!u || selSlot < 0 || !sellEl.classList.contains('on')) return;
+      order({ t: ORDER.SELL, slot: selSlot }); hideTip(); flash(bagCells[selSlot].el); setBag(false);
+    });
     anchor.addEventListener('pointerdown', (e) => { const el = e.target.closest && e.target.closest('.t-ab'); const b = el && abBtns.find((x) => x.el === el); if (b) btnDown(b, e); });
     on(window, 'pointerdown', (e) => {
-      if (reorderOn && !(e.target && e.target.closest && e.target.closest('.t-ab'))) { exitReorder(); e.stopPropagation(); e.preventDefault(); return; }   // DONE / any tap outside the wheel
+      const inBag = !!(e.target && e.target.closest && e.target.closest('.t-bagp, .t-bagb'));
+      if (bagOpen && !inBag && !rdrag) setBag(false);                                     // tap outside closes the bag (the tap still does its thing)
+      if (reorderOn && !(e.target && e.target.closest && e.target.closest('.t-ab, .t-wi, .t-bagp, .t-bagb'))) { exitReorder(); e.stopPropagation(); e.preventDefault(); return; }   // DONE / any tap outside the wheel
       if (tipEl && !tipEl.classList.contains('t-compact')) hideTip();
     }, true);
     on(window, 'pointermove', onMove);
@@ -1167,10 +1330,15 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   return {
     isActive: () => enabled,
+    /** camera lead: joystick direction (game.js feeds it to renderer.stepCamera) */
+    moveDir: () => (enabled ? moveDir() : null),
     /** test / debug hooks */
     get locked() { return locked; },
     get lockId() { return lockId; },
     get blocked() { return turnShown; },
+    get aimSens() { return aimSens; },
+    /** menu: aim sensitivity (clamped 0.75..2.5, saved under p2d.aimSens) */
+    setAimSens(v) { aimSens = clampSens(v); saveAimSens(store(), aimSens); if (enabled) layout(); },
     destroy() {
       destroyed = true;
       cancelAnimationFrame(raf);

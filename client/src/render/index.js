@@ -1,10 +1,11 @@
 // createRenderer({ canvas, sheets }) -> contract: this file (docs/ARCHITECTURE.md "Render systems" for the rules).
 import * as THREE from 'three';
 import { getMap, heightAt } from '../../../shared/map.js';
-import { ART_UNITS_PER_PX, CAMERA } from '../../../shared/constants.js';
+import { ART_UNITS_PER_PX, CAMERA, MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
 import { ST, EV } from '../../../shared/protocol.js';
 import { buildAtlas } from '../art/atlas.js';
-import { CameraRig, camParams, visibleHeight, dofForDistance, showcaseK } from './camera.js';
+import { CameraRig, rayToGround, camParams, visibleHeight, dofForDistance, showcaseK } from './camera.js';
+import { createCamDir } from './camdir.js';
 import { createWind } from './wind.js';
 import { createSharedUniforms } from './shaderlib.js';
 import { createLights } from './lights.js';
@@ -46,6 +47,7 @@ export function createRenderer({ canvas, sheets }) {
   const settings = { ...DEFAULTS };
   const uniforms = createSharedUniforms();
   const rig = new CameraRig();
+  const camDir = createCamDir({ bounds: [MAP_MIN, MAP_MAX] });   // the one camera owner (render/camdir.js); the game steps it, the rig only renders
   const scene = new THREE.Scene();
   const atlas = buildAtlas({ ...(sheets || {}), ph_unit: makePlaceholderSheet() });
   const lights = createLights(uniforms, scene);
@@ -145,6 +147,15 @@ export function createRenderer({ canvas, sheets }) {
     for (let i = 0; i < 12; i++) { const m = (a + b) / 2, px = o.x + d.x * m, py = o.y + d.y * m, pz = o.z + d.z * m; if (py <= heightAt(px, -pz)) b = m; else a = m; }
     const m = (a + b) / 2;
     return { x: o.x + d.x * m, y: -(o.z + d.z * m) };
+  }
+
+  /** World ground points of the 4 view corners [TL, TR, BR, BL] (flat plane at the target's height, no terrain march: cheap enough per minimap frame).
+   *  Spans the free playfield: with a touch HUD inset the top / bottom bands are excluded, as the camera frames the target in the middle of what is left. */
+  const _o = new THREE.Vector3(), _d = new THREE.Vector3();
+  function viewQuad() {
+    const cam = rig.camera, tg = rig.getTarget(), gz = heightAt(tg.x, tg.y), t = rig.inset.top * 2, b = -1 + rig.inset.bottom * 2;   // ndc y of the free band's edges
+    cam.updateMatrixWorld(); _o.copy(cam.position);
+    return [[-1, 1 - t], [1, 1 - t], [1, b], [-1, b]].map(([nx, ny]) => { _d.set(nx, ny, 0.5).unproject(cam).sub(_o).normalize(); return rayToGround(_o, _d, gz, 6000); });
   }
 
   /** Sprite hit test (alpha-tested, replicating the vertex shader's screen layout). */
@@ -299,8 +310,14 @@ export function createRenderer({ canvas, sheets }) {
 
   const api = {
     resize(w, h) { cssW = Math.max(2, w | 0); cssH = Math.max(2, h | 0); applySize(); fitRT(true); },
-    setTarget(x, y) { rig.setTarget(x, y, false); },
-    snapTarget(x, y) { rig.setTarget(x, y, true); },
+    /** Camera director (render/camdir.js): input / touch / minimap / hud send intents to it; stepCamera places the rig. */
+    cam: camDir,
+    /** Per frame, before update(): ctx = { hero: {x, y, alive}|null (interpolated), moveDir }. Visible height and showcase come from the rig. */
+    stepCamera(dt, ctx = {}) { const c = camDir.update(dt, { ...ctx, visibleH: rig.visibleHeight, showcase: rig.showcase }); rig.place(c.x, c.y, c.snap); return c; },
+    placeTarget(x, y, snap = false) { rig.place(x, y, snap); },
+    /** Legacy writers = a user jump (drops follow). The rig is set too so pages that never step the camera (sandbox) still move. */
+    setTarget(x, y) { camDir.jumpTo(x, y); rig.setTarget(x, y, false); },
+    snapTarget(x, y) { camDir.jumpTo(x, y); rig.place(x, y, true); },
     /** Fractions of the screen height covered by HUD at the top / bottom (touch): the camera frames the target in the middle of the free playfield. 0,0 = desktop. */
     setViewInset({ top = 0, bottom = 0 } = {}) { rig.setViewInset(top, bottom); post.state.dofY = (bottom - top) / 2; },
     zoom(delta) { rig.zoom(delta); },
@@ -314,6 +331,8 @@ export function createRenderer({ canvas, sheets }) {
     orbit(dYaw, dPitch = 0) { return rig.orbit(dYaw, dPitch); },
     getYaw() { return rig.yaw; },
     getTarget() { return rig.getTarget(); },
+    /** 4 world ground points of the visible playfield corners [TL, TR, BR, BL] (follows the showcase orbit yaw and the perspective). */
+    viewQuad,
     update,
     fx(events) {
       if (!events) return;

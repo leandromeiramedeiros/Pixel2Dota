@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shelfPack, nextPow2, resolveKey, indexSheet } from '../src/art/atlas.js';
-import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig, cameraPose, stepYaw, viewFacing, wrapPi } from '../src/render/camera.js';
+import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig, cameraPose, rayToGround, stepYaw, viewFacing, wrapPi } from '../src/render/camera.js';
 import { ORBIT, dragToOrbit, pinchZoomFactor, inJoyZone } from '../src/ui/orbit.js';
 import { selectLights } from '../src/render/lights.js';
 import { castVision, visionRadius, VISION_FALLBACK } from '../src/render/fog.js';
@@ -267,4 +267,18 @@ test('orbit.js: drag / pinch maths and the joystick zone', () => {
   assert.ok(pinchZoomFactor(100, 200) === 0.5 && pinchZoomFactor(200, 100) === 2 && pinchZoomFactor(0, 100) === 1);   // spread = closer
   const rect = { left: 0, width: 1000 };
   assert.equal(inJoyZone(100, rect), true); assert.equal(inJoyZone(500, rect), false);
+});
+
+test('rayToGround: flat-plane hit, yaw-rotated corners, horizon clamp', () => {
+  const o = { x: 100, y: 500, z: -50 };
+  const hit = rayToGround(o, { x: 0, y: -0.6, z: -0.8 }, 100, 6000);       // looking north (-z): lands 400/0.6*0.8 = 533.3 ahead
+  assert.ok(Math.abs(hit.x - 100) < 1e-6 && Math.abs(hit.y - (50 + 400 / 0.6 * 0.8)) < 1e-6);
+  const e = rayToGround(o, { x: 0.8, y: -0.6, z: 0 }, 100, 6000);          // yawed east
+  assert.ok(Math.abs(e.x - (100 + 400 / 0.6 * 0.8)) < 1e-6 && Math.abs(e.y - 50) < 1e-6);
+  const up = rayToGround(o, { x: 0, y: 0.2, z: -0.98 }, 100, 3000);        // above the horizon: clamped, finite
+  assert.ok(Math.abs(up.x - 100) < 1e-6 && Math.abs(up.y - (50 + 3000)) < 1e-6);
+  const far = rayToGround(o, { x: 0, y: -0.001, z: -1 }, 100, 3000);       // grazing: lands beyond maxDist, clamped
+  assert.ok(Math.abs(far.y - 3050) < 1e-6);
+  const down = rayToGround(o, { x: 0, y: -1, z: 0 }, 100, 3000);           // straight down: finite, under the eye
+  assert.ok(Number.isFinite(down.x) && Number.isFinite(down.y));
 });

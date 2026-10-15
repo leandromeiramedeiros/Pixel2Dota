@@ -1,6 +1,6 @@
 // Minimap: static terrain (rendered once from shared/map.js), fog, unit dots, camera rectangle.
 //   createMinimap(parent, { renderer, send, size?:92 }) -> { el, update({ state, myTeam, hero, mySid }), destroy() }
-//   left click / drag: move camera (renderer.setTarget).  right click: move order (shift = queued).
+//   left click / drag: move camera (renderer.cam.jumpTo: instant, drops the lock; touch suspends the lock while pressed).  right click: move order (shift = queued).
 import { getMap, TT, worldToTile } from '../../../shared/map.js';
 import { TEAM, KIND, MSG, ST } from '../../../shared/protocol.js';
 import { orderMove } from './targeting.js';
@@ -128,21 +128,25 @@ export function createMinimap(parent, { renderer, send, size = 92 }) {
       g.fillStyle = me ? '#ffe27a' : '#05070b'; g.fillRect(Math.round(px - 3), Math.round(py - 3), 6, 6);
       g.fillStyle = COL[u.team] || '#aaa'; g.fillRect(Math.round(px - 2), Math.round(py - 2), 4, 4);
     }
-    // camera rectangle
-    const t = renderer.getTarget ? renderer.getTarget() : null;
-    if (t) {
+    // camera view: the ground quad the camera really sees (orbit yaw + perspective trapezoid); old axis-aligned rect if the renderer lacks viewQuad
+    const q = renderer.viewQuad ? renderer.viewQuad() : null, t = renderer.getTarget ? renderer.getTarget() : null;
+    g.strokeStyle = '#ffffff'; g.lineWidth = 1;
+    if (q) {
+      g.beginPath();
+      q.forEach((p, i) => { const [x, y] = toPx(p.x, p.y); if (i) g.lineTo(Math.round(x) + 0.5, Math.round(y) + 0.5); else g.moveTo(Math.round(x) + 0.5, Math.round(y) + 0.5); });
+      g.closePath(); g.stroke();
+    } else if (t) {
       const rig = renderer.rig;
       const vw = (rig && rig.visibleWidth) || 2100, vh = ((rig && rig.visibleHeight) || 1190) / 0.866;
       const [cx, cy] = toPx(t.x, t.y);
       const w = (vw / (m.w * m.tile)) * size, hh = (vh / (m.h * m.tile)) * size;
-      g.strokeStyle = '#ffffff'; g.lineWidth = 1;
       g.strokeRect(Math.round(cx - w / 2) + 0.5, Math.round(cy - hh / 2) + 0.5, Math.round(w), Math.round(hh));
     }
   }
 
   // ---- input
   let dragging = false;
-  const moveCam = (e) => { const p = toWorld(e.clientX, e.clientY); renderer.setTarget(p.x, p.y); };
+  const moveCam = (e) => { const p = toWorld(e.clientX, e.clientY); if (renderer.cam) renderer.cam.jumpTo(p.x, p.y); else renderer.setTarget(p.x, p.y); };
   const onDown = (e) => {
     e.preventDefault(); e.stopPropagation();
     if (e.button === 0) { dragging = true; try { wrap.setPointerCapture(e.pointerId); } catch { /* */ } moveCam(e); }

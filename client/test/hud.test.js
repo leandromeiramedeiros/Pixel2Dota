@@ -17,6 +17,7 @@ import { rasterRows, parseColor } from '../src/ui/pixels.js';
 import { expandUnits, hudScale } from '../src/ui/style.js';
 import { bakeMapPixels } from '../src/ui/minimap.js';
 import { GLYPHS } from '../src/ui/glyphs.js';
+import { invKeyLabel, invSlotNote } from '../src/ui/hud.js';
 
 // ---------------------------------------------------------------- format
 test('fmtClock: pregame negative, minutes, hours', () => {
@@ -274,6 +275,12 @@ test('minimap: baked terrain is opaque and varied', () => {
   let distinct = new Set();
   for (let i = 0; i < px.length; i += 4) { assert.equal(px[i + 3], 255); distinct.add((px[i] << 16) | (px[i + 1] << 8) | px[i + 2]); }
   assert.ok(distinct.size > 12);
+});
+
+test('inventory: backpack slots (6..8) have no hotkey and a backpack note', () => {
+  assert.equal(invKeyLabel(0), 'Z'); assert.equal(invKeyLabel(5), 'N');
+  for (const i of [6, 7, 8]) { assert.equal(invKeyLabel(i), ''); assert.match(invSlotNote(i), /^Backpack: no stats or use\. Drag to main to use \(6 s lock\)\.$/); }
+  assert.match(invSlotNote(2), /Right-click: sell/);
 });
 
 test('TEAM constants sanity', () => { assert.equal(TEAM.RADIANT, 0); assert.equal(TEAM.DIRE, 1); });

@@ -1,11 +1,12 @@
 // In-match menu (Esc / touch ☰): Resume, graphics level (Low/Medium/High/Ultra: the owner applies the preset AND the level's option bundle, then calls setOptions),
 // the user options (resolution, fps cap 30..165 / MAX, bloom, depth of field, vsync; the preset never touches them),
-// DEFAULTS (restore the detected level + options), FPS+ping readout toggle, Quit to lobby. Side-by-side columns on short screens (phone landscape).
-//   createMenu(parent, { level, options, perfOn, onLevel(level), onOption(key, value), onDefaults(), onPerf(on), onOpen() })
-//     -> { el, open, close, toggle, isOpen, setLevel, setOptions(opts), setDetected(text), toast(text), destroy }
+// touch only: aim sensitivity (0.75..2.5, owner persists it; DEFAULTS leaves it alone), DEFAULTS (restore the detected level + options), FPS+ping readout toggle, Quit to lobby. Side-by-side columns on short screens (phone landscape).
+//   createMenu(parent, { level, options, perfOn, aimSens, onLevel(level), onOption(key, value), onAimSens(s), onDefaults(), onPerf(on), onOpen() })
+//     -> { el, open, close, toggle, isOpen, setLevel, setOptions(opts), setAimSens(s), setDetected(text), toast(text), destroy }
 // Open = full-screen backdrop that eats pointer input; a capture-phase keydown trap keeps the game's key handlers (orders, hotkeys) silent.
 import { expandUnits } from './style.js';
 import { LEVELS, LABEL, RESOLUTIONS, RES_LABEL, FPS_CAPS, fpsLabel, OPTION_DEFAULTS } from '../render/quality.js';
+import { SENS, SENS_STEPS } from './touch.js';
 
 const CSS = `
 .h-menu { position:absolute; inset:0; z-index:60; display:none; align-items:center; justify-content:center; background:rgba(3,4,8,.7); pointer-events:auto; }
@@ -41,11 +42,13 @@ html.p2d-touch .h-menu button { padding-top:8u; padding-bottom:7u; }
 html.p2d-touch .h-menu .dtc { display:none; }
 @media (max-height:520px) { html.p2d-touch .h-menu .mn { padding:5u 8u; } html.p2d-touch .h-menu button { padding-top:6u; padding-bottom:5u; } }
 html.p2d-touch .h-menu .hint { display:none; }
+.h-menu .tch { display:none; } html.p2d-touch .h-menu .tch { display:flex; }
+.h-menu .seg.sens button { font-size:7u; padding-left:1u; padding-right:1u; }
 `;
 let styled = false;
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
-export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, perfOn = true, onLevel, onOption, onDefaults, onPerf, onOpen } = {}) {
+export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, perfOn = true, aimSens = SENS.DEF, onLevel, onOption, onAimSens, onDefaults, onPerf, onOpen } = {}) {
   if (!styled) { const s = document.createElement('style'); s.textContent = expandUnits(CSS); document.head.appendChild(s); styled = true; }
   const root = el('div', 'h-menu');
   const panel = el('div', 'mn h-panel');
@@ -57,6 +60,8 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
   };
   const gfx = mkSeg('level', LEVELS, (l) => LABEL[l].toUpperCase()), seg = gfx.box, segBtn = gfx.btn; seg.classList.add('gfx');
   const resS = mkSeg('res', RESOLUTIONS, (r) => RES_LABEL[r]), fpsS = mkSeg('fps', FPS_CAPS, fpsLabel); fpsS.box.classList.add('fps');
+  const sensS = mkSeg('sens', SENS_STEPS, (v) => String(v).replace(/^0\./, '.')); sensS.box.classList.add('sens', 'tch');
+  const sensL = el('div', 'lbl tch', 'AIM SENSITIVITY'); sensL.title = 'Touch: how far the aim moves per thumb drag';
   const mkTog = (text, chk) => { const b = el('button', 'tog'), t = el('span', null, text), v = chk ? el('span', 'bx') : el('span'); b.append(t, v); return { b, v }; };
   const bloomT = mkTog('BLOOM'), dofT = mkTog('DEPTH OF FIELD'), vsyncT = mkTog('VSYNC', true);
   bloomT.b.title = 'Glow around bright lights and spells'; dofT.b.title = 'Blur far away scenery (tilt-shift in play, bokeh in the showcase)'; vsyncT.b.title = 'On: draw in step with the display. Off: draw as soon as the fps cap allows (lower input delay, higher cap than the display)';
@@ -65,16 +70,17 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
   const quit = el('button', 'quit', 'QUIT TO LOBBY');
   const colA = el('div', 'col'), colB = el('div', 'col'), cols = el('div', 'cols');
   colA.append(resume, el('div', 'lbl', 'GRAPHICS'), seg, el('div', 'lbl', 'RESOLUTION'), resS.box, el('div', 'lbl', 'FPS CAP'), fpsS.box);
-  colB.append(el('div', 'lbl', 'OPTIONS'), bloomT.b, dofT.b, vsyncT.b, perfBtn, defBtn, dtc, quit);
+  colB.append(el('div', 'lbl', 'OPTIONS'), bloomT.b, dofT.b, vsyncT.b, sensL, sensS.box, perfBtn, defBtn, dtc, quit);
   cols.append(colA, colB);
   panel.append(el('h2', null, 'MENU'), cols, el('div', 'hint', 'ESC to close'));
   root.append(panel); parent.append(root);
 
-  let open = false, cur = level, opt = { ...OPTION_DEFAULTS, ...options }, perf = !!perfOn, toastEl = null, toastT = 0;
+  let open = false, cur = level, opt = { ...OPTION_DEFAULTS, ...options }, perf = !!perfOn, sens = +aimSens, toastEl = null, toastT = 0;
   const paint = () => {
     for (const l of LEVELS) segBtn[l].classList.toggle('on', l === cur);
     for (const r of RESOLUTIONS) resS.btn[r].classList.toggle('on', r === opt.resolution);
     for (const f of FPS_CAPS) fpsS.btn[f].classList.toggle('on', f === opt.fps);
+    for (const v of SENS_STEPS) sensS.btn[v].classList.toggle('on', v === sens);
     bloomT.b.classList.toggle('on', !!opt.bloom); bloomT.v.textContent = opt.bloom ? 'ON' : 'OFF';
     dofT.b.classList.toggle('on', !!opt.dof); dofT.v.textContent = opt.dof ? 'ON' : 'OFF';
     vsyncT.b.classList.toggle('on', !!opt.vsync);
@@ -91,6 +97,7 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
   const setOpt = (k, v) => { opt = { ...opt, [k]: v }; paint(); onOption && onOption(k, v); };
   resS.box.addEventListener('click', (e) => { const r = e.target.dataset && e.target.dataset.res; if (r) setOpt('resolution', r); });
   fpsS.box.addEventListener('click', (e) => { const f = e.target.dataset && e.target.dataset.fps; if (f !== undefined) setOpt('fps', +f); });
+  sensS.box.addEventListener('click', (e) => { const v = e.target.dataset && e.target.dataset.sens; if (v !== undefined) { sens = +v; paint(); onAimSens && onAimSens(sens); } });
   bloomT.b.addEventListener('click', () => setOpt('bloom', !opt.bloom));
   dofT.b.addEventListener('click', () => setOpt('dof', !opt.dof));
   vsyncT.b.addEventListener('click', () => setOpt('vsync', !opt.vsync));
@@ -107,6 +114,7 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
     setLevel(l) { cur = l; paint(); },
     /** reflect option values changed from outside (DEFAULTS, hardware detection) */
     setOptions(o) { opt = { ...opt, ...o }; paint(); },
+    setAimSens(v) { sens = +v; paint(); },
     /** one line under DEFAULTS: what detection chose */
     setDetected(text) { dtc.textContent = text || ''; },
     /** one short message under the top bar (graphics auto-downgrade notice) */
