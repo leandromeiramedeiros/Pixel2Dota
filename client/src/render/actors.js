@@ -297,8 +297,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         let outline = null;
         const isSel = id === state.selected, isHover = id === state.hover;
         if (isSel) outline = [SEL_COL[0], SEL_COL[1], SEL_COL[2], 1];
-        else if (isHover && !mine) outline = [HOVER_COL[0], HOVER_COL[1], HOVER_COL[2], 1];
-        else if (state.outlines && u.kind === 'hero' && !dead) { const c = TEAM_COL[u.team === 1 ? 1 : 0]; outline = [c[0] * 0.75, c[1] * 0.75, c[2] * 0.75, 1]; }
+        else if (isHover && !mine) outline = [HOVER_COL[0], HOVER_COL[1], HOVER_COL[2], 1];   // no permanent team outline on heroes (Dota): dark line unless hovered / selected
         const bR = bType ? BINFO[bType].R : 0;
         if (bType) { if (inView(u.x, u.y, z, bR)) buildings.add(bType, u.x, u.y, z, { team: u.team === 1 ? 1 : 0, hp: u.maxHp > 0 ? Math.max(0, Math.min(1, uhp / u.maxHp)) : 1, destroyed: st.collapse, flash: st.flash * 0.85, hi: outline, phase: (u.x * 0.013 + u.y * 0.007) % 6.28 }); }
         else {
