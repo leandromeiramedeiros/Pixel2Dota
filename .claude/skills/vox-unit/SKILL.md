@@ -23,7 +23,7 @@ Read `docs/VOXEL.md` (grids, kit, rules) once. Samples: `shared/vox/heroes/lina.
 4. **Check.** `npm run vox:check -- <short>` (grid, feet z 0, walls, tiers, mesh). Fix until green.
 5. **Look.** `npm run vox:shot -- <short> --small` -> `tools/art/out/<short>_vox_small.png`; view it next to `sheet.png`, fix the biggest
    difference (`npm run vox:view -- <short> --poses` puts ref and voxel in one image). Max 3 look-and-fix rounds.
-6. **Full sheet.** `npm run vox:shot -- <short>` -> `docs/voxel-chibi/<short>_vox.png`, plus the FX sheet (`npm run fx:view -- <short>`).
+6. **Full sheet.** `npm run vox:shot -- <short>` -> `docs/voxel-chibi/<short>_vox.png`, plus the FX sheet (`npm run fx:view -- <short>`); spells follow "FX method" below.
    Report both paths with the signature reads. Never self-certify visuals.
    **Review gate:** the main session has an independent reviewer agent check the sheets before the director sees them (see Review below).
    Fix its list (max 2 rounds), then the main session sends the sheets to the director.
@@ -38,6 +38,17 @@ Verdict PASS, or FIX with concrete numbered fixes (part, problem, expected). Che
 - **Anims:** idle / walk / attack / cast / stunned read and don't pop. The pick box stays stable (idle frame).
 - **FX vs OG on the FX sheet:** same shape, colour key, timing and scale per spell; subtle bloom with no whiteout; crisp particles; lights from spells only.
 - **Checks green:** `vox:check`, `npm test`.
+
+## FX method (director-approved; every spell)
+1. **Source:** the spell's particle tree from the game files (`npm run fx:ref -- <short>` -> `tools/.cache/ref/<short>/fx/<ability>/ref.json` + `og.png`).
+2. **Keep:** every part's role, timing (delays, lifetimes), size in game units, colours from its palette, and Dota's visibility (team-only stays team-only).
+3. **Translate only the rendering** (`render/fx/geo3d.js` + pixels):
+   - glow sprites / lights -> soft geo3d orb + a subtle real light;
+   - ropes / trails / beams / rays -> geo3d tubes or bolts;
+   - ring bursts -> geo3d SHOCK discs;
+   - sparks / ash / embers / smoke -> crisp 1-2 px pixels, about 1/4 of the game's count;
+   - projected decals -> decals; models -> voxel or decal.
+4. **Spec card per spell**, approved by the director: a table (part, timing, size, colour, our primitive) plus the side-by-side (`og.png` vs ours at the game camera).
 
 ## Director rules
 - Dota 2 likeness at a glance; chibi proportions; restraint (no noise, no whiteout bloom, subtle emissive).
