@@ -19,7 +19,7 @@ pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creeps (`shared/
 | `shared/vox/index.js` | Registry `VOX = { short: { kind, unit, mod } }`: one line per model; the tools and `voxmesh.test.js` iterate it. |
 | `tools/vox/ref.mjs <short|npc key|all|heroes|creeps|neutrals|buildings|list>` | Private Dota 2 reference of any game unit (all heroes, creeps, neutrals, Roshan, couriers, wards, buildings; `tools/.cache/ref/<short>/`, gitignored): `sheet.png` (overview), `views.png` (5 views), `poses.png` (idle, run, attack, cast, stunned, death x 4 frames), `ref.json` (sizes, palette, sequences). |
 | `tools/vox/brief.mjs <short>` | Agent brief: ref proportions + palette, grid class, kit, files, checklist. |
-| `tools/vox/check.mjs <short|all>` | Kit contract + mesh checks (wraps `voxmesh.test.js`); `all` adds rigs and the frozen-Lina diff. |
+| `tools/vox/check.mjs <short|all>` | Kit contract + mesh checks (wraps `voxmesh.test.js`); `all` adds the rig classes. |
 | `tools/vox/shot.mjs <short|all> [--small]` | Review sheet: 4 views, every pose, true size next to Lina -> `docs/voxel-chibi/<short>_vox.png` (`--small`: fast views in `tools/art/out/`). |
 | `tools/vox/portrait.mjs <short>` | HUD portrait (32x42) -> `client/src/art/portraits/<short>.js` + a 12x preview (library: `tools/art/vox_portrait.mjs`). |
 | `tools/vox/view.mjs <short> [--ref|--vox] [--poses]` | One compare PNG (reference rows over voxel rows, same views / anims) -> `tools/.cache/view/<short>.png`, gitignored, never committed. |

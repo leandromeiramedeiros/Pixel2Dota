@@ -93,16 +93,26 @@ export function feet(v, f, type, m, o = {}) {
 export const torso = (v, T, o, section) => vol(v, T, o.c[0] - o.r, o.c[1] - o.r, o.z0, o.c[0] + o.r, o.c[1] + o.r, o.z1, (px, py, pz) => section(px - o.c[0], py - o.c[1], pz - o.z0, px, py, pz));
 
 /**
- * Flared skirt / tabard: radius r0 - dr * t over z0..z1 (t from zr over h), y squash sy, outer shell `shell` thick.
+ * Flared skirt / tabard / gown: radius r0 - dr * t over z0..z1 (t from zr over h), y squash sy, outer shell `shell` thick.
  * hem: [[zTop, cosThreshold | null], ...] trim bands on the shell (cos(angle * scallops) > threshold = scallop), checked in order.
+ * Optional (open gowns, split skirts): hollow (true: only the shell, legs stay visible; a number: carve only in front of that dy; (dx, dy, pz) => carve?; a solid core
+ * means fewer faces), open (half angle in degrees of a front split, front = -y),
+ * edge (degrees of trim along the split), lean (+y shift per voxel below z1: tails trailing back), floor(phi) -> lowest z at phi (radians from the
+ * front, 0..PI: pointed tails, back notch), hemH (trim height above the floor), inner (material of the inside layer, seen through the split).
  */
 export function skirt(v, T, o, cloth, trim) {
-  const [cx, cy] = o.c, R = o.r0 + 1;
-  vol(v, T, cx - R, cy - R, o.z0, cx + R, cy + R, o.z1, (px, py, pz) => {
-    const t = (pz - o.zr) / o.h, r = o.r0 - o.dr * t, dx = px - cx, dy = (py - cy) / o.sy;
+  const [cx, cy] = o.c, R = o.r0 + (o.dr < 0 ? 0 : o.dr * Math.max(0, (o.zr - o.z0) / o.h)) + 1, lean = o.lean || 0, open = (o.open || 0) * Math.PI / 180;
+  const edge = (o.edge || 0) * Math.PI / 180, ly = lean * (o.z1 - o.z0);
+  vol(v, T, cx - R, cy - R, o.z0, cx + R, cy + R + ly, o.z1, (px, py, pz) => {
+    const t = (pz - o.zr) / o.h, r = o.r0 - o.dr * t, dx = px - cx, dy = (py - cy - lean * (o.z1 - pz)) / o.sy;
     const d = Math.hypot(dx, dy); if (d > r) return;
-    const shell = d > r - o.shell, ang = Math.atan2(dy, dx);
-    for (const [zt, thr] of o.hem) {
+    const shell = d > r - o.shell, ang = Math.atan2(dy, dx), phi = Math.acos(Math.max(-1, Math.min(1, -dy / (d || 1))));
+    if (phi < open) return;
+    const fl = o.floor ? o.floor(phi) : -Infinity; if (pz < fl) return;
+    if (o.hollow && !shell) { if (o.hollow === true || (typeof o.hollow === 'function' ? o.hollow(dx, dy, pz) : dy < o.hollow)) return; return o.inner || cloth; }
+    if (trim && (pz < fl + (o.hemH ?? 1) || phi < open + edge)) return trim;
+    if (o.inner && d < r - o.shell * 0.5) return o.inner;
+    for (const [zt, thr] of o.hem || []) {
       if (pz < zt && thr === null) return shell ? trim : cloth;
       if (pz < zt && shell && Math.cos(ang * o.scallops) > thr) return trim;
     }

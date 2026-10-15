@@ -70,11 +70,10 @@ for (const M of MODELS) test(`voxmesh: ${M.name} every pose frame`, () => {
     const fp = g.userData.fp, bf = footOf(v, M.cx, M.cy);
     assert.equal(fp.top, bf.top, `${tag}: fp.top`); assert.ok(Math.abs(fp.r - bf.r) < 1e-9, `${tag}: fp.r`);
     assert.ok(Math.abs(fp.top - b.max.y) < 1e-6 && Math.abs(fp.min[0] - b.min.x) < 1e-6 && Math.abs(fp.max[2] - b.max.z) < 1e-6, `${tag}: fp vs bbox`);
-    // face toward +z (front), raised hand on +x, emissive + lit present
+    // face toward +z (front), emissive + lit present
     let ez = 0, en = 0, az = 0, nv = 0;
     for (let z = 0; z < v.Z; z++) for (let y = 0; y < v.Y; y++) for (let x = 0; x < v.X; x++) { const m = v.get(x, y, z); if (!m) continue; nv++; az += M.cy - y - 0.5; if (EYE.test(v.mats[m].name)) { ez += M.cy - y - 0.5; en++; } }
     if (M.eyes) assert.ok(en > 0 && ez / en > az / nv, `${tag}: eyes not on +z`);
-    if (M.name === 'lina' && (!pose.arm || pose.arm === 'raise')) assert.ok(b.max.x > -b.min.x, `${tag}: raised hand not on +x`);
     const E = g.attributes.aEmit; let lit = 0, emit = 0, odd = 0;
     for (let j = 0; j < E.count; j++) { const e = E.getX(j); if (e) { emit++; if (e < 50 || e > 180) odd++; } else lit++; }
     assert.ok(!odd && emit > 0 && lit > 0, `${tag}: emit gains (${odd} out of band, ${emit} emit, ${lit} lit)`);

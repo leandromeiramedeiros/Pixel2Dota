@@ -4,13 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderVox, Canvas } from '../vox.mjs';
 import { encodePng } from '../png.mjs';
-import { buildLina, ANIMS } from './lina_vox.mjs';
+import { buildLina, ANIMS, META } from './lina_vox.mjs';
 import { OUT } from './lina_vox_shot.mjs';
 
 const rows = Object.entries(ANIMS), cols = Math.max(...rows.map(([, f]) => f.length)), cw = 92 * 2, ch = 100 * 2;
 const C = new Canvas(cols * cw + 20, rows.length * ch + 20, '#1c2030');
 rows.forEach(([, frames], r) => frames.forEach((p, c) => {
-  C.blit(renderVox(buildLina(p), { yaw: 28, pitch: 30, scale: 1.6, W: 92, H: 100, center: [17, 15, 20], ss: 3 }), 10 + c * cw, 10 + r * ch, 2);
+  C.blit(renderVox(buildLina(p), { yaw: 28, pitch: 30, scale: 1.6, W: 92, H: 100, center: [META.cx, META.cy, 20], ss: 3 }), 10 + c * cw, 10 + r * ch, 2);
 }));
 fs.mkdirSync(OUT, { recursive: true });
 const out = path.join(OUT, 'lina_vox_poses.png');

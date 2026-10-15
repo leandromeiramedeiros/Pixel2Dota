@@ -82,8 +82,8 @@ export function useMat(v, name, o = {}) {
 }
 /** irisD / iris / irisL ids for an IRIS set. */
 export const useIris = (v, set = 'amber') => { const c = IRIS[set]; return { irisD: v.mat('irisD', { emit: c[0], tier: 'eye' }), iris: v.mat('iris', { emit: c[1], tier: 'eye' }), irisL: v.mat('irisL', { emit: c[2], tier: 'eye' }) }; };
-/** f1..f4 ids for a FLAMES gradient (names prefixed by `pre`, default 'f'). */
-export const useFlame = (v, set = 'fire', pre = 'f') => FLAMES[set].map((c, i) => v.mat(pre + (i + 1), { emit: c, tier: FLAME_TIERS[i] }));
+/** f1..f4 ids for a FLAMES gradient (names prefixed by `pre`, default 'f'); gains = optional per-step gain [g1..g4] (the hero's tuned glow). */
+export const useFlame = (v, set = 'fire', pre = 'f', gains) => FLAMES[set].map((c, i) => v.mat(pre + (i + 1), { emit: c, tier: FLAME_TIERS[i], ...(gains ? { gain: gains[i] } : {}) }));
 
 /** Team ramps for the team-tintable materials (offline preview; the runtime tints on the GPU). */
 export const TEAM = {

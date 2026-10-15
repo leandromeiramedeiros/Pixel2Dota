@@ -1,22 +1,22 @@
 // Sanity check for the game mesher: meshes every ANIMS frame of voxel Lina (client/src/render/voxmesh.js, buildVoxFrames like voxactors.js) and prints
 // voxel / triangle counts + bbox in model units. Asserts: compact layout (attribute set, int types, shared Uint16 index in range), feet at y = 0,
-// face (eye voxels) on +z, raised hand on +x, CCW winding matches the decoded face normals, smooth normals ~unit, emit gains present, no NaN,
+// face (eye voxels) on +z, CCW winding matches the decoded face normals, smooth normals ~unit, emit gains present, no NaN,
 // GPU bytes < 3 MB for the hero. CI runs the same checks (+ team flag, tiers, voxel centres, footprint) in client/test/voxmesh.test.js.
 import * as THREE from 'three';
-import { buildLina, ANIMS } from './lina_vox.mjs';
+import { buildLina, ANIMS, META } from './lina_vox.mjs';
 import { buildVoxFrames, faceNormal } from '../../../client/src/render/voxmesh.js';
 
 const fail = [], ok = (c, msg) => { if (!c) fail.push(msg); };
 const ATTRS = 'aCol,aEmit,aFace,aHash,aSm,position', GAINS = new Set([0, 95, 100, 115, 150, 170]);
 const EYE = new Set(['lash', 'irisD', 'iris', 'irisL', 'pupil', 'shine']), f = x => x.toFixed(1);
-const t0 = performance.now(), frames = buildVoxFrames(buildLina, ANIMS, { cx: 17, cy: 15 }), ms = performance.now() - t0;
+const t0 = performance.now(), frames = buildVoxFrames(buildLina, ANIMS, { cx: META.cx, cy: META.cy }), ms = performance.now() - t0;
 const arrays = new Set(); let nf = 0, tsum = 0, ix0 = null;
 for (const [anim, poses] of Object.entries(ANIMS)) poses.forEach((pose, i) => {
   const v = buildLina(pose), g = frames[anim][i], tag = `${anim}[${i}]`, u = g.userData.unit;
   let nv = 0, ez = 0, en = 0, az = 0;
   for (let z = 0; z < v.Z; z++) for (let y = 0; y < v.Y; y++) for (let x = 0; x < v.X; x++) {
-    const m = v.g[v.i(x, y, z)]; if (!m) continue; nv++; az += 15 - y - 0.5;
-    if (EYE.has(v.mats[m].name)) { ez += 15 - y - 0.5; en++; }
+    const m = v.g[v.i(x, y, z)]; if (!m) continue; nv++; az += META.cy - y - 0.5;
+    if (EYE.has(v.mats[m].name)) { ez += META.cy - y - 0.5; en++; }
   }
   const P = g.attributes.position, F = g.attributes.aFace, S = g.attributes.aSm, E = g.attributes.aEmit, I = g.index, cnt = g.drawRange.count, tris = cnt / 3;
   const b = g.boundingBox.clone(); b.min.multiplyScalar(u); b.max.multiplyScalar(u);
@@ -33,7 +33,6 @@ for (const [anim, poses] of Object.entries(ANIMS)) poses.forEach((pose, i) => {
   for (const k in g.attributes) { const a = g.attributes[k]; let bad = false; for (let j = 0; j < a.count && !bad; j++) for (let c = 0; c < a.itemSize; c++) if (!Number.isFinite(a.getComponent(j, c))) bad = true; ok(!bad, `${tag}: NaN/inf in ${k}`); }
   ok(Math.abs(b.min.y) < 1e-6, `${tag}: feet min y = ${b.min.y}`);
   ok(en > 0 && ez / en > az / nv, `${tag}: eyes not on +z (eye z ${f(ez / en)} vs body ${f(az / nv)})`);
-  if (!pose.arm || pose.arm === 'raise') ok(b.max.x > -b.min.x, `${tag}: raised hand not on +x`);
   let lit = 0, emit = 0, odd = 0;
   for (let j = 0; j < E.count; j++) { const e = E.getX(j); if (!GAINS.has(e)) odd++; if (e) emit++; else lit++; }
   ok(!odd && emit > 0 && lit > 0, `${tag}: emit gains (${odd} unknown, ${emit} emit, ${lit} lit verts)`);

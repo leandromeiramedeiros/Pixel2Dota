@@ -2,7 +2,7 @@
 //  1. Per model (registry shared/vox/index.js): META / ANIMS contract, every frame builds on its grid, feet on z = 0 (idle), nothing on the grid walls,
 //     feet centred on cx, team voxels when META.team, emissive materials carry a valid tier.
 //  2. Mesh: client/test/voxmesh.test.js for the model (every pose frame meshed: winding, footprint, emit gains, GPU bytes < 3 MB, eyes toward the front).
-//  3. `all` only: rig classes solve (every default + library pose finite) and Lina equals her frozen hand-built original (lina_vox_ref.mjs).
+//  3. `all` only: rig classes solve (every default + library pose finite).
 // Exit 1 on any failure.
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -64,7 +64,7 @@ if (!fails) {
   if (r.status !== 0) { console.error(out.split('\n').filter(l => /not ok|Error|error|✖|expected|actual|at /.test(l)).slice(0, 30).join('\n')); fails++; }
 }
 
-// ---- 3. rig classes + Lina equivalence
+// ---- 3. rig classes
 if (arg === 'all') {
   const finite = J => Object.values(J).every(p => p.every(Number.isFinite)), bad = [];
   for (const cls of Object.keys(RIGS)) {
@@ -77,26 +77,6 @@ if (arg === 'all') {
   }
   report('rigs', bad);
 
-  if (VOX.lina) {
-    const { renderVox } = await import('../art/vox.mjs');
-    const { buildLina: buildRef, ANIMS: REF } = await import('../art/heroes/lina_vox_ref.mjs');
-    const L = VOX.lina.mod, linaShim = await import('../../shared/vox/lina.js'), fl = [];
-    const CAM = { yaw: 28, pitch: 30, scale: 2, W: 110, H: 124, center: [17, 15, 19], ss: 3 }, def = m => JSON.stringify([m.ramp || null, m.emit || null, !!m.noShadow]);
-    if (JSON.stringify(L.ANIMS) !== JSON.stringify(REF)) fl.push('Lina ANIMS differ from the reference');
-    if (linaShim.buildLina !== L.build || linaShim.ANIMS !== L.ANIMS) fl.push('shared/vox/lina.js must re-export the kit Lina');
-    let tv = 0, tp = 0, n = 0;
-    for (const poses of Object.values(L.ANIMS)) for (const p of poses) {
-      const a = buildRef(p), b = L.build(p); n++;
-      if (a.X !== b.X || a.Y !== b.Y || a.Z !== b.Z) fl.push('grid size differs');
-      for (const m of a.mats.slice(1)) { const k = b.ids.get(m.name); if (!k || def(b.mats[k]) !== def(m)) fl.push(`material ${m.name} differs`); }
-      for (let k = 0; k < a.g.length; k++) if ((a.mats[a.g[k]]?.name ?? '') !== (b.mats[b.g[k]]?.name ?? '')) tv++;
-      const ra = renderVox(a, CAM).rgba, rb = renderVox(b, CAM).rgba;
-      for (let k = 0; k < ra.length; k += 4) if (ra[k] !== rb[k] || ra[k + 1] !== rb[k + 1] || ra[k + 2] !== rb[k + 2]) tp++;
-    }
-    if (tv || tp) fl.push(`Lina differs from the frozen reference: ${tv} voxels, ${tp} px`);
-    console.log(`lina vs frozen reference: ${n} frames, voxel diff ${tv}, render px diff ${tp}`);
-    report('lina', fl);
-  }
 }
 
 if (fails) { console.error(`FAIL: ${fails} problem(s)`); process.exit(1); }

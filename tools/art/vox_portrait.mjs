@@ -9,7 +9,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderVox, hex, mix } from './vox.mjs';
 import { encodePng } from './png.mjs';
-import { buildLina } from '../../shared/vox/lina.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const PREVIEW_DIR = path.join(ROOT, 'docs', 'voxel-chibi');
@@ -25,9 +24,7 @@ const rgbHex = c => '#' + [0, 1, 2].map(k => Math.round(c[k]).toString(16).padSt
  * below the eyes); scale = px per voxel; sig = signature colour of the rim light and the backdrop glow; face = [x, y, w, h] crop (portrait
  * px) of the face for the 24x24 scoreboard / kill-feed icon.
  */
-export const HEROES = {
-  lina: { build: buildLina, pose: { arm: 'down', flameK: 0, crownK: 1 }, center: [17.4, 15, 27.8], scale: 1.3, fov: 24, sig: '#ff9326', face: [4, 11, 24, 24] },
-};
+export const HEROES = {};   // per-hero overrides over the model's PORTRAIT export (Lina frames herself: shared/vox/heroes/lina.js PORTRAIT)
 
 /**
  * Backdrop: low-key charcoal tinted with the signature colour, a soft glow pooled behind the head, 5 Bayer-dithered tones; the corners fall
