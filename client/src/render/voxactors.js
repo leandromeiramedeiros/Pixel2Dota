@@ -22,6 +22,8 @@ import { instancedGeo, flushInstances, DEPTH_GLSL } from './mesh3d.js';
 import { buildVoxFrames } from './voxmesh.js';
 import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
 import * as LINA from '../../../shared/vox/lina.js';
+import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
+import * as MELEE_D from '../../../shared/vox/creeps/melee_dire.js';
 
 export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: characters (heroes, creeps, neutrals, Roshan) / world (buildings, trees, clutter, terrain)
 /**
@@ -31,7 +33,9 @@ export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: char
  */
 export const VOX_UNITS = {
   lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
-  // melee creeps: shared/vox/creeps/melee_radiant.js + melee_dire.js (separate models, no team tint) are not registered until the director gate.
+  // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
+  melee_radiant: voxEntry(MELEE_R, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_goodguys_melee'] }),
+  melee_dire: voxEntry(MELEE_D, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_badguys_melee'] }),
 };
 /** Registry entry from a model module ({ build, ANIMS, META: { cx, cy, rig } }); o overrides (unit, max, lean, keys, ...). */
 export function voxEntry(mod, o = {}) {
