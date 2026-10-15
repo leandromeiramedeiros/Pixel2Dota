@@ -1,6 +1,6 @@
 // Private visual reference of a Dota 2 unit from the LOCAL game files (like looking at the wiki). NEVER commit, copy, import or voxelize it.
-//   node tools/vox/ref.mjs <short|npc key|all|heroes|creeps|neutrals|bosses|couriers|wards|buildings|list>     (npm run vox:ref -- lina)
-// Resolves the unit from the game KV (every hero, lane creep, neutral, Roshan, courier, ward, building), picks the sequences the game plays for
+//   node tools/vox/ref.mjs <short|npc key|all|heroes|creeps|neutrals|bosses|couriers|wards|buildings|props|list>     (npm run vox:ref -- lina)
+// Resolves the unit from the game KV (every hero, lane creep, neutral, Roshan, courier, ward, building; or a WORLD prop: static map decoration, views + sheet only), picks the sequences the game plays for
 // idle / run / attack / cast / ult / stunned / death (ACT_DOTA_* in the model's ASEQ block), exports them with Source2Viewer-CLI (tools/.cache/s2v/bin,
 // cached in tools/.cache/ref/_export/) and renders with a CPU rasterizer (tools/vox/lib/raster.mjs), all into the gitignored tools/.cache/ref/<short>/:
 //   sheet.png   compact overview: the 5 views (idle) + one frame per anim + palette      (read this first)
@@ -53,7 +53,7 @@ export function buildRef(arg) {
   const T = { t0: performance.now() }, u = resolveUnit(arg);
   const dir = path.join(CACHE, u.short), sc = u.scale;
   // ---- sequences the game plays -> glb animation indices
-  const seqs = sequences(u.model), picks = pickAnims(seqs);
+  const seqs = sequences(u.model, u.kind === 'prop'), picks = pickAnims(seqs);
   const main = loadGlb(exportModel(u.model, Object.values(picks).map(p => p.seq)));
   const idxOf = new Map(); (main.json.animations || []).forEach((a, i) => { if (!idxOf.has(a.name)) idxOf.set(a.name, i); });
   const roles = Object.entries(picks).filter(([, p]) => idxOf.has(p.seq)).map(([role, p]) => ({ role, ...p, anim: idxOf.get(p.seq), dur: animDuration(main, idxOf.get(p.seq)) }));
@@ -170,9 +170,9 @@ export function buildRef(arg) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const arg = process.argv[2];
-  const GROUPS = { heroes: 'hero', creeps: 'creep', neutrals: 'neutral', bosses: 'boss', couriers: 'courier', wards: 'ward', buildings: 'building' };
+  const GROUPS = { heroes: 'hero', creeps: 'creep', neutrals: 'neutral', bosses: 'boss', couriers: 'courier', wards: 'ward', buildings: 'building', props: 'prop' };
   try {
-    if (!arg || arg === '--help') { console.log('usage: node tools/vox/ref.mjs <short|npc_dota_key|all|heroes|creeps|neutrals|bosses|couriers|wards|buildings|list>'); process.exit(arg ? 0 : 1); }
+    if (!arg || arg === '--help') { console.log('usage: node tools/vox/ref.mjs <short|npc_dota_key|all|heroes|creeps|neutrals|bosses|couriers|wards|buildings|props|list>'); process.exit(arg ? 0 : 1); }
     if (arg === 'list') {
       const set = gameUnits(), have = x => fs.existsSync(path.join(CACHE, x.short, 'sheet.png'));
       console.log(`${set.length} units: ` + KINDS.map(k => `${set.filter(x => x.kind === k).length} ${k}`).join(', '));

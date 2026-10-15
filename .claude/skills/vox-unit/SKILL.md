@@ -13,7 +13,7 @@ reference renders into the gitignored `tools/.cache/ref/` (a visual reference, l
 sample or import their pixels / vertices. `shared/test/legal.test.js` fails if shipped code touches the cache. Never attach ref renders to sheets, docs or commits.
 
 ## Loop (per unit)
-1. **Reference.** `npm run vox:ref -- <short|npc key>` (`list` shows every game unit; `heroes` / `creeps` / `neutrals` / `buildings` / `all` for batches;
+1. **Reference.** `npm run vox:ref -- <short|npc key>` (`list` shows every game unit; `heroes` / `creeps` / `neutrals` / `buildings` / `props` / `all` for batches; `props` = static map props `prop_<group>_<name>_<radiant|dire|any>`: trees, cliffs, rocks, clutter, views + sheet only, no anims;
    ~1-3 s per unit cached, ~10 s a hero cold). Read `tools/.cache/ref/<short>/sheet.png` FIRST (5 views + one frame per anim + palette), and
    `poses.png` (rows = idle / run / attack / cast / stunned / death, 4 frames each) when building `ANIMS`; `ref.json` lists the sequences. Then
    `npm run vox:brief -- <short>`: proportions, palette, anims, grid class, rig guess, kit parts, files, checklist.
