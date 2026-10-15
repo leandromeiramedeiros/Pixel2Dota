@@ -58,7 +58,7 @@ test('ledgeSlabs: only tall walls, inside the edge, between the apron and the wa
       some++;
       assert.ok(sl.a0 >= i0 && sl.a1 <= i1 && sl.a1 >= sl.a0);
       assert.ok(onGrid(sl.top) && sl.top >= ground + 6 * C - 1e-9 && sl.top <= ground + drop - 2 * C + 1e-9, `top ${sl.top} drop ${drop}`);
-      assert.ok(sl.n === 0 || sl.n === 1);
+      assert.ok(sl.n === 1 || sl.n === 2);
     }
   }
   assert.ok(some > 0);

@@ -276,7 +276,7 @@ void main(){
     if (face > 4.5) wb = wn < .35 ? 0. : wn < .75 ? 1. : 2.;
     int wi = int(mod(wb, 3.));
     alb = VS[(type > 1.5 && type < 3.5 ? 6 : 0) + int(vCell.z + .5) * 3 + (wi == 0 ? 0 : wi == 1 ? 2 : 1)]; em = 0.;
-    if (face > 4.5) alb *= 1.22 + .1 * vhash(wc + 17.);
+    if (face > 4.5) alb *= 1.4 + .12 * vhash(wc + 17.);
     else {
       // dressed stone: 3 cells wide per band (staggered by band), its own faint tone, a darker joint on its first cell
       float sw = floor(wc.y / VOX_WALL_ROWS), so = wc.x + floor(vhash(vec2(sw, 5.)) * 3.), sx = floor(so / 3.);

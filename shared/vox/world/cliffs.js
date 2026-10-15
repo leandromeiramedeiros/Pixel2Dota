@@ -68,12 +68,12 @@ export function apronProfile(r, ground, drop, C, shore = false) {
 export function ledgeSlabs(r, i0, i1, ground, drop, C) {
   const out = [], len = i1 - i0 + 1;
   if (drop < 8 * C || len < 3) return out;
-  const cnt = r < 0.8 ? 0 : 1;
+  const cnt = r < 0.55 ? 0 : 1;
   const base = Math.ceil(ground / C) + 6, span = Math.max(1, Math.floor(drop / C) - 9);
   for (let k = 0; k < cnt; k++) {
     const h1 = hash3(i0, k, 21), h2 = hash3(i0, k, 22), h3 = hash3(i1, k, 23), h4 = hash3(i0, i1, 24 + k);
     const l = Math.min(len, 2 + ((h1 * 3) | 0)), a0 = i0 + ((h2 * (len - l + 1)) | 0);
-    out.push({ a0, a1: a0 + l - 1, n: h3 < 0.5 ? 0 : 1, top: (base + ((h4 * span) | 0)) * C });
+    out.push({ a0, a1: a0 + l - 1, n: h3 < 0.5 ? 1 : 2, top: (base + ((h4 * span) | 0)) * C });
   }
   return out;
 }
@@ -135,7 +135,7 @@ export function apronCells(map, tx0, ty0, tx1, ty1, C, sideOf, boxes = null) {
       for (let f = 0; f < 4; f++) {
         const inf = info[f]; if (!inf) continue;
         const [pl, s, ax, a0, a1, p0, p1] = geo[f];
-        if (boxes && !inf.shore && tx >= tx0 && tx < tx1 && ty >= ty0 && ty < ty1) {
+        if (boxes && !inf.shore) {
           const own = [Math.ceil(a0 / C - 0.5), Math.ceil(a1 / C - 0.5) - 1];
           for (const sl of ledgeSlabs(hash3(tx, ty, 15 + f), own[0], own[1], inf.ground, inf.drop, C)) {
             const [n0, n1] = apronSpan(pl, s, C, sl.n);
@@ -204,15 +204,19 @@ export function apronQuads(map, tx0, ty0, tx1, ty1, C, sideOf) {
     }
   }
   // wall slabs: tread + the three faces not against the wall (b.f = the wall edge's outward face; the opposite one is skipped)
+  // each box is clipped to the cells this chunk owns; the cut planes get no side face (the neighbour chunk emits its own part)
+  const cxl = Math.ceil(xA / C - 0.5), cxh = Math.ceil(xB / C - 0.5) - 1, czl = Math.ceil(zA / C - 0.5), czh = Math.ceil(zB / C - 0.5) - 1;
   for (const b of boxes) {
-    const x0 = b.ix0 * C, x1 = (b.ix1 + 1) * C, z0 = b.iz0 * C, z1 = (b.iz1 + 1) * C;
+    const a0 = Math.max(b.ix0, cxl), a1 = Math.min(b.ix1, cxh), c0 = Math.max(b.iz0, czl), c1 = Math.min(b.iz1, czh);
+    if (a1 < a0 || c1 < c0) continue;
+    const x0 = a0 * C, x1 = (a1 + 1) * C, z0 = c0 * C, z1 = (c1 + 1) * C;
     const skip = b.f === AP.N ? AP.S : b.f === AP.S ? AP.N : b.f === AP.E ? AP.W : AP.E;
-    const q = (f, a) => { if (f !== skip) out.push({ f, type: b.type, side: b.side, ...a }); };
+    const q = (f, a, on = true) => { if (on && f !== skip) out.push({ f, type: b.type, side: b.side, ...a }); };
     q(AP.UP, { x0, x1, y0: b.y1, y1: b.y1, z0, z1 });
-    q(AP.N, { x0, x1, y0: b.y0, y1: b.y1, z0, z1: z0 });
-    q(AP.S, { x0, x1, y0: b.y0, y1: b.y1, z0: z1, z1 });
-    q(AP.W, { x0, x1: x0, y0: b.y0, y1: b.y1, z0, z1 });
-    q(AP.E, { x0: x1, x1, y0: b.y0, y1: b.y1, z0, z1 });
+    q(AP.N, { x0, x1, y0: b.y0, y1: b.y1, z0, z1: z0 }, c0 === b.iz0);
+    q(AP.S, { x0, x1, y0: b.y0, y1: b.y1, z0: z1, z1 }, c1 === b.iz1);
+    q(AP.W, { x0, x1: x0, y0: b.y0, y1: b.y1, z0, z1 }, a0 === b.ix0);
+    q(AP.E, { x0: x1, x1, y0: b.y0, y1: b.y1, z0, z1 }, a1 === b.ix1);
   }
   return out;
 }
