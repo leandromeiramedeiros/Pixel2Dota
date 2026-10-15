@@ -1,7 +1,8 @@
-// Voxel Forged Spirit (Invoker's summon), after the Dota 2 model (hand-authored chibi): no legs. A flame body (bright yellow under the shoulders,
-// orange, then dark red) tapering to a point that trails back above the ground; a hunched crust of dark rock over the shoulders and the head,
-// cracked with glowing seams and studded with red rock; the head thrust forward and down, a glowing mouth and eyes; two very long bowed arms of
-// fire reaching to the ground on dark claws. Signature reads: dark cracked rock hump on a yellow flame, long arms to the ground, no legs.
+// Voxel Forged Spirit (Invoker's summon), after the Dota 2 model (hand-authored chibi): no legs. A molten lava body (emissive red-orange under the
+// shoulders, crusting to lit orange and dark red with glowing veins) tapering to a point that trails back above the ground; a hunched crust of dark
+// rock over the shoulders and the head, cracked with glowing seams and studded with red rock; the head thrust forward and down, a glowing mouth and
+// eyes; two very long bowed arms of lava reaching to the ground on dark claws. Signature reads: dark cracked rock hump on glowing lava, long arms
+// to the ground, no legs.
 // One colour scheme (a summon, no team tint). Grid 36 x 36 x 32, ~28 voxels tall, faces -y. The arms are two-bone IK (claws planted).
 import { Vox } from '../vox.js';
 import { useMat } from '../mats.js';
@@ -30,17 +31,25 @@ function crack(px, py, pz, sc = 0.15) {
 export function build(p = {}) {
   const v = new Vox(36, 36, 32), T = solve('biped', PROP, p).T;
   const M = {
-    fY: useMat(v, 'flameY', { ramp: ['#c8701a', '#f8a81e', '#ffd236', '#fff26a'] }),
-    fO: useMat(v, 'flameO', { ramp: ['#7a2408', '#d0600a', '#f08a1e', '#ffb43c'] }),
-    fR: useMat(v, 'flameR', { ramp: ['#2a0a0c', '#5a1608', '#94300a', '#c45016'] }),
+    lava: useMat(v, 'lava', { emit: '#ff7a22', tier: 'signature', gain: 1.15 }),   // molten core: glows
+    lavaD: useMat(v, 'lavaD', { emit: '#f04a12', tier: 'signature', gain: 1.0 }),   // cooler molten veins lower down
+    fO: useMat(v, 'flameO', { ramp: ['#5a1006', '#a8300a', '#e05414', '#ff8a34'] }),
+    fR: useMat(v, 'flameR', { ramp: ['#200608', '#4c1008', '#84240c', '#b83c14'] }),
     rock: useMat(v, 'rock', { ramp: ['#120a10', '#26140f', '#3e231c', '#5e3a2c'] }),
     rockR: useMat(v, 'rockR', { ramp: ['#300a0c', '#6c1a0b', '#a8281a', '#d4502a'] }),
     claw: useMat(v, 'claw', { ramp: ['#120608', '#2e0c08', '#541a0c', '#7a3016'] }),
-    seam: useMat(v, 'seam', { emit: '#ffc23a', tier: 'signature' }),
-    maw: useMat(v, 'maw', { emit: '#ff7a1e', tier: 'signature' }),
-    eye: useMat(v, 'eyeGlow', { emit: '#fff07a', tier: 'eye' }),
+    seam: useMat(v, 'seam', { emit: '#ff6a1a', tier: 'signature', gain: 1.3 }),
+    maw: useMat(v, 'maw', { emit: '#ff5a14', tier: 'signature', gain: 1.3 }),
+    eye: useMat(v, 'eyeGlow', { emit: '#ffc048', tier: 'eye' }),
   };
-  const flameAt = (pz, px, py) => { const n = Math.sin(px * 0.7) * 0.9 + Math.sin(py * 0.9 + 1) * 0.5; return pz + n > 14 ? M.fY : pz + n > 8 ? M.fO : M.fR; };
+  // molten body: glowing lava over the top, breaking into crusting red-orange flame lower down; molten veins (cell borders) down to the tip
+  const flameAt = (pz, px, py) => {
+    const n = Math.sin(px * 0.7) * 0.9 + Math.sin(py * 0.9 + 1) * 0.5 + Math.sin(pz * 1.3 + px * 0.4) * 0.6, z = pz + n;
+    const k = crack(px, py, pz, 0.22);
+    if (k < 0.1) return z > 8 ? M.lava : M.lavaD;                    // molten veins
+    if (z > 15) return k > 0.32 ? M.fO : M.lava;                       // hot: lava with a few cooling plates (keeps the form shaded)
+    return z > 10 ? (k > 0.22 ? M.fO : M.lava) : z > 5 ? M.fO : M.fR;
+  };
 
   // ---- flame body (torso space): widest under the shoulders, tapering to a point that trails back, ~2 above the ground
   vol(v, T.torso, cx - 8, cy - 7, 1.6, cx + 8, cy + 9, 24, (px, py, pz) => {
@@ -71,8 +80,8 @@ export function build(p = {}) {
     const hd = [cx + s * HAND[0] + s * off[0], cy + HAND[1] + off[1], HAND[2] + off[2]];
     const { mid: el, end } = ik2(sh, hd, ARM[0], ARM[1], [s, 0.2, 0.25]);
     ell(v, null, sh, [2.2, 2.2, 2], crust);                                                    // rock shoulder cap
-    v.capsule(sh, el, 1.7, (px, py, pz, t) => (t < 0.55 ? M.fY : M.fO), 1.25);
-    v.capsule(el, end, 1.25, (px, py, pz, t) => (t < 0.45 ? M.fO : M.fR), 1.15);
+    v.capsule(sh, el, 1.7, (px, py, pz, t) => (t < 0.55 || crack(px, py, pz, 0.3) < 0.1 ? M.lava : M.fO), 1.25);
+    v.capsule(el, end, 1.25, (px, py, pz, t) => (crack(px, py, pz, 0.3) < 0.1 ? M.lavaD : t < 0.45 ? M.fO : M.fR), 1.15);
     ell(v, null, end, [1.5, 1.6, 1.3], M.fR);
     for (const c of [-1, 0, 1]) {                                                                // three long hooked claws, reaching z 0
       const a = add3(end, [c * 0.9, -0.6, -0.4]), tip = [end[0] + c * 1.9 - s * 0.5, end[1] - 2.8 + Math.abs(c) * 0.6, end[2] - 3.2];

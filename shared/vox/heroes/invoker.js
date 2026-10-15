@@ -1,8 +1,9 @@
-// Voxel Invoker, a chibi of his Dota 2 model (hand-authored): a bald, pointed-eared head framed by a tall spiky crimson-magenta collar that flares
-// up and back above the head; gold spiked pauldrons; orange-gold sleeves, open hands held in front (conjuring); a cream plastron with gold bands
-// and a gold button strip; a huge cream coat-cape from the shoulders to the floor, open in front over a dark purple-black robe, gold trim on every
-// edge; black boots. Signature reads: crimson collar fan around a bald head, cream cape bell silhouette, gold + orange arms in front, dark robe
-// split. The orbs are FX (client/src/render/fx/status.js), not voxels. Grid 40 x 40 x 48, ~44 voxels tall to the collar points, faces -y.
+﻿// Voxel Invoker, a chibi of his Dota 2 model (hand-authored): pointed-eared head with long golden-blond hair swept back from a high widow's peak
+// into a mane over the cape; a low crimson-magenta collar fan that frames the head at the sides and dips under the hair at the back; gold spiked
+// pauldrons; orange-gold sleeves, open hands held in front (conjuring); a cream plastron with gold bands and a gold button strip; a huge cream
+// coat-cape from the shoulders to the floor, open in front over a dark purple-black robe, gold trim on every edge; black boots. Signature reads:
+// blond swept-back mane, crimson collar fan, cream cape bell silhouette, gold + orange arms in front, dark robe split. The orbs are FX
+// (client/src/render/fx/status.js), not voxels. Grid 40 x 40 x 48, ~38 voxels tall, faces -y.
 import { Vox } from '../vox.js';
 import { useMat } from '../mats.js';
 import { solve } from '../rig.js';
@@ -31,8 +32,9 @@ export function build(p = {}) {
     robe: useMat(v, 'robe', { ramp: ['#100816', '#22142a', '#36223a', '#523a54'] }),
     collar: useMat(v, 'collar', { ramp: ['#2e0420', '#740a3e', '#a01c54', '#c84478'] }),
     collarL: useMat(v, 'collarL', { ramp: ['#3a0626', '#8a1448', '#b82c62', '#e05a88'] }),
-    hair: useMat(v, 'hair', { ramp: ['#4a2a1c', '#8a6034', '#b48a4e', '#dcb874'] }),
-    hairD: useMat(v, 'hairD', { ramp: ['#3a2018', '#6e4828', '#94703e', '#bc9a5e'] }),
+    hair: useMat(v, 'hair', { ramp: ['#6a3e1e', '#b08038', '#d8aa58', '#f2d488'] }),
+    hairL: useMat(v, 'hairL', { ramp: ['#7a4a22', '#c49444', '#e8c070', '#fce4a0'] }),
+    hairD: useMat(v, 'hairD', { ramp: ['#4e2c16', '#8a5e2c', '#b08444', '#d4ac68'] }),
     gold: useMat(v, 'gold', { ramp: ['#5e2c10', '#b06c18', '#e09e2a', '#ffd470'] }),
     sleeve: useMat(v, 'sleeve', { ramp: ['#5a2410', '#b4600e', '#e08c1c', '#ffc056'] }),
     boot: useMat(v, 'boot', { ramp: ['#0c0810', '#1e1420', '#32242e', '#4e3a42'] }),
@@ -80,8 +82,8 @@ export function build(p = {}) {
 
   // ---- the collar: a tall fan flaring up and back around the head, spiky points; crimson-magenta inside (the front read), cream + gold outside
   collar(v, T.torso, {
-    c: [cx, cy + 2.2], z0: 20.4 + U, z1: 39 + U, r0: 4.4, r1: 12.6, flare: 0.95, sy: 0.8, th: 4, lean: 0.12,
-    open0: 62, open1: 86, spikes: 2, spike: 4.2, fill: (dx, dy) => dy > 3.4,
+    c: [cx, cy + 2.2], z0: 20.4 + U, z1: 34 + U, r0: 4.4, r1: 11, flare: 0.8, sy: 0.8, th: 3, lean: 0.12,
+    open0: 62, open1: 70, spikes: 1, phase: -0.5, spike: 6, fill: (dx, dy) => dy > 3.4,
   }, (px, py, pz, f, inner) => (inner ? (f > 0.88 ? M.collarL : M.collar) : f > 0.86 ? M.gold : M.coat));
 
   // ---- arms: orange-gold sleeves with gold cuffs, open hands; gold spiked pauldrons on top
@@ -98,11 +100,25 @@ export function build(p = {}) {
     for (const [ox, oy, oz] of [[2.4, -0.8, 3.4], [3.6, 1, 1.6]]) v.capsule(c, [c[0] + s * ox, c[1] + oy, c[2] + oz], 1, M.gold, 0.35);
   }
 
-  // ---- head: high bald forehead, light-brown hair slicked back from a receding line over the crown, small pointed elf ears; posed by the head
+  // ---- head: skull + long narrow jaw, then the hair: golden blond, parted high in the middle and swept straight back over the crown into a full
+  // mane behind the head that falls to the nape (into the collar); strands run front -> back (streaks by x). Pointed elf ears poke through it.
   const Th = T.head, [hx, hy, hz] = [cx, cy + PROP.headY, PROP.headZ];
-  ell(v, Th, [hx, hy, hz], SKULL, (px, py, pz) => (py > hy + 2.2 - (pz - hz) * 0.62 ? (Math.floor(px) % 3 === 0 ? M.hairD : M.hair) : M.skin));
+  ell(v, Th, [hx, hy, hz], SKULL, M.skin);
   ell(v, Th, [hx, hy + 0.2, hz - 4.6], [3.8, 4.4, 3.4], M.skin);   // long narrow jaw
-  for (const s of [-1, 1]) cap(v, Th, [hx + s * 5.6, hy + 0.8, hz - 0.8], [hx + s * 7.8, hy + 2, hz + 1.8], 1.1, M.skin, 0.35);
+  const strand = (px, py, pz) => { const k = Math.floor((px - hx + 0.5 + Math.max(0, py - hy) * 0.18 * Math.sign(px - hx)) / 2); return [M.hair, M.hairL, M.hair, M.hairD][((k % 4) + 4) % 4]; };
+  const line = px => hz + 4.4 - Math.min(3, Math.abs(px - hx) * 0.55);   // hairline: high widow's peak, lower at the temples
+  const face = (px, py, pz) => py < hy - 1.2 + Math.max(0, hz - pz) * 0.5 && pz < line(px);   // skin window (forehead, face, in front of the ears)
+  const free = (px, py, pz, x, y, z) => { const m = v.get(x, y, z); return !m || m === M.skin; };   // never over the collar: the mane sinks into it
+  ell(v, Th, [hx, hy + 0.7, hz + 0.4], [6.3, 6.5, 7.1], strand, (px, py, pz, x, y, z) => !face(px, py, pz) && pz > hz - 3.4 && free(px, py, pz, x, y, z));
+  ell(v, Th, [hx, hy + 4, hz - 1.6], [6, 4.2, 6.4], strand, (px, py, pz, x, y, z) => py > hy + 1.5 && free(px, py, pz, x, y, z));   // the mane behind
+  // swept-back locks: thick at the crown, tapering to points that flare back past the skull and fall over the collar's back rim (long hair)
+  for (const s of [-4.6, -2.3, 0, 2.3, 4.6]) {
+    const a = [hx + s * 0.8, hy - 2.6, hz + 5.4 - Math.abs(s) * 0.4], b = [hx + s * 1.2, hy + 9.6 - Math.abs(s) * 0.25, hz - 2.6 - Math.abs(s) * 0.5];
+    cap(v, Th, a, b, 2.1, strand, 0.6);
+  }
+  // the fall: the mane lies over the collar's back rim down to the shoulder blades, pointed tips
+  ell(v, Th, [hx, hy + 6.8, hz - 0.6], [5.6, 3.8, 8.2], strand, (px, py, pz) => pz > hz - 7.4 + Math.abs(((px - hx + 40) % 2.4) - 1.2) * 1.6 + Math.abs(px - hx) * 0.35);
+  for (const s of [-1, 1]) cap(v, Th, [hx + s * 5.6, hy + 0.8, hz - 0.8], [hx + s * 8.2, hy + 2.2, hz + 2], 1.15, M.skin, 0.35);
 
   // ---- face, painted on the front-most voxels (follows the posed head): stern brow, small dark eyes, a thin mouth
   const hc = J.head, ox = Math.round(hc[0] - cx), oz = Math.round(hc[2] - hz), ez = Math.round(hz - 2) + oz;   // integer rows (paintFront indexes cells)
@@ -145,4 +161,4 @@ export const ANIMS = {
 };
 
 /** HUD portrait framing (tools/vox/portrait.mjs): idle, face in the upper third with the collar fan behind it. */
-export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, cy, 30.4], scale: 1.15, fov: 24, sig: '#c8285e', face: [4, 11, 24, 24] };
+export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, cy, 28], scale: 1.3, fov: 24, sig: '#c8285e', face: [4, 11, 24, 24] };
