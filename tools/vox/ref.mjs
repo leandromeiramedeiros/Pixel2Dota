@@ -97,17 +97,22 @@ export function buildRef(arg) {
     const n = r.dur > 0 ? FRAMES : 1, times = Array.from({ length: n }, (_, k) => +(r.dur * (r.loop ? k / n : n > 1 ? k / (n - 1) : 0)).toFixed(3));
     return { ...r, times, prims: times.map(t => pose(r.anim, t)) };
   });
-  const cam = [...frames.flatMap(f => f.prims.flat()), ...prims];
-  let pb = bounds(cam); const pz = [0, 1, 2].map(k => pb.mx[k] - pb.mn[k]);
-  const pcenter = pb.mn.map((v, k) => (v + pb.mx[k]) / 2), pidle = PS / (Math.max(sz[2], Math.hypot(sz[0], sz[1])) * 1.12);
+  // one camera scale for the whole unit, but each frame centred on its own footprint (run cycles with root motion stay in frame); frames that sink
+  // out of the idle height range (e.g. a death that drops through the floor) may crop instead of shrinking every other frame
+  const hc = (ps, z) => { const b = bounds(ps); return [(b.mn[0] + b.mx[0]) / 2, (b.mn[1] + b.mx[1]) / 2, z]; };
+  const pcz = (mn[2] + mx[2]) / 2, pidle = PS / (Math.max(sz[2], Math.hypot(sz[0], sz[1])) * 1.12);
   const { right: pr, up: pu } = basis(POSE_CAM[0], POSE_CAM[1]);   // fit the projected screen extent of every frame, not a bounding-sphere guess
   let ext = 1;
-  for (const P of cam) for (let i = 0; i < P.pos.length; i += 3) {
-    const x = P.pos[i] - pcenter[0], y = P.pos[i + 1] - pcenter[1], z = P.pos[i + 2] - pcenter[2];
-    ext = Math.max(ext, Math.abs(x * pr[0] + y * pr[1] + z * pr[2]), Math.abs(x * pu[0] + y * pu[1] + z * pu[2]));
+  for (const ps of [...frames.flatMap(f => f.prims), prims]) {
+    const b = bounds(ps); if (b.mx[2] < mn[2] + sz[2] * 0.3 || b.mn[2] > mx[2] - sz[2] * 0.3) continue;
+    const c = hc(ps, pcz);
+    for (const P of ps) for (let i = 0; i < P.pos.length; i += 3) {
+      const x = P.pos[i] - c[0], y = P.pos[i + 1] - c[1], z = P.pos[i + 2] - c[2];
+      ext = Math.max(ext, Math.abs(x * pr[0] + y * pr[1] + z * pr[2]), Math.abs(x * pu[0] + y * pu[1] + z * pu[2]));
+    }
   }
   const pscale = Math.max(PS / (2 * ext * 1.06), pidle * 0.75);   // a far-flung pose may crop rather than shrink everything
-  const shoot = ps => render(ps, { yaw: POSE_CAM[0], pitch: POSE_CAM[1], S: PS, scale: pscale, center: pcenter, bg: BG });
+  const shoot = ps => render(ps, { yaw: POSE_CAM[0], pitch: POSE_CAM[1], S: PS, scale: pscale, center: hc(ps, pcz), bg: BG });
   frames.forEach(f => { f.img = f.prims.map(shoot); delete f.prims; });
 
   const info = {
