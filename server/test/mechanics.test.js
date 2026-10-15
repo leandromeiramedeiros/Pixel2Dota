@@ -17,7 +17,7 @@ const X0 = -2000, Y0 = 2000;   // open jungle-free ground in a buildings:false w
 const tank = (u) => { u._base.hp = u.hp = u.maxHp = 1e6; };   // _base too: recalc() would reset maxHp
 
 function duel() {
-  const w = new World({ seed: 1, pregame: 0, buildings: false, creeps: false });
+  const w = new World({ seed: 1, pregame: 0, buildings: false });
   const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
   put(w, h, X0, Y0); h.facing = 0;
   const c = makeCreep(w, TEAM.DIRE, 'melee', X0 + 100, Y0, 'mid'); w.addUnit(c);
@@ -63,7 +63,7 @@ test('attack cooldown is only spent when the attack goes off', () => {
 });
 
 test('units turn while moving: curve at moderate angles, turn in place only when facing away', () => {
-  const w = new World({ seed: 1, pregame: 0, buildings: false, creeps: false });
+  const w = new World({ seed: 1, pregame: 0, buildings: false });
   const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
   const step = h.ms * DT;
   // 60 degrees off: moves on the very first tick, slower than full speed
