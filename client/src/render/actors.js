@@ -99,7 +99,8 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   });
   // cut trees: time first seen down (dissolve clock)
   const DISS_T = 1.1, cutT = new Float64Array(map.trees.length), cutList = [];
-  let cutSeen = -1;   // time of the first tree frame: trees down within 2 s of it (joining a match, the sandbox) are old stumps, no dissolve
+  let cutSeen = -1;   // time of the first tree frame: trees down within 2 s of it (joining a match, the sandbox) are old stumps, no dissolve; so is a
+  const CUT_BULK = 16; // frame with more new stumps than this (a late state sync: reconnect, spectate), never a real cut
   const cellLod = new Uint8Array(GW * GH);   // per 512u cell: 0 near (full voxels) / 1 far (2x downsample), with hysteresis
   const cellBoxes = grid.map((_, ci) => {
     const gx = ci % GW, gy = (ci / GW) | 0;
@@ -164,7 +165,9 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       const down = view.treesDown || null;
       let nTrees = 0;
       if (cutSeen < 0) cutSeen = time;
-      if (down) for (const i of down) if (!cutT[i]) { cutT[i] = time - cutSeen > 2 ? Math.max(time, 1e-6) : -1e9; cutList.push(i); }
+      if (down) { let nNew = 0; for (const i of down) if (!cutT[i]) nNew++;
+        const old = time - cutSeen <= 2 || nNew > CUT_BULK;
+        if (nNew) for (const i of down) if (!cutT[i]) { cutT[i] = old ? -1e9 : Math.max(time, 1e-6); cutList.push(i); } }
       for (let k = cutList.length - 1; k >= 0; k--) { const i = cutList[k]; if (!down || !down.has(i)) { cutT[i] = 0; cutList[k] = cutList[cutList.length - 1]; cutList.pop(); } }
       const trees = map.trees;
       trees3d.begin(); buildings.begin(); if (vox) { vox.begin(); vox.ragStep(dt); }
