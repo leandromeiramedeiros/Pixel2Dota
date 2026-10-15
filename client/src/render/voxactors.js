@@ -35,6 +35,7 @@ import * as LION from '../../../shared/vox/heroes/lion.js';
 import * as MELEE_D from '../../../shared/vox/creeps/melee_dire.js';
 import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
 import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
+import * as SNIPER from '../../../shared/vox/heroes/sniper.js';
 import * as SVEN from '../../../shared/vox/heroes/sven.js';
 
 export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: characters (heroes, creeps, neutrals, Roshan) / world (buildings, trees, clutter, terrain)
@@ -53,6 +54,7 @@ export const VOX_UNITS = {   // heroes + their summons, then creeps; alphabetica
   lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
   lion: voxEntry(LION, { unit: CHAR_UNIT, max: 10 }),
   pudge: voxEntry(PUDGE, { unit: CHAR_UNIT, max: 10 }),
+  sniper: voxEntry(SNIPER, { unit: CHAR_UNIT, max: 10 }),
   sven: voxEntry(SVEN, { unit: CHAR_UNIT, max: 10 }),
   // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
   melee_dire: voxEntry(MELEE_D, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_badguys_melee'] }),
