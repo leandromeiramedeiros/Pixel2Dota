@@ -30,6 +30,7 @@ export function createFx(args) {
   const G = createGeo3d(args);        // pooled 3D spell geometry (tubes, discs, ribbon bolts); drawn in the scene target
   const c = createCtx({ ...args, quads: Q });
   c.G = G;
+  if (typeof window !== 'undefined') window.__fxGeo = G;   // debug / capture: budget stats (G.stats, G.peak)
   const R = {
     spells: new Map(), projs: new Map(), events: new Map(), updaters: [], coverage: new Set(),
     spell(keys, fn) { for (const k of [].concat(keys)) { this.spells.set(k, fn); this.coverage.add(k); } },
