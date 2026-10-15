@@ -1,13 +1,13 @@
 // Voxel Zeus, a chibi of his Dota 2 model (hand-authored): a bronze old man with white hair swept back from a high forehead and a big full white
-// beard + moustache; a bare chest with a green gem under an open royal-blue vest (pale trim, tall shoulder flares); bare bronze arms in huge blue
-// gauntlets with a cyan glow band; a pale blue tabard (front and back flaps, pointed) over baggy dark navy trousers and dark boots; two long blue
+// beard + moustache; a bare chest with a green gem under an open pale white-blue vest (dark blue trim, tall shoulder flares); bare bronze arms in huge blue
+// gauntlets with a cyan glow band; a pale tabard (long pointed front panel to the shins with a green gem, back flap) over baggy dark navy trousers and dark boots; two long blue
 // streamers trailing back from the nape. Signature reads: white beard + swept-back hair on a bronze face, the green chest gem, blue gauntlets with
 // a cyan glow, the trailing blue streamers. Grid 40 x 46 x 52 (room for the streamers and raised arms), ~41 voxels tall, faces -y.
 import { Vox } from '../vox.js';
 import { useMat } from '../mats.js';
 import { solve } from '../rig.js';
 import { LIBRARY, withPoses } from '../poses.js';
-import { limb, band, hand, feet, torso, skirt, pauldron, ell, cap, eyes, mouth, decal } from '../parts.js';
+import { limb, band, hand, feet, torso, skirt, pauldron, ell, cap, vol, eyes, mouth, decal } from '../parts.js';
 
 export const META = { rig: 'biped', grid: [40, 46, 52], cx: 20, cy: 16 };
 const cx = 20, cy = 16;
@@ -30,9 +30,9 @@ export function build(p = {}) {
     hair: useMat(v, 'hair', { ramp: ['#3a4654', '#7a8894', '#a8b4ba', '#d4dcde'] }),
     hairL: useMat(v, 'hairL', { ramp: ['#4a5868', '#98a6ae', '#c4ced2', '#eaf0f0'] }),
     hairD: useMat(v, 'hairD', { ramp: ['#2c3644', '#5a6876', '#84929c', '#aebcc2'] }),
-    vest: useMat(v, 'vest', { ramp: ['#04102e', '#0c3a8c', '#1a5cc4', '#4a8ae4'] }),
-    trim: useMat(v, 'trim', { ramp: ['#284e66', '#6c9cb0', '#a8cede', '#e0f2f8'] }),
-    tabard: useMat(v, 'tabard', { ramp: ['#16344e', '#36749c', '#5898bc', '#88c2dc'] }),
+    vest: useMat(v, 'vest', { ramp: ['#2a4a5c', '#6e98a8', '#a4c4cc', '#d8eaee'] }),
+    trim: useMat(v, 'trim', { ramp: ['#04102e', '#0c3a8c', '#1a5cc4', '#4a8ae4'] }),
+    tabard: useMat(v, 'tabard', { ramp: ['#244660', '#5a8cac', '#8cb4cc', '#c4dcea'] }),
     navy: useMat(v, 'navy', { ramp: ['#02060e', '#061428', '#0c2240', '#1a3858'] }),
     boot: useMat(v, 'boot', { ramp: ['#04060c', '#0c1424', '#18263a', '#2c4058'] }),
     glove: useMat(v, 'glove', { ramp: ['#020a24', '#062a78', '#0c44a8', '#2a6cd0'] }),
@@ -54,9 +54,15 @@ export function build(p = {}) {
   // ---- tabard: pale blue flaps from the belt, long pointed front and back, short at the sides (the trousers show); dark blue hem
   const W = 11.4 + U;
   skirt(v, T.torso, {
-    c: [cx, cy + 0.4], z0: 3, z1: W, zr: W, h: W - 3, r0: 4.6, dr: -0.4, sy: 0.82, shell: 1.4, hollow: true, hemH: 0.9,
-    floor: phi => { const u = phi / Math.PI, s = Math.abs(u - 0.5) * 2; return 9.6 - s * 6 + (u < 0.5 ? 0 : 0.6); },
-  }, M.tabard, M.vest);
+    c: [cx, cy + 0.4], z0: 3, z1: W, zr: W, h: W - 3, r0: 5.4, dr: -0.4, sy: 0.82, shell: 1.4, hollow: true, hemH: 0.9,
+    floor: phi => { const u = phi / Math.PI, s = Math.abs(u - 0.5) * 2; return 6.6 - s * 4.2 + (u < 0.5 ? 0 : 0.8); },
+  }, M.tabard, M.trim);
+  // the long front panel: pale, dark edges, from the belt to a point at the shins, in front of the legs; the green gem under the belt
+  vol(v, T.torso, cx - 4, cy - 6, 1, cx + 4, cy - 3, W, (px, py, pz) => {
+    const ax = Math.abs(px - cx), w = 3.6 - Math.max(0, 6 - pz) * 0.25; if (ax > w || py > cy - 3.6 || py < cy - 5 || pz < 2 + ax * 0.9) return;
+    return ax > w - 0.9 || pz < 2.9 + ax * 0.9 ? M.trim : M.tabard;
+  });
+  ell(v, T.torso, [cx, cy - 4.6, W - 2.4], [1.3, 0.9, 1.6], M.gem);
   // ---- torso: bare bronze chest in a V, the green gem, open blue vest with pale lapel trim, a dark belt
   torso(v, T.torso, { c: [cx, cy], z0: 9.6 + U, z1: 21.6 + U, r: 7 }, (dx, dy, z, px, py, pz) => {
     const rx = 4.6 + Math.min(1, z / 7) * 1.8, ry = 3.8 + (z > 4 ? 0.6 : 0);
@@ -81,7 +87,7 @@ export function build(p = {}) {
     band(v, el, hd, 0.02, 0.12, 1.7, M.trim);
     hand(v, hd, [1.6, 1.6, 1.5], M.glove);
     pauldron(v, sh, [2.6, 2.6, 2.4], M.vest, M.trim, 0.8);
-    v.capsule([sh[0], sh[1] + 0.2, sh[2] + 1.6], [sh[0] + s * 1.6, sh[1] + 0.6, sh[2] + 4.2], 1.1, M.trim, 0.4);   // tall flare
+    v.capsule([sh[0], sh[1] + 0.2, sh[2] + 1.6], [sh[0] + s * 1.6, sh[1] + 0.6, sh[2] + 4.2], 1.1, M.vest, 0.4);   // tall flare
   }
 
   // ---- head: bronze skull, white hair swept straight back from a high forehead into a short mane, a big full beard and moustache
@@ -115,8 +121,8 @@ export function build(p = {}) {
   for (const s of [-1, 1]) {
     const a = [n[0] + s * 1.4, n[1] + 3, n[2] + 1.4], b = [n[0] + s * 2, n[1] + 6 + trail * 3, n[2] - 3 + trail * 3];
     const c = [n[0] + s * 2.4, n[1] + 9 + trail * 7, n[2] - 8 + trail * 6], d = [n[0] + s * 2.8, n[1] + 12 + trail * 11, n[2] - 13 + trail * 8];
-    v.capsule(a, b, 0.9, M.vest, 0.85);
-    v.capsule(b, c, 0.85, M.vest, 0.75);
+    v.capsule(a, b, 0.9, M.trim, 0.85);
+    v.capsule(b, c, 0.85, M.trim, 0.75);
     v.capsule(c, d, 0.75, M.glove, 0.6);
   }
   return v;
