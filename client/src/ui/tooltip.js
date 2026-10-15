@@ -96,6 +96,10 @@ export function createTooltip(root, sheets) {
   const el = h('div', 'h-tip');
   root.append(el);
   let cur = null;
+  // touch: a tap fires compat mouseenter but never mouseleave, so hover tips would stick open (every shop tap). Hover is mouse / pen only.
+  let touchPtr = false;
+  const ptr = (e) => { touchPtr = e.pointerType === 'touch'; if (touchPtr && cur) api.hide(); };
+  addEventListener('pointerdown', ptr, true);
 
   function place(anchor) {
     const r = anchor.getBoundingClientRect();
@@ -112,12 +116,12 @@ export function createTooltip(root, sheets) {
     hide(anchor) { if (anchor && anchor !== cur) return; cur = null; el.style.display = 'none'; },
     /** hover wiring; fn is called on every enter (so content is fresh). Returns an unbind fn. */
     bind(target, fn) {
-      const on = () => { const d = fn(); if (d) api.show(target, d); };
+      const on = () => { if (touchPtr) return; const d = fn(); if (d) api.show(target, d); };
       const off = () => api.hide(target);
       target.addEventListener('mouseenter', on); target.addEventListener('mouseleave', off);
       return () => { target.removeEventListener('mouseenter', on); target.removeEventListener('mouseleave', off); if (cur === target) api.hide(); };
     },
-    destroy() { el.remove(); },
+    destroy() { removeEventListener('pointerdown', ptr, true); el.remove(); },
   };
   return api;
 }
