@@ -302,11 +302,11 @@ export function shield(v, rig, k, o, M) {
   v.ellipsoid(...add3(c, mul3(n, th / 2)), 0.9, 0.9, 0.9, M.boss);
 }
 /**
- * Bow held in hand k (archers). o: { up, fwd } body-frame vectors (posed by the torso): bow axis and the side its belly faces (toward the target);
+ * Bow in hand k, rig-posed, optional drawn string (`bow` is the free-axis variant). o: { up, fwd } body-frame vectors (posed by the torso): bow axis and the side its belly faces (toward the target);
  * len = half length; bend = limb curve back toward the archer at the tips; recurve = tips flicking forward; r = limb radius at the grip
  * (>= 0.9: thinner capsules leave gaps on diagonals); sr = string radius; draw = posed point the string is pulled to (null = straight string). M: { limb, grip, string, tip? }. Returns [top, bottom] tips.
  */
-export function bow(v, rig, k, o, M) {
+export function bowInHand(v, rig, k, o, M) {
   const Rt = rig.T.torso && rig.T.torso.R, h = rig.J['hand' + k], f = norm3(apM(Rt, o.fwd || [0, -1, 0]));
   let u = apM(Rt, o.up || [0, 0, 1]); u = norm3(sub3(u, mul3(f, dot3(u, f))));
   const L = o.len ?? 7, bend = o.bend ?? 2.2, rc = o.recurve ?? 1, r = o.r ?? 1, N = Math.max(6, Math.ceil(L * 1.5));

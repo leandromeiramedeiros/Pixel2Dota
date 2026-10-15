@@ -1,6 +1,6 @@
 // Voxel Mirana, a chibi of her Dota 2 model (hand-authored): Princess of the Moon riding Sagan, her big white cat. The mount is the model's body
 // (quad rig: chunky white cat, heavy shoulders, lilac mane ruff, big round head, long curling tail); the rider is a biped solved on its back
-// (hips on the saddle cloth, legs straddling, feet pinned to the flanks). Rider: long dark-brown hair under a silver crescent tiara, navy armour
+// (hips on the saddle cloth, legs straddling, feet pinned to the flanks). Rider: long dark-brown hair under a small silver crescent tiara, navy armour
 // with silver trim and pauldrons, a leather quiver on the back, a big blue recurve bow in her left (+x) hand; a navy saddle cloth with a silver hem
 // drapes over the cat's flanks. Signature reads: long white-cat silhouette with the rider on top, silver crescent over brown hair, navy + silver,
 // the blue bow. Grid 36 x 50 x 52, ~44 voxels to the rider's crown, faces -y. Built on the kit. No rigOf: the ragdoll wants a lone biped,
@@ -9,7 +9,7 @@ import { Vox } from '../vox.js';
 import { useMat, useIris } from '../mats.js';
 import { solve, xfApply } from '../rig.js';
 import { LIBRARY } from '../poses.js';
-import { limb, band, hand, feet, torso, pauldron, ell, cap, vol, faceWindow, hairShell, stripes, eyes, mouth, decal, bow } from '../parts.js';
+import { limb, band, hand, feet, torso, pauldron, ell, cap, vol, faceWindow, hairShell, stripes, eyes, mouth, decal, bowInHand } from '../parts.js';
 
 export const META = { rig: 'quad', grid: [36, 50, 52], cx: 18, cy: 25 };
 const cx = 18, cy = 24;   // rider centre (a little ahead of the cat's middle)
@@ -155,19 +155,19 @@ export function build(p = {}) {
   limb(v, [[hx, hy + 5.2, hz - 2.5], [hx + sw, hy + 7 + trail * 2, hz - 7.5 + trail], [hx + sw * 1.6, hy + 7.8 + trail * 4, hz - 12.5 + trail * 3]].map(q => xfApply(Rh, q)),
     [2.1, 1.8, 1], (px, py, pz) => hair(px, pz));
   const tiara = [[-4.8, -3.4, 2.4], [-2.6, -5.2, 3.6], [0, -5.9, 4.1], [2.6, -5.2, 3.6], [4.8, -3.4, 2.4]].map(([a, b, c]) => xfApply(Rh, [hx + a, hy + b, hz + c]));
-  limb(v, tiara, [0.6, 0.6, 0.6, 0.6, 0.6], M.silver);
+  limb(v, tiara, [0.5, 0.5, 0.5, 0.5, 0.5], M.silver);
   for (const s of [-1, 1]) {   // crescent horns curling up and in
-    limb(v, [[s * 1, -5.8, 4.4], [s * 2.8, -5.2, 7.2], [s * 1.7, -4.6, 9.2]].map(([a, b, c]) => xfApply(Rh, [hx + a, hy + b, hz + c])), [0.85, 0.7, 0.45], M.silver);
+    limb(v, [[s * 0.8, -5.9, 4.2], [s * 1.7, -5.6, 5.6], [s * 1.1, -5.3, 6.6]].map(([a, b, c]) => xfApply(Rh, [hx + a, hy + b, hz + c])), [0.6, 0.5, 0.4], M.silver);
   }
-  const g = xfApply(Rh, [hx, hy - 6.1, hz + 4.6]); v.ellipsoid(g[0], g[1], g[2], 0.7, 0.6, 0.7, M.gem);
+  const g = xfApply(Rh, [hx, hy - 6, hz + 4.3]); v.ellipsoid(g[0], g[1], g[2], 0.6, 0.6, 0.6, M.gem);
   // ---- face, painted on the front-most voxels (follows the posed head)
   const ox = Math.round(hcen[0] - cx), oz = Math.round(hcen[2] - HZ), ez = Math.round(HZ - 4) + oz;
-  eyes(v, { at: [[cx - 4 + ox, cx - 5 + ox], [cx + 1 + ox, cx + 4 + ox]], z: ez, style: 'big', state: r.eyes }, M);
+  eyes(v, { at: [[cx - 3 + ox], [cx + 2 + ox]], z: ez, style: 'dot', state: r.eyes }, M);   // small dark eyes on skin
   decal(v, [[cx - 5 + ox, ez - 1], [cx + 4 + ox, ez - 1]], M.blush);
   mouth(v, [[cx + ox, ez - 2], [cx - 1 + ox, ez - 2]], M.mouth);
   // ---- bow in the left hand (after the face so a raised bow never takes the eye paint)
   const B = r.bow || {};
-  bow(v, rig, 'L', { up: B.up || [0.4, -0.45, 1], fwd: B.fwd || [1, 0.2, 0], len: 8, bend: 2.6, recurve: 1.2, r: 1.1, draw: B.draw ? J.handR : null },
+  bowInHand(v, rig, 'L', { up: B.up || [0.4, -0.45, 1], fwd: B.fwd || [1, 0.2, 0], len: 8, bend: 2.6, recurve: 1.2, r: 1.1, draw: B.draw ? J.handR : null },
     { limb: M.sky, grip: M.leather, string: M.string, tip: M.silver });
   return v;
 }
@@ -198,4 +198,4 @@ export const ANIMS = {
 ANIMS.cast[2] = ANIMS.cast[1];   // hold the overhead bow; idle / walk share frames too (GPU budget < 3 MB with two bodies per frame)
 
 /** HUD portrait framing (tools/vox/portrait.mjs): the rider's face in the upper third. */
-export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx + 0.4, cy, HZ + 0.8], scale: 1.15, fov: 24, sig: '#9ab8ff', face: [4, 11, 24, 24] };
+export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx + 0.4, cy, HZ - 1.6], scale: 1.2, fov: 24, sig: '#9ab8ff', face: [4, 11, 24, 24] };
