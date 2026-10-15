@@ -37,12 +37,12 @@ export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: char
 export const VOX_UNITS = {
   lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
   invoker: voxEntry(INVOKER, { unit: CHAR_UNIT, max: 10 }),
-  invoker_forged_spirit: voxEntry(SPIRIT, { unit: CHAR_UNIT, max: 24 }),   // summon: up to 2 per Invoker (+ Sun Strike shard spirits)
+  invoker_forged_spirit: voxEntry(SPIRIT, { unit: CHAR_UNIT, max: 24, night: 0.25 }),   // summon: up to 2 per Invoker (+ Sun Strike shard spirits); lava glows +25% at night
   // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
   melee_radiant: voxEntry(MELEE_R, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_goodguys_melee'] }),
   melee_dire: voxEntry(MELEE_D, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_badguys_melee'] }),
 };
-/** Registry entry from a model module ({ build, ANIMS, META: { cx, cy, rig } }); o overrides (unit, max, lean, keys, ...). */
+/** Registry entry from a model module ({ build, ANIMS, META: { cx, cy, rig } }); o overrides (unit, max, lean, keys, night = extra emissive gain at full night, ...). */
 export function voxEntry(mod, o = {}) {
   const M = mod.META || {};
   return { build: mod.build, rigOf: mod.rigOf, anims: mod.ANIMS, cx: M.cx, cy: M.cy, unit: CHAR_UNIT, max: 16, lean: M.rig !== 'static', rig: M.rig || 'biped', ...o };
@@ -166,7 +166,7 @@ void main(){
 const FRAG = /* glsl */ `
 precision highp float;
 ${COMMON_GLSL}
-uniform float uRimOn;
+uniform float uRimOn, uNightGlow;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vE;
 varying vec4 vTi, vHi, vMs;
@@ -185,7 +185,7 @@ void main(){
   vec3 L = shadowAmb(sh) + uKeyCol * ((.3 + .55 * max(dot(n, uKeyDir), 0.)) * sh) + pl;   // .3 floor: the side away from the sun stays readable (sprites: flat .55)
   L = min(quantL(L, dp), vec3(1.2));                            // never washes out under stacked lights (sprites clamp the same)
   vec3 col = alb * L;
-  col = mix(col, alb * vTi.z, em);
+  col = mix(col, alb * vTi.z * (1. + uNightGlow * uNight), em);   // registry night: emissives burn a bit hotter at night (lava units)
   vec3 v = normalize(uCamPos - vW);
   float fr = pow(1. - max(dot(n, v), 0.), 3.);
   float kf = smoothstep(-.1, .6, dot(n, uKeyDir)) * mix(.35, 1., sh);
@@ -214,7 +214,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
   const ragU = { value: ragTex }, rags = new Map(), ragSlot = new Array(RAG_SLOTS).fill(null), segBuf = new Float32Array(48), W0 = [0, 0];
   if (voxEnabled) for (const name in VOX_UNITS) {
     const h = VOX_UNITS[name], m = models[name] = { h, anims: {}, built: false, vu: 1, radius: 0, qU: { value: 1 } };
-    const un = { ...uniforms, uPull: { value: 12 }, uOutW: outU, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU, uRag: ragU };
+    const un = { ...uniforms, uPull: { value: 12 }, uOutW: outU, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU, uRag: ragU, uNightGlow: { value: h.night || 0 } };
     for (const anim in h.anims) m.anims[anim] = h.anims[anim].map((_, i) => {
       const body = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide }));
       const hull = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.BackSide, defines: { HULL: 1 } }));
