@@ -24,6 +24,7 @@ import { buildVoxFrames } from './voxmesh.js';
 import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
 import * as LINA from '../../../shared/vox/lina.js';
 import * as INVOKER from '../../../shared/vox/heroes/invoker.js';
+import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
 import * as SPIRIT from '../../../shared/vox/creeps/invoker_forged_spirit.js';
 import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
 import * as MELEE_D from '../../../shared/vox/creeps/melee_dire.js';
@@ -37,6 +38,7 @@ export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: char
 export const VOX_UNITS = {
   lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
   invoker: voxEntry(INVOKER, { unit: CHAR_UNIT, max: 10 }),
+  pudge: voxEntry(PUDGE, { unit: CHAR_UNIT, max: 10 }),
   invoker_forged_spirit: voxEntry(SPIRIT, { unit: CHAR_UNIT, max: 24 }),   // summon: up to 2 per Invoker (+ Sun Strike shard spirits)
   // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
   melee_radiant: voxEntry(MELEE_R, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_goodguys_melee'] }),

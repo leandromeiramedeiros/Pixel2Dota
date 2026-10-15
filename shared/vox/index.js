@@ -4,6 +4,7 @@
 // A model module exports META { rig, grid, cx, cy }, build(pose) -> Vox, ANIMS (docs/VOXEL.md). Optional: PORTRAIT { pose, center, scale, fov, sig, face }.
 import * as lina from './heroes/lina.js';
 import * as invoker from './heroes/invoker.js';
+import * as pudge from './heroes/pudge.js';
 import * as melee_radiant from './creeps/melee_radiant.js';
 import * as melee_dire from './creeps/melee_dire.js';
 import * as invoker_forged_spirit from './creeps/invoker_forged_spirit.js';
@@ -11,6 +12,7 @@ import * as invoker_forged_spirit from './creeps/invoker_forged_spirit.js';
 export const VOX = {
   lina: { kind: 'hero', unit: 'npc_dota_hero_lina', mod: lina },
   invoker: { kind: 'hero', unit: 'npc_dota_hero_invoker', mod: invoker },
+  pudge: { kind: 'hero', unit: 'npc_dota_hero_pudge', mod: pudge },
   melee_radiant: { kind: 'creep', unit: 'npc_dota_creep_goodguys_melee', mod: melee_radiant },
   melee_dire: { kind: 'creep', unit: 'npc_dota_creep_badguys_melee', mod: melee_dire },
   invoker_forged_spirit: { kind: 'creep', unit: 'npc_dota_invoker_forged_spirit', mod: invoker_forged_spirit },
