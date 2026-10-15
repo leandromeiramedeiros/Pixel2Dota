@@ -82,20 +82,26 @@ export function stepKb(w, u, dt) {
   return true;
 }
 
-/** Push overlapping bodies apart (both move half the overlap). */
+const SEP_RATE = 0.5, SEP_MAX = 3;   // fraction of the overlap resolved per tick, max push per pair per tick (u): damped, no skating
+/** How readily a body yields when pushed: walking units step aside, units standing / attacking / channelling barely move. */
+const yieldOf = (u) => (u._kb ? 0 : u._mv && !u._wind && !u._channel ? 1 : 0.15);
+
+/** Hull separation, every tick for every non-building body (standing ones too): overlapping hulls are pushed apart, the walker
+ *  taking most of the push, so a creep standing and attacking keeps a still hitbox. Position only: facing is never touched here. */
 export function separate(w, u) {
   if (u._noCollide || u._building) return;
-  const cand = w.index.query(u.x, u.y, u.radius + 48, w._qc);
+  const cand = w.index.query(u.x, u.y, u.radius + 48, w._qc), yu = yieldOf(u);
   for (let i = 0; i < cand.length; i++) {
     const o = cand[i];
     if (o === u || o._dead || o._building || o._noCollide) continue;
     let dx = u.x - o.x, dy = u.y - o.y;
-    const min = (u.radius + o.radius) * 0.85, d2 = dx * dx + dy * dy;
+    const min = u.radius + o.radius, d2 = dx * dx + dy * dy;
     if (d2 >= min * min) continue;
     let d = Math.sqrt(d2);
     if (d < 0.01) { const a = ((u._nid * 2654435761) >>> 0) / 4294967296 * TAU; dx = Math.cos(a); dy = Math.sin(a); d = 1; }
-    const push = (min - d) * 0.5, ux = dx / d, uy = dy / d;
-    const a = w.nav.slide(u.x, u.y, u.radius, u.x + ux * push, u.y + uy * push); u.x = a.x; u.y = a.y;
-    if (!o._kb) { const b = w.nav.slide(o.x, o.y, o.radius, o.x - ux * push, o.y - uy * push); o.x = b.x; o.y = b.y; }
+    const yo = yieldOf(o), ys = yu + yo || 1, push = Math.min((min - d) * SEP_RATE, SEP_MAX), ux = dx / d, uy = dy / d;
+    const pu = push * yu / ys, po = push * yo / ys;
+    if (pu > 0.01) { const a = w.nav.slide(u.x, u.y, u.radius, u.x + ux * pu, u.y + uy * pu); u.x = a.x; u.y = a.y; }
+    if (po > 0.01) { const b = w.nav.slide(o.x, o.y, o.radius, o.x - ux * po, o.y - uy * po); o.x = b.x; o.y = b.y; }
   }
 }

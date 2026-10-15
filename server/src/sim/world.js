@@ -298,7 +298,7 @@ export class World {
     else K.summonThink(this, u, dt);
     if (u._dead) return;
     C.tickAttack(this, u, dt);
-    if (!u._building && (u._moved || ((this.tick + u._nid) & 3) === 0)) separate(this, u);
+    if (!u._building) separate(this, u);
     // animation
     let anim = 'idle';
     const casting = u._q.length && u._q[0]._stage === 1;
