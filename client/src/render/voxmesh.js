@@ -10,7 +10,7 @@
 //   joints = opts.joints (rig J, voxel coords) in model units (feet-centred, ground-shifted) for the ragdoll rest pose; null when the model has no rig.
 // Model space = buildings3d convention: origin at the feet centre, +y up, front (-y in voxel space) = +z toward the camera.
 import * as THREE from 'three';
-import { smoothNormal } from '../../../shared/vox/vox.js';
+import { Vox, smoothNormal } from '../../../shared/vox/vox.js';
 
 export const F_TEAM = 8, F_CORNER = 16;   // aFace bit fields (face id in bits 0-2)
 // Emissive tiers = starting gains (mats declare mat.tier): eyes / mouth <= 1, signature glow ~1.2, spell flames mildly HDR. A model may set its own
@@ -163,4 +163,69 @@ export function buildVoxFrames(build, anims, opts = {}) {   // opts.jointsOf(pos
   const ix = quadIndex(all.reduce((m, g) => Math.max(m, g.userData.quads), 0));
   for (const g of all) g.setIndex(ix);   // drawRange already = own quads * 6
   return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Static props (trees3d.js): greedy quads in the mesh3d kit layout (non-indexed float triangles), no per-voxel attributes.
+/**
+ * greedyVox(v, opts) -> { pos, nrm, col (Float32Array, 3 per vertex, 6 vertices per quad), quads }. Model space = meshVox's ((x - cx), z, (cy - y)) * unit.
+ * Same-material exposed faces merge into rectangles (both in-plane directions; `rows: true` keeps side quads one voxel tall). Wind bends a vertex by
+ * a function of its height only, so T-junctions on horizontal edges never open; the ones on vertical edges open by well under a unit at full bend.
+ * opts: { cx, cy, unit (default 1), colorOf(mat) -> [r,g,b], extraOf(mat) -> number (per-vertex `ext`), rows }.
+ */
+export function greedyVox(v, opts = {}) {
+  const { cx = v.X / 2, cy = v.Y / 2, unit = 1, colorOf = (m) => defaultColorOf(m).c, extraOf = () => 0, rows = false } = opts;
+  const cc = v.mats.map(m => (m ? colorOf(m) : null)), ce = v.mats.map(m => (m ? extraOf(m) : 0));
+  const N = [v.X, v.Y, v.Z], pos = [], nrm = [], col = [], ext = [];
+  const mp = (p) => [(p[0] - cx) * unit, p[2] * unit, (cy - p[1]) * unit];
+  let quads = 0;
+  for (let d = 0; d < 3; d++) for (const s of [-1, 1]) {
+    const uu = d === 0 ? 1 : 0, ww = d === 2 ? 1 : 2;   // uu = the run axis, ww = the other in-plane axis (z for side faces: no merging along it)
+    const nv = [0, 0, 0]; nv[d] = s; const nm = [nv[0], nv[2], -nv[1]];
+    const NU = N[uu], NW = N[ww], mask = new Int16Array(NU * NW), p = [0, 0, 0];
+    for (let c = 0; c < N[d]; c++) {
+      mask.fill(0);
+      for (let b = 0; b < NW; b++) for (let a = 0; a < NU; a++) {
+        p[d] = c; p[uu] = a; p[ww] = b;
+        const id = v.get(p[0], p[1], p[2]); if (!id) continue;
+        p[d] = c + s; if (v.get(p[0], p[1], p[2])) continue;
+        mask[b * NU + a] = id;
+      }
+      const full = d === 2 || !rows;
+      for (let b = 0; b < NW; b++) for (let a = 0; a < NU;) {
+        const id = mask[b * NU + a]; if (!id) { a++; continue; }
+        let wu = 1; while (a + wu < NU && mask[b * NU + a + wu] === id) wu++;
+        let hw = 1;
+        if (full) outer: while (b + hw < NW) { for (let k = 0; k < wu; k++) if (mask[(b + hw) * NU + a + k] !== id) break outer; hw++; }
+        for (let j = 0; j < hw; j++) for (let k = 0; k < wu; k++) mask[(b + j) * NU + a + k] = 0;
+        const plane = c + (s > 0 ? 1 : 0), q = (da, db) => { const r = [0, 0, 0]; r[d] = plane; r[uu] = a + da; r[ww] = b + db; return mp(r); };
+        let P = [q(0, 0), q(wu, 0), q(wu, hw), q(0, hw)];
+        const e1 = [P[1][0] - P[0][0], P[1][1] - P[0][1], P[1][2] - P[0][2]], e2 = [P[2][0] - P[0][0], P[2][1] - P[0][1], P[2][2] - P[0][2]];
+        const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        if (cr[0] * nm[0] + cr[1] * nm[1] + cr[2] * nm[2] < 0) P = [P[0], P[3], P[2], P[1]];   // CCW seen from outside
+        for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...P[k]); nrm.push(...nm); col.push(...cc[id]); ext.push(ce[id]); }
+        quads++; a += wu;
+      }
+    }
+  }
+  return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), col: new Float32Array(col), ext: new Float32Array(ext), quads };
+}
+
+/**
+ * LOD helper: a k x k x k block downsample of a Vox. A block is filled when >= `fill` of its cells are, with its most common material; a sparser block
+ * still keeps a `thin` material (branches, stalks, trunks), so a bare tree does not vanish at the far LOD. Returns a new Vox sharing the materials.
+ */
+export function downsampleVox(v, k = 2, fill = 3) {
+  const X = Math.ceil(v.X / k), Y = Math.ceil(v.Y / k), Z = Math.ceil(v.Z / k), o = new Vox(X, Y, Z);
+  o.mats = v.mats; o.ids = v.ids;
+  const cnt = new Map();
+  for (let z = 0; z < Z; z++) for (let y = 0; y < Y; y++) for (let x = 0; x < X; x++) {
+    cnt.clear(); let n = 0;
+    for (let dz = 0; dz < k; dz++) for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) { const m = v.get(x * k + dx, y * k + dy, z * k + dz); if (m) { n++; cnt.set(m, (cnt.get(m) || 0) + 1); } }
+    if (!n) continue;
+    let best = 0, bc = 0, thin = 0, tc = 0;
+    for (const [m, c] of cnt) { if (c > bc) { bc = c; best = m; } if (v.mats[m].thin && c > tc) { tc = c; thin = m; } }
+    if (n >= fill) o.set(x, y, z, best); else if (thin) o.set(x, y, z, thin);
+  }
+  return o;
 }
