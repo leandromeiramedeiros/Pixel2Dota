@@ -5,6 +5,8 @@
 //   aggro drift 7.8 u/s, targets/creep 44.5, reacquire 5629 | spawn 0.8 s (max 3.7), 3.8 turns, 57 deg | lane corners 18/19/19
 // After: stack mean 2.7 max 11 depth 1.6 | walk 108 back 0.3 | fight 736 back 2.0 | drift 3.4, targets 4.4, reacquire 29 |
 //   spawn 0.5 s (max 1.1), 0.8 turns, 4 deg | lane corners 12/4/13
+// Mechanics pass (file hulls/turn/acquisition, cooldown at launch, turn-while-moving, tower/creep aggro, shared arc, creep passives):
+//   stack mean 2.6 max 9 depth 1.0 | walk 100 back 0.2 | fight 712 back 2.0 | drift 3.8, targets 3.9, reacquire 27 | spawn 0.5 s, 0.6 turns
 // The bounds below are loose (about 2x the "after" numbers) so seed chaos does not trip them; a real regression does.
 import test from 'node:test';
 import assert from 'node:assert/strict';
