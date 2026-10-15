@@ -24,7 +24,7 @@ test('heroes: roster baked with sane stats and authored ability order', () => {
     assert.equal(h.short, HEROES[hk].short);
     assert.equal(h.name, HEROES[hk].name);
     assert.ok(['str', 'agi', 'int', 'all'].includes(h.attr), hk + ' attr');
-    for (const f of ['str', 'agi', 'int', 'strGain', 'agiGain', 'intGain', 'dmgMin', 'dmgMax', 'ms', 'turnRate', 'atkRange', 'bat', 'atkPoint', 'baseAS', 'hp', 'mana', 'visionDay', 'visionNight', 'hull']) {
+    for (const f of ['str', 'agi', 'int', 'strGain', 'agiGain', 'intGain', 'dmgMin', 'dmgMax', 'ms', 'turnRate', 'atkRange', 'bat', 'atkPoint', 'baseAS', 'hp', 'mana', 'visionDay', 'visionNight', 'hull', 'acq', 'ring']) {
       assert.ok(Number.isFinite(h[f]) && h[f] > 0, `${hk}.${f} = ${h[f]}`);
     }
     for (const f of ['armor', 'mr', 'hpRegen', 'manaRegen', 'projSpeed']) assert.ok(Number.isFinite(h[f]), `${hk}.${f}`);
@@ -150,6 +150,13 @@ test('units: creeps, towers, barracks, fort, fountain', () => {
     assert.ok(typeof u.key === 'string' && u.key.length, k);
     for (const f of ['hpRegen', 'mana', 'armor', 'mr', 'dmgMin', 'dmgMax', 'bat', 'atkPoint', 'atkRange', 'projSpeed', 'ms', 'goldMin', 'goldMax', 'xp']) assert.ok(Number.isFinite(u[f]), `${k}.${f}`);
   }
+  for (const k of Object.keys(U)) for (const f of ['visionNight', 'acq', 'turnRate', 'ring']) assert.ok(Number.isFinite(U[k][f]), `${k}.${f}`);
+  // upgraded (super) / mega creeps for both teams: same unit kinds, stronger than the base creep
+  for (const s of ['goodguys', 'badguys']) for (const t of ['melee', 'ranged', 'siege']) for (const sfx of ['_upgraded', '_upgraded_mega']) {
+    const a = U[`${s}_${t}`], b = U[`${s}_${t}${sfx}`];
+    assert.ok(b && b.dmgMax > a.dmgMax && b.hull === a.hull && b.acq === a.acq, `${s}_${t}${sfx}`);
+  }
+  assert.equal(U.goodguys_ranged.hull, 8);   // DOTA_HULL_SIZE_SMALL
   for (const k of ['goodguys_melee', 'goodguys_ranged', 'goodguys_siege', 'tower1', 'tower2', 'tower3', 'tower4']) assert.ok(U[k].dmgMax > 0 && U[k].atkRange > 0 && U[k].bat > 0, k);
   assert.ok(U.goodguys_melee.ms > 0 && U.goodguys_melee.goldMax >= U.goodguys_melee.goldMin);
   assert.ok(U.goodguys_ranged.projSpeed > 0 && U.goodguys_ranged.atkRange > U.goodguys_melee.atkRange);

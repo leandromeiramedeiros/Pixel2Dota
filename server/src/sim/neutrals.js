@@ -7,7 +7,6 @@
 // A neutral stays idle until it takes damage (its whole camp wakes and chases the attacker). Past LEASH from the camp centre, or after
 // IDLE_DROP s without a target, the camp walks home, heals fast and purges debuffs. Roshan: pit, slam, drops the Aegis, respawns 8-11 min later.
 import { KIND, TEAM, ST } from '../../../shared/protocol.js';
-import { AGGRO_RANGE_CREEP } from '../../../shared/constants.js';
 import { LANES } from '../../../shared/data/lanes.js';
 import { getMap } from '../../../shared/map.js';
 import { makeNeutral } from './units.js';
@@ -97,7 +96,7 @@ function spawnRoshan(w) {
   const R = w.rosh;
   if (!R || R.unit) return null;
   const q = w.nav.nearestWalkable(R.x, R.y, {});
-  const u = makeNeutral(w, 'roshan', q.x, q.y, { radius: 40 });
+  const u = makeNeutral(w, 'roshan', q.x, q.y);
   u._camp = R; u._home = { x: q.x, y: q.y }; u._aggro = false; u._ret = false; u._idleT = 0; u._onHurt = wake; u._slamAt = 0;
   u._roshan = true; u._onDeath = roshanDeath;
   u.facing = Math.PI * 0.75;
@@ -158,7 +157,7 @@ export function neutralThink(w, u, dt) {
   let t = u._tgt;
   if (t && (!attackable(u, t) || Math.hypot(t.x - c.x, t.y - c.y) > c.leash + 250)) t = u._tgt = null;
   if (!t || ((w.tick + u._nid) % 6) === 0) {
-    const n = acquire(w, u, AGGRO_RANGE_CREEP);
+    const n = acquire(w, u, u._acq);
     if (n && Math.hypot(n.x - c.x, n.y - c.y) <= c.leash + 250 && (!t || (n.kind === KIND.HERO && t.kind !== KIND.HERO))) t = u._tgt = n;
   }
   if (!t) {

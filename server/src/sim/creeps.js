@@ -1,6 +1,6 @@
 // Lane creeps: wave spawning, lane following, aggro/leash; summon default AI. Pure.
 import { KIND, TEAM, ST } from '../../../shared/protocol.js';
-import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, AGGRO_RANGE_CREEP, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
+import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
 import { LANES } from '../../../shared/data/lanes.js';
 import { makeCreep } from './units.js';
 import { acquire, attackable, inAttackRange } from './combat.js';
@@ -156,13 +156,13 @@ export function creepThink(w, u, dt) {
   let t = u._tgt;
   if (t) {
     const d = Math.hypot(t.x - u.x, t.y - u.y) - t.radius;
-    if (!attackable(u, t) || d > AGGRO_RANGE_CREEP + ATTACK_RANGE_BUFFER) t = u._tgt = null;
+    if (!attackable(u, t) || d > u._acq + ATTACK_RANGE_BUFFER) t = u._tgt = null;
     else if (u._lp && laneDist(u) > LEASH) t = u._tgt = null;   // leash = distance from the lane line, not from the next waypoint
   }
   const forced = u._scanT < 0;
   if (forced) u._scanT = 0;
   if (forced || ((w.tick + u._nid) % 6) === 0) {
-    const n = retarget(w, u, AGGRO_RANGE_CREEP);
+    const n = retarget(w, u, u._acq);
     if (n !== t) { t = u._tgt = n; if (n) u._mv = null; }
   }
   if (t) { u._mvLi = -1; if (u._ranged || !u._lp) chase(w, u, t, dt); else engage(w, u, t, dt); return; }

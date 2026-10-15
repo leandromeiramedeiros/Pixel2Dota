@@ -114,7 +114,8 @@ export function think(w, u, dt) {
   }
 }
 
-const scanRange = (u) => Math.max(u.atkRange + u.radius + 100, 450);
+/** Attack-move scan: the unit's AttackAcquisitionRange (heroes 800, melee 600, Sniper 950) but never shorter than its attack reach. */
+const scanRange = (u) => (u._acq ? Math.max(u._acq, u.atkRange + u.radius) : Math.max(u.atkRange + u.radius + 100, 450));
 
 export function tauntSource(w, u) {
   for (const m of u._mods) if (m.status & ST.TAUNT && m.taunter) { const t = w.units.get(m.taunter); if (t && !t._dead) return t; }

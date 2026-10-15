@@ -161,6 +161,7 @@ for (const hk of HERO_KEYS) {
     bat: n0(h.AttackRate), atkPoint: n0(h.AttackAnimationPoint), baseAS: n0(h.BaseAttackSpeed),
     hp: n0(h.StatusHealth), hpRegen: n0(h.StatusHealthRegen), mana: n0(h.StatusMana), manaRegen: n0(h.StatusManaRegen),
     visionDay: n0(h.VisionDaytimeRange), visionNight: n0(h.VisionNighttimeRange), hull,
+    acq: n0(h.AttackAcquisitionRange), ring: n0(h.RingRadius),
     abilities: R.abilities.slice(), // authored slot order (shared/heroes.js), not the file's
   });
   const defs = hkv.AbilityDefinitions || {};
@@ -232,17 +233,21 @@ for (const [k, it] of Object.entries(itemsOut)) { // sanity: recipe totals
 
 // -- units
 const unitKv = kvOf('scripts/npc/npc_units.txt').DOTAUnits;
+const unitBase = unitKv.npc_dota_units_base; // keys a unit block leaves out inherit from here (e.g. golems have no MovementTurnRate)
 function bakeUnit(npc) {
   const u = unitKv[npc];
   if (!u) throw new Error('unit missing: ' + npc);
   const hull = HULL[u.BoundsHullName || 'DOTA_HULL_SIZE_HERO']; // neutrals / Roshan inherit the HERO hull from npc_dota_neutral_default
   if (hull === undefined) throw new Error(`unknown hull ${u.BoundsHullName} for ${npc}`);
+  const inh = (k) => (u[k] !== undefined ? u[k] : unitBase[k]);
   return sortObj({
     key: npc,
     hp: n0(u.StatusHealth), hpRegen: n0(u.StatusHealthRegen), mana: n0(u.StatusMana), armor: n0(u.ArmorPhysical), mr: n0(u.MagicalResistance),
     dmgMin: n0(u.AttackDamageMin), dmgMax: n0(u.AttackDamageMax), bat: n0(u.AttackRate), atkPoint: n0(u.AttackAnimationPoint),
     atkRange: n0(u.AttackRange), projSpeed: n0(u.ProjectileSpeed), ms: n0(u.MovementSpeed),
     goldMin: n0(u.BountyGoldMin), goldMax: n0(u.BountyGoldMax), xp: n0(u.BountyXP), vision: n0(u.VisionDaytimeRange), hull,
+    visionNight: n0(inh('VisionNighttimeRange')), acq: n0(inh('AttackAcquisitionRange')), turnRate: n0(inh('MovementTurnRate')),
+    ring: n0(inh('RingRadius')), // selection ring radius (picking / UI), NOT a collision size
   });
 }
 const UNIT_SRC = {
@@ -252,6 +257,12 @@ const UNIT_SRC = {
   melee_rax: 'npc_dota_goodguys_melee_rax_mid', ranged_rax: 'npc_dota_goodguys_range_rax_mid',
   fort: 'npc_dota_goodguys_fort', fountain: 'dota_fountain',
 };
+// super (enemy barracks down) and mega (all enemy barracks down) lane creeps
+for (const s of ['goodguys', 'badguys']) for (const sfx of ['_upgraded', '_upgraded_mega']) {
+  UNIT_SRC[`${s}_melee${sfx}`] = `npc_dota_creep_${s}_melee${sfx}`;
+  UNIT_SRC[`${s}_ranged${sfx}`] = `npc_dota_creep_${s}_ranged${sfx}`;
+  UNIT_SRC[`${s}_siege${sfx}`] = `npc_dota_${s}_siege${sfx}`;
+}
 // neutral camps + Roshan (key = npc name without the npc_dota_ prefix)
 const NEUTRALS = ['kobold', 'kobold_tunneler', 'kobold_taskmaster', 'forest_troll_berserker', 'forest_troll_high_priest', 'giant_wolf', 'alpha_wolf',
   'ogre_mauler', 'ogre_magi', 'centaur_outrunner', 'centaur_khan', 'satyr_trickster', 'satyr_soulstealer', 'satyr_hellcaller', 'wildkin', 'enraged_wildkin',
@@ -261,7 +272,7 @@ UNIT_SRC.roshan = 'npc_dota_roshan';
 const unitsOut = {};
 for (const [k, npc] of Object.entries(UNIT_SRC)) unitsOut[k] = bakeUnit(npc);
 // buildings are identical across teams and lanes in the game files; verify so a patch that changes that doesn't pass silently
-const sameStats = (a, b) => JSON.stringify({ ...a, key: 0 }) === JSON.stringify({ ...b, key: 0 });
+const sameStats = (a, b) => JSON.stringify({ ...a, key: 0, ring: 0 }) === JSON.stringify({ ...b, key: 0, ring: 0 }); // ring: Dire towers 120 vs Radiant 130 (cosmetic)
 for (const [k, npcs] of Object.entries({
   tower1: ['npc_dota_goodguys_tower1_top', 'npc_dota_goodguys_tower1_bot', 'npc_dota_badguys_tower1_top', 'npc_dota_badguys_tower1_mid', 'npc_dota_badguys_tower1_bot'],
   tower2: ['npc_dota_goodguys_tower2_top', 'npc_dota_goodguys_tower2_bot', 'npc_dota_badguys_tower2_top', 'npc_dota_badguys_tower2_mid', 'npc_dota_badguys_tower2_bot'],
@@ -271,7 +282,9 @@ for (const [k, npcs] of Object.entries({
   ranged_rax: ['npc_dota_goodguys_range_rax_top', 'npc_dota_goodguys_range_rax_bot', 'npc_dota_badguys_range_rax_top', 'npc_dota_badguys_range_rax_mid', 'npc_dota_badguys_range_rax_bot'],
   fort: ['npc_dota_badguys_fort'],
 })) for (const npc of npcs) if (!sameStats(unitsOut[k], bakeUnit(npc))) warnings.push(`unit ${npc} differs from ${k} (lanes/teams assumed identical)`);
-for (const t of ['melee', 'ranged', 'siege']) if (!sameStats(unitsOut['goodguys_' + t], unitsOut['badguys_' + t])) warnings.push(`creep ${t} differs between teams`);
+for (const t of ['melee', 'ranged', 'siege']) for (const sfx of ['', '_upgraded', '_upgraded_mega']) {
+  if (!sameStats(unitsOut['goodguys_' + t + sfx], unitsOut['badguys_' + t + sfx])) warnings.push(`creep ${t}${sfx} differs between teams`);
+}
 
 // -- meta
 const inf = fs.readFileSync(path.join(DOTA_DIR, 'game/dota/steam.inf'), 'utf8');
