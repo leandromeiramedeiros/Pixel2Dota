@@ -79,7 +79,7 @@ Pose channels (all optional): `bob`; `spine` / `head` / `body` `[pitch, yaw, rol
 | Body | `torso` (cross-section fn), `skirt`, `pauldron` |
 | Head | `faceWindow` (fringe line), `head`, `hairShell`, `helmet`, `eyes` (`big`, `dot`), `mouth` |
 | Signature | `flame` (tongues over 4 emissive steps) |
-| Held | `weapon` (`sword`, `club`, `spear`, `axe` at a hand socket), `shield`, `bow` (recurve, emissive tips) |
+| Held | `weapon` (`sword`, `club`, `spear`, `axe` at a hand socket), `shield`, `bow` (recurve, emissive tips, free axis), `bowInHand` (rig hand, drawn string) |
 
 ## Materials (`mats.js`)
 `useMat(v, name, { from, ...overrides })`. Heroes pick by name and override only signature colours.

@@ -12,6 +12,7 @@ import * as juggernaut_healing_ward from './creeps/juggernaut_healing_ward.js';
 import * as lina from './heroes/lina.js';
 import * as lion from './heroes/lion.js';
 import * as melee_dire from './creeps/melee_dire.js';
+import * as mirana from './heroes/mirana.js';
 import * as melee_radiant from './creeps/melee_radiant.js';
 import * as pudge from './heroes/pudge.js';
 import * as sniper from './heroes/sniper.js';
@@ -30,6 +31,7 @@ export const VOX = {   // alphabetical (parallel branches merge clean)
   lion: { kind: 'hero', unit: 'npc_dota_hero_lion', mod: lion },
   melee_dire: { kind: 'creep', unit: 'npc_dota_creep_badguys_melee', mod: melee_dire },
   melee_radiant: { kind: 'creep', unit: 'npc_dota_creep_goodguys_melee', mod: melee_radiant },
+  mirana: { kind: 'hero', unit: 'npc_dota_hero_mirana', mod: mirana },
   pudge: { kind: 'hero', unit: 'npc_dota_hero_pudge', mod: pudge },
   sniper: { kind: 'hero', unit: 'npc_dota_hero_sniper', mod: sniper },
   sven: { kind: 'hero', unit: 'npc_dota_hero_sven', mod: sven },
