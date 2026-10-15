@@ -599,7 +599,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const bagB = h('div', 't-btn t-bagb'); { const g = pixelEl(BAG, null, 1); g.classList.add('t-glyph'); bagB.append(g); } anchor.append(bagB);
   const bagP = h('div', 't-bagp'), bgMain = h('div', 't-bg'), bgBp = h('div', 't-bg bpk'), sellEl = h('div', 't-sell');
   bagP.append(sellEl, bgMain, bgBp); anchor.append(bagP);
-  let bagOpen = false, selSlot = -1, shopPos = null;
+  let bagOpen = false, selSlot = -1, shopPos = null, shopWas = false;
   const bagCells = Array.from({ length: INV_SLOTS }, (_, i) => { const b = mkItem(i, i < ACTIVE_SLOTS ? 't-it' : 't-it bp'); b.where = 'bag'; b.size = 'bc'; (i < ACTIVE_SLOTS ? bgMain : bgBp).append(b.el); return b; });
   const seen = [];   // per slot { key, t }: game time an item appeared (sell refund window, as hud.js)
   function setBag(v) { bagOpen = !!v; R.classList.toggle('bag', bagOpen); if (!bagOpen) { selSlot = -1; for (const c of bagCells) c.el.classList.remove('sel'); sellEl.classList.remove('on'); } }
@@ -1361,6 +1361,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       if (p.walking && t >= (p.next || 0)) { walkTo(p); p.next = t + T.WALK_MS; }
     }
     if ((fc = (fc + 1) % 45) === 0) updateInset(false);
+    const so = !!(H.isShopOpen && H.isShopOpen());   // the shop shows the bag (where bought items land); every open / close path (SHOP, X, Esc) goes through hud.js
+    if (so !== shopWas) { shopWas = so; if (!isSpec()) setBag(so); }
+    if (so && bagOpen) {   // shop + bag together: the shop sits left of the bag popover (its own drag position still wins)
+      const de = document.documentElement, r = bagP.getBoundingClientRect(), v = Math.max(0, Math.round(innerWidth - r.left + 8)) + 'px';
+      if (de.style.getPropertyValue('--t-shop-r') !== v) de.style.setProperty('--t-shop-r', v);
+    }
+    document.documentElement.classList.toggle('p2d-shopbag', so && bagOpen);
     checkLock(u);
     if (aim) updateAim();
     if (atkS && atkS.aiming) updateAtkAim();
@@ -1395,7 +1402,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     });
     anchor.addEventListener('pointerdown', (e) => { const el = e.target.closest && e.target.closest('.t-ab'); const b = el && abBtns.find((x) => x.el === el); if (b) btnDown(b, e); });
     on(window, 'pointerdown', (e) => {
-      const inBag = !!(e.target && e.target.closest && e.target.closest('.t-bagp, .t-bagb'));
+      const inBag = !!(e.target && e.target.closest && e.target.closest('.t-bagp, .t-bagb, .h-shop'));
       if (bagOpen && !inBag && !rdrag) setBag(false);                                     // tap outside closes the bag (the tap still does its thing)
       if (reorderOn && !(e.target && e.target.closest && e.target.closest('.t-ab, .t-wi, .t-bagp, .t-bagb'))) { exitReorder(); e.stopPropagation(); e.preventDefault(); return; }   // DONE / any tap outside the wheel
       if (tipEl && !tipEl.classList.contains('t-compact')) hideTip();
@@ -1447,7 +1454,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
         for (const [t, type, fn, opts] of subs) t.removeEventListener(type, fn, opts);
         subs.length = 0;
         if (input && input.setTouchMode) input.setTouchMode(false);
-        document.documentElement.classList.remove('p2d-touch', 'p2d-narrow');
+        document.documentElement.classList.remove('p2d-touch', 'p2d-narrow', 'p2d-shopbag'); document.documentElement.style.removeProperty('--t-shop-r');
         if (renderer.setViewInset) renderer.setViewInset({ top: 0, bottom: 0 });
         document.documentElement.style.removeProperty('--p2d-u'); document.documentElement.style.removeProperty('--k'); document.documentElement.style.removeProperty('--bk');
       }

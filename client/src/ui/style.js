@@ -326,6 +326,7 @@ html.p2d-touch .h-chat input { font-size:16px; padding:8px; }
 html.p2d-touch .h-feed { --u:calc(1.4px * var(--k, 1)); top:calc(58px * var(--k, 1)); right:calc(6px + env(safe-area-inset-right, 0px)); width:calc(190px * var(--k, 1)); }
 html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); z-index:30; right:auto; left:50%; transform:translateX(-50%); bottom:auto; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); max-height:calc(100% - 54px * var(--bk, 1) - 10px - env(safe-area-inset-top, 0px)); overflow:auto; }   /* starts below the touch toggle buttons so SHOP stays tappable; draggable from its header */
 html.p2d-touch .h-shop .x { padding:6px 12px; }
+html.p2d-touch.p2d-shopbag .h-shop { left:auto; right:var(--t-shop-r, 8px); transform:none; }   /* bag open beside the shop (touch.js sets --t-shop-r) */
 html.p2d-touch .h-sb { --u:calc(1.4px * var(--k, 1)); z-index:15; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); max-height:calc(100% - 54px * var(--bk, 1) - 10px - env(safe-area-inset-top, 0px)); overflow:auto; }
 html.p2d-touch .h-sb .sbx { padding:6px 12px; font-size:14px; }
 html.p2d-touch .h-sb > .tm:first-child .ttl { padding-right:36px; }
