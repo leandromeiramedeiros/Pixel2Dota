@@ -27,8 +27,8 @@ export function build(p = {}) {
   const M = {
     skin: useMat(v, 'skin', { ramp: ['#9a5a4c', '#d29a7e', '#f0c2a2', '#ffe2c8'] }),
     skinD: useMat(v, 'skinD', { ramp: ['#7a3e3a', '#a8664e', '#c8866a', '#e8aa88'] }),
-    coat: useMat(v, 'coat', { ramp: ['#5a3c2c', '#a88a5e', '#e2cea0', '#fff4da'] }),
-    coatD: useMat(v, 'coatD', { ramp: ['#402a26', '#7e6248', '#b89e76', '#dcc69e'] }),
+    coat: useMat(v, 'coat', { ramp: ['#6a3e22', '#b88a4a', '#e8c27a', '#fbe2a6'] }),
+    coatD: useMat(v, 'coatD', { ramp: ['#4a2a1e', '#8a6038', '#c09a62', '#e2c48a'] }),
     robe: useMat(v, 'robe', { ramp: ['#100816', '#22142a', '#36223a', '#523a54'] }),
     collar: useMat(v, 'collar', { ramp: ['#2e0420', '#740a3e', '#a01c54', '#c84478'] }),
     collarL: useMat(v, 'collarL', { ramp: ['#3a0626', '#8a1448', '#b82c62', '#e05a88'] }),
