@@ -1,9 +1,8 @@
-// Voxel Sven, a chibi of his Dota 2 model (hand-authored): a silver full helm with a dark visor slit, a row of curved fins up the crest and two
-// horns sweeping back from the sides; a bare, broad blue torso and upper arms (lighter blue muscle bands); huge layered silver pauldrons;
-// dark gauntlets with silver cuffs; a dark belt with a silver plate, silver tassets, dark armoured legs with silver knee plates and greaves;
-// the Outcast Blade: a giant cleaver-like greatsword, gold channel in a silver rim, widening to a flared tip, held low in the right hand and
-// swept up and out to his right. Signature reads: blue torso between big silver pauldrons, finned silver helm, oversized gold-and-silver
-// greatsword. Grid 56 x 56 x 56 (room for the blade in every pose), ~44 voxels tall, faces -y.
+// Voxel Sven, a chibi of his Dota 2 model (hand-authored): a silver full helm with a dark visor slit and two big curved horns; a bare, broad
+// blue torso and upper arms (lighter blue muscle bands), a deep blue cape down the back; huge layered silver pauldrons; dark gauntlets with
+// silver cuffs; a dark belt with a silver plate, silver tassets, dark armoured legs with silver knee plates and greaves; the Outcast Blade: a
+// wide, flat steel greatsword with a dark grip, widening to a squared, hooked tip, held low in the right hand and swept up and out to his
+// right. Signature reads: blue torso between big silver pauldrons, horned silver helm, oversized flat steel greatsword. Grid 56 x 56 x 56 (room for the blade in every pose), ~44 voxels tall, faces -y.
 import { Vox } from '../vox.js';
 import { useMat } from '../mats.js';
 import { solve, add3, mul3, norm3, cross3, dot3, sub3, apM } from '../rig.js';
@@ -32,6 +31,8 @@ export function build(p = {}) {
     visor: useMat(v, 'visor', { ramp: ['#040304', '#0a070b', '#120e14', '#1c161e'] }),
     eye: useMat(v, 'eye', { emit: '#9ad0ff', tier: 'eye', gain: 0.6 }),
     gold: useMat(v, 'gold', { ramp: ['#4a2600', '#7f4802', '#b8720e', '#e6a43a'] }),
+    cape: useMat(v, 'cape', { ramp: ['#010c34', '#021e6a', '#0436a0', '#1258c8'] }),
+    capeD: useMat(v, 'capeD', { ramp: ['#010616', '#02103c', '#041c5a', '#0a2c7a'] }),
     grip: useMat(v, 'grip', { ramp: ['#120a06', '#2a1a0e', '#402a18', '#5a3e26'] }),
   };
 
@@ -72,6 +73,14 @@ export function build(p = {}) {
     pauldron(v, [sh[0] + s * 0.2, sh[1] + 0.2, sh[2]], [5, 4.8, 3.8], (px, py, pz) => (Math.abs(px - sh[0] - s * 1.8) < 0.5 && pz > sh[2] + 1.8 ? M.steelD : M.steel), M.steelD, 0.8);
   }
 
+  // ---- cape: deep blue cloth hung from under the pauldrons down the back, widening, a ragged hem and a dark lining edge
+  vol(v, T.torso, cx - 9, cy + 2, 6, cx + 9, cy + 7, 24, (px, py, pz) => {
+    const dx = px - cx, w = 5.2 + (24 - pz) * 0.2, back = cy + 3.4 + (24 - pz) * 0.08; if (Math.abs(dx) > w) return;
+    if (py < back || py > back + 1.1) return;
+    if (pz < 7.4 + Math.abs(((dx + 9) % 2.6) - 1.3) * 1.4) return;
+    return Math.abs(dx) > w - 0.8 ? M.capeD : M.cape;
+  });
+
   // ---- helm (head space): silver full helm, dark T visor, a row of curved fins up the crest, two horns sweeping back
   const Th = T.head, [hx, hy, hz] = [cx, cy + PROP.headY, PROP.headZ];
   ell(v, Th, [hx, hy, hz], [5.6, 5.6, 6.4], (px, py, pz) => {
@@ -84,26 +93,26 @@ export function build(p = {}) {
     if (zz < -4.6) return M.steelD;                                                                                      // chin rim
     return M.steel;
   });
-  // crest: a solid fin ridge front-to-back, its top cut into three back-swept spikes
-  vol(v, Th, hx - 1, hy - 4, hz + 2, hx + 1, hy + 7, hz + 11, (px, py, pz) => {
-    const u = py - (hy - 3.6); if (u < 0 || u > 10) return;
-    const surf = hz + 6.4 * Math.sqrt(Math.max(0, 1 - ((py - hy) / 5.6) ** 2)), saw = 3.4 - (u % 3.4), top = surf + 0.6 + saw * 0.9 - u * 0.12;
-    if (pz > top || pz < surf - 1) return;
-    return pz > top - 1 ? M.steel : M.steelD;
-  });
-  for (const s of [-1, 1]) cap(v, Th, [hx + s * 4.8, hy + 0.4, hz + 1.4], [hx + s * 6.6, hy + 4.6, hz + 4.6], 1.3, M.steel, 0.6);   // side horns
+  // two big curved horns from the helm sides: out, then up and back, tapering to a point
+  for (const s of [-1, 1]) {
+    const pts = [[hx + s * 4.6, hy + 0.4, hz + 1.6], [hx + s * 7.4, hy + 0.8, hz + 3], [hx + s * 9, hy + 1.8, hz + 6], [hx + s * 9.2, hy + 3.4, hz + 9.4], [hx + s * 8.4, hy + 5, hz + 11.6]];
+    const rr = [1.6, 1.35, 1.05, 0.75, 0.4];
+    for (let i = 0; i + 1 < pts.length; i++) cap(v, Th, pts[i], pts[i + 1], rr[i], i > 2 ? M.steelD : M.steel, rr[i + 1]);
+  }
 
   // ---- the Outcast Blade in the right hand: grip + pommel, broad crossguard, gold channel in a silver rim, flared cleaver tip
   // flat of the blade faces the body's front (it reads broad from the camera, as in the game), width across it
   const h = J.handR, d = gripDir(rig, 'R', p.bladeR ?? BLADE), fwd = apM(T.torso && T.torso.R, [0, -1, 0]), cr = cross3(d, fwd);
   const side = Math.hypot(...cr) > 1e-3 ? norm3(cr) : apM(T.torso && T.torso.R, [1, 0, 0]);
   v.capsule(add3(h, mul3(d, -2.6)), add3(h, mul3(d, 1.2)), 0.7, M.grip);
-  v.ellipsoid(...add3(h, mul3(d, -3)), 1, 1, 1, M.gold);
-  obox(v, add3(h, mul3(d, 1.4)), add3(h, mul3(d, 2.6)), side, 3, 1, M.steel);
-  const L = 22, b0 = add3(h, mul3(d, 2.6)), wAt = t => (t < 0.74 ? 2.1 + t * 2.4 : t < 0.88 ? 3.9 : 3.9 * (1 - (t - 0.88) / 0.12) + 0.9);
-  obox(v, b0, add3(b0, mul3(d, L)), side, wAt, 0.9, (px, py, pz, t) => {
-    const off = Math.abs(dot3(sub3([px, py, pz], b0), side));
-    return t > 0.04 && t < 0.84 && off < wAt(t) - 0.95 ? M.gold : M.steel;
+  v.ellipsoid(...add3(h, mul3(d, -3)), 1, 1, 1, M.steelD);
+  obox(v, add3(h, mul3(d, 1.4)), add3(h, mul3(d, 2.6)), side, 3.4, 1, M.steelD);
+  // wide flat steel blade (one voxel thick), squared flared tip with a hooked corner, a dark fuller line down the middle
+  const L = 22, b0 = add3(h, mul3(d, 2.6)), wAt = t => (t < 0.8 ? 2.6 + t * 2.4 : 4.5);
+  obox(v, b0, add3(b0, mul3(d, L)), side, wAt, 0.5, (px, py, pz, t) => {
+    const off = dot3(sub3([px, py, pz], b0), side);
+    if (t > 0.9 && off < -1 - (t - 0.9) * 30) return;                                     // hooked tip: cut one corner back
+    return t > 0.06 && t < 0.8 && Math.abs(off) < 0.6 ? M.steelD : M.steel;
   });
   return v;
 }
@@ -128,7 +137,7 @@ export const ANIMS = {
   attack: [
     { bob: -0.2, spine: [-8, -10, 0], head: [-4, 6, 0], armR: [[60, 10], [84, 20]], armL: [[40, 40], [70, 40]], bladeR: [70, -40] },
     { bob: -1.2, spine: [18, 8, 0], head: [-14, -4, 0], armR: [[-20, 80], [-30, 90]], armL: [[-30, 70], [-30, 90]], bladeR: [-40, 90], footR: [0, -1.6, 0] },
-    { bob: -0.8, spine: [8, 4, 0], head: [-6, -2, 0], armR: [[-44, 50], [-30, 70]], armL: HOLD.L, bladeR: [10, 40], footR: [0, -0.6, 0] },
+    { bob: -0.8, spine: [8, 4, 0], head: [-6, -2, 0], armR: [[-44, 50], [-30, 70]], armL: HOLD.L, bladeR: [44, 24], footR: [0, -0.6, 0] },
   ],
   cast: [
     { bob: -0.6, spine: [-4, 20, 0], head: [0, -12, 0], armR: HOLD.R, armL: [[-10, -40], [20, -20]], bladeR: [64, 30] },
