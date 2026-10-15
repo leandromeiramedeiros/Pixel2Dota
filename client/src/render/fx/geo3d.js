@@ -218,7 +218,8 @@ void main(){
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.);
 }`;
 const FACET = /* glsl */ `
-vec3 facetN(vec3 w){ vec3 n = normalize(cross(dFdx(w), dFdy(w))); return dot(n, uCamPos - w) < 0. ? -n : n; }`;
+vec3 facetN(vec3 w){ vec3 c = cross(dFdx(w), dFdy(w)), V = uCamPos - w; float l = length(c);   // edge-on facets: zero cross -> NaN -> poisons bloom
+  if (!(l > 1e-6)) return normalize(V); vec3 n = c / l; return dot(n, V) < 0. ? -n : n; }`;
 // additive: GLOW = fresnel energy shell (p2 = centre fill 0..1), ICE = facets catch the key light + rim + a few glinting faces (p1 = glint share)
 const SOLID_FRAG = /* glsl */ `
 precision highp float;
@@ -250,10 +251,12 @@ void main(){
   vec3 n = facetN(vW);
   float ndv = clamp(dot(n, normalize(uCamPos - vW)), 0., 1.);
   vec3 body = vec3(.11, .075, .06) * (uAmb + uKeyCol * max(dot(n, uKeyDir), 0.));
-  vec3 p = vL * 2.6 + vM.y;
-  float s = sin(p.x * 3.1 + vM.w) * sin(p.y * 2.7 - vM.w * .7) * sin(p.z * 3.3 + 1.7);
-  float crack = 1. - smoothstep(.05, .1 + .16 * vM.z, abs(s));
-  float e = crack * (.35 + .65 * vM.z) + vM.z * .55 * pow(1. - ndv, 2.);
+  vec3 p = vL * 2.2 + vM.y;
+  p += .45 * sin(p.yzx * 2.3 + vM.y);                                           // warped plane families -> irregular crack network
+  vec3 sn = abs(sin(p * vec3(3.1, 2.7, 3.3) + vec3(vM.w, -vM.w * .7, 1.7)));
+  float d = min(sn.x, min(sn.y, sn.z));                                          // distance-ish to the nearest crack line
+  float crack = 1. - smoothstep(.07, .1 + .14 * vM.z, d);
+  float e = crack * (.3 + .7 * vM.z) + vM.z * (.1 + .18 * pow(1. - ndv, 2.));    // cracks carry the heat; a faint hot rim
   e = floor(e * 4. + .5) / 4.;
   vec3 col = body + vC * e;
   col *= mix(.25, 1., fogK(vW)) * vK;
@@ -333,7 +336,7 @@ function material(vs, fs, uniforms, opaque) {
     vertexShader: vs, fragmentShader: fs, uniforms: { ...uniforms },
     transparent: !opaque, depthTest: true, depthWrite: !!opaque, side: THREE.DoubleSide,
     blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: opaque ? THREE.ZeroFactor : THREE.OneFactor,
-    blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,       // scene alpha is the water mask: never write it
+    blendSrcAlpha: opaque ? THREE.OneFactor : THREE.ZeroFactor, blendDstAlpha: opaque ? THREE.ZeroFactor : THREE.OneFactor,   // scene alpha = water mask: additive never writes it, the opaque rock covers it (alpha 1)
   });
 }
 /** Icosphere (subdivided once). The first 12 vertices are the icosahedron, so lod 0 swaps to idx0 (20 faces) with the same vertices. */
@@ -434,7 +437,7 @@ export function createGeo3d({ scene, uniforms, particles }) {
    *      flare (1 = ground flare at the base), top (fade start 0..1),
    *      axis [x,y,z] (world, unit; default up), sweep (rad, default TAU = closed), start (rad, world yaw of the arc start), edge (arc end fade, fraction of the sweep, default .2)} */
   function tube(x, y, z, h, r0, r1, col, a, o) {
-    if (T.n >= T.max || a <= 0) return false;
+    if (T.n >= T.max || a <= 0 || (window.__gm & 1)) return false;
     o = o || DEF;
     const d = T.data, i = T.n++ * TUBE_STRIDE;
     d[i] = x; d[i + 1] = z; d[i + 2] = -y; d[i + 3] = h;
@@ -447,7 +450,7 @@ export function createGeo3d({ scene, uniforms, particles }) {
     return true;
   }
   function solid(B, x, y, z, size, sx, sy, sz, yaw, pitch, roll, col, a, mode, o) {
-    if (B.n >= B.max || a <= 0 || size <= 0) return false;
+    if (B.n >= B.max || a <= 0 || size <= 0 || (window.__gm & (B === K ? 2 : 4))) return false;
     o = o || DEF;
     const q = quat(yaw || 0, pitch || 0, roll || 0), d = B.data, i = B.n++ * SOLID_STRIDE;
     d[i] = x; d[i + 1] = z; d[i + 2] = -y; d[i + 3] = size;
