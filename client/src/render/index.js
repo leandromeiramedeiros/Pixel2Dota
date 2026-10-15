@@ -65,6 +65,7 @@ export function createRenderer({ canvas, sheets }) {
   const overlay = createOverlay(canvas);
   const buildings = createBuildings3d({ scene, uniforms }), trees3d = createTrees3d({ scene, uniforms }), clutter = createClutter3d({ scene, uniforms });
   const vox = createVoxActors({ scene, uniforms, ground: (x, z) => heightAt(x, -z) });   // voxel units (voxactors.js VOX_UNITS)
+  vox.idScene.add(buildings.idGroup);   // buildings share the unit outline pass
   const wind = createWind();   // spell gusts (wind.js) -> uWA/uWB/uWC/uWN each frame
   const lastHit = new Map();   // target id -> { s: attacker id, t: ms, d: damage, c: crit }: the finishing strike a hero ragdoll takes (wind.js strikeLaunch)
   const shadow = createShadow(gl, uniforms);

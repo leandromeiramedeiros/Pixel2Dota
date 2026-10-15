@@ -108,9 +108,9 @@ model.
 - **Light:** the `buildings3d.js` path (shadow map, key + point lights, Bayer-quantised, fog grade); key term `.3 + .55 N.L` keeps the shaded side readable.
 - **Lean:** characters tilt about the feet by `max(0, camPitch - 30 deg)` so the camera sees them at the offline ~30 deg. **Shadow passes lean too**, or the
   head shadows the face. Buildings `lean: false`.
-- **Outline:** screen-space, silhouette only (`post.js` OUTLINE). Each instance writes an id + line colour into an ID target (`idScene`); a 1 px line
+- **Outline:** screen-space, silhouette only (`post.js` OUTLINE). Each instance writes an id + line colour into an ID target (`idScene`); a 2 px line (`OUTLINE_PX`)
   goes where the id changes, on the outer side of the nearer unit, at its depth. Inner depth steps never get a line. Dark by default, hover /
-  selection colour when set; flying death voxels carry no id. Setting `outlines`. Portraits match: `vox_portrait.mjs` `lines: 0`.
+  selection colour when set; flying death voxels carry no id. Buildings share the pass (`buildings3d` `idGroup`). Setting `outlines`. Portraits match: `vox_portrait.mjs` `lines: 0`.
 - **Depth:** foot depth (`propDepth`) while sprites remain; real depth after batch 7.
 - **Team tint:** the face byte's team bit swaps hue to `TEAM_COL[team]`, keeping ramp luminance.
 - **Footprint:** per-frame voxel bounds size the pick box, HP bar height and decal radius (decal from the idle frame).

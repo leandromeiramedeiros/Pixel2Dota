@@ -1,10 +1,11 @@
 // 3D buildings: simple low-poly procedural meshes (tower, barracks, ancient, fountain, shop, lantern, filler house), one merged geometry per
-// type, ONE instanced draw per type plus one inverted-hull outline draw. They are lit / fogged / Bayer-quantised exactly like the terrain
+// type, ONE instanced draw per type plus one outline ID draw (`idGroup` -> voxactors idScene -> post.js OUTLINE, same line as the units). They are lit / fogged / Bayer-quantised exactly like the terrain
 // (same uniforms + shaderlib functions) and render into the same low-res target, so they pixelate like everything else.
 //   instance = position, yaw, scale, team (0 Radiant / 1 Dire), hp fraction (cracks), destroyed 0..1 (collapse to rubble), flash, highlight.
 import * as THREE from 'three';
 import { COMMON_GLSL } from './shaderlib.js';
 import { DEPTH_FRAG } from './shadow.js';
+import { ID_BIAS } from './post.js';
 import { createKit, hash01, instancedGeo, flushInstances, silhouetteFrame, DEPTH_GLSL } from './mesh3d.js';
 
 // ---- palette: [Radiant, Dire] --------------------------------------------------------------------------------------------------------
@@ -163,7 +164,7 @@ attribute vec3 aCol, aCol2, aSm;
 attribute float aEmit, aPart;
 attribute vec3 iPos;
 attribute vec4 iXf, iSt, iHi;
-uniform float uPull, uOutW;
+uniform float uPull;
 varying vec3 vW, vN, vFoot, vCol;
 varying float vE, vLY, vPh;
 varying vec4 vSt, vHi;
@@ -178,9 +179,6 @@ void main(){
     p.y += d * fract(sin(dot(p.xz, vec2(12.9, 78.2))) * 43758.5) * 12.;
     p.xz *= 1. + .06 * d;
   }
-#ifdef HULL
-  p += aSm * (uOutW / iXf.y);
-#endif
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 w = iPos + rotY(p, c, s) * iXf.y;
   vW = w; vN = rotY(normal, c, s); vFoot = iPos; vLY = position.y; vPh = iXf.z;
@@ -194,8 +192,8 @@ void main(){
 #else
   gl_Position = propDepth(cr, iPos, uPull * iXf.y);
 #endif
-#ifdef HULL
-  gl_Position.z += 1e-4 * gl_Position.w;
+#ifdef ID
+  gl_Position.z -= ${(2 * ID_BIAS).toExponential()} * gl_Position.w;   // toward the camera: passes against the copied scene depth (post.js OUTLINE)
 #endif
 }`;
 
@@ -210,8 +208,9 @@ void main(){
   vec3 n = normalize(vN);
   bool top = abs(n.y) > .6;
   vec2 dp = top ? floor(vW.xz / 6.) : vec2(floor((vW.x + vW.z) / 6.), floor(vW.y / 6.));
-#ifdef HULL
-  gl_FragColor = vec4(fogGrade(mix(vec3(.02, .017, .028), vHi.rgb, vHi.a), vFoot, dp), 1.);
+#ifdef ID
+  if (vSt.w <= 0.) discard;
+  gl_FragColor = vec4(fogGrade(mix(vec3(.07, .03, .06), vHi.rgb, vHi.a), vFoot, dp), vSt.w);   // line colour (dark unless hovered / selected) + outline id
 #else
   float em = vE;
   vec3 alb = vCol * mix(1.2, 1., em);
@@ -240,28 +239,31 @@ void main(){
 const IFLOATS = [['iPos', 3], ['iXf', 4], ['iSt', 4], ['iHi', 4]];
 
 export function createBuildings3d({ scene, uniforms }) {
-  const rimU = { value: 1 }, outU = { value: 6.5 };
+  const rimU = { value: 1 };
   const types = {};
   const group = new THREE.Group(); group.name = 'buildings3d'; scene.add(group);
+  const idGroup = new THREE.Group(); idGroup.name = 'b3d_ids';   // outline ID meshes: the caller adds this to the ID scene (never the main scene)
+  let bid = 0;
   const stats = { draws: 0, tris: 0, instances: 0 };
   for (const name in INFO) {
     const inf = INFO[name];
     const kit = createKit(VSCALE); inf.build(kit);
     const merged = kit.build();
     const inst = instancedGeo(merged, inf.max, IFLOATS);
-    const un = { ...uniforms, uPull: { value: inf.pull }, uOutW: outU, uRimOn: rimU };
+    const un = { ...uniforms, uPull: { value: inf.pull }, uRimOn: rimU };
     const body = new THREE.Mesh(inst.geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide }));
-    const hull = new THREE.Mesh(inst.geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.BackSide, defines: { HULL: 1 } }));
+    const ids = new THREE.Mesh(inst.geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide, defines: { ID: 1 } }));
     body.userData.depthMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: DEPTH_FRAG, uniforms: un, side: THREE.DoubleSide, defines: { SHADOW: 1 } });
-    for (const m of [body, hull]) { m.frustumCulled = false; m.matrixAutoUpdate = false; group.add(m); }
-    body.renderOrder = 1; hull.renderOrder = 2; body.name = 'b3d_' + name; hull.name = 'b3d_hull_' + name;
+    for (const m of [body, ids]) { m.frustumCulled = false; m.matrixAutoUpdate = false; }
+    group.add(body); idGroup.add(ids);
+    body.renderOrder = 1; body.name = 'b3d_' + name; ids.name = 'b3d_id_' + name;
     const frame = silhouetteFrame(merged, { minAy: inf.H / 5.52 + 1, skipPart: 2 });
-    types[name] = { inf, inst, n: 0, body, hull, frame, tris: inst.tris };
+    types[name] = { inf, inst, n: 0, body, ids, frame, tris: inst.tris };
   }
   const _hi = [0, 0, 0, 0];
   return {
-    types, group, stats, info: INFO,
-    begin() { for (const k in types) types[k].n = 0; },
+    types, group, idGroup, stats, info: INFO,
+    begin() { for (const k in types) types[k].n = 0; bid = 0; },
     /** o: { team 0|1, hp 0..1, destroyed 0..1, flash 0..1, hi [r,g,b,a], yaw, scale, phase } */
     add(name, x, y, z, o) {
       const t = types[name]; if (!t || t.n >= t.inst.max) return false;
@@ -269,13 +271,13 @@ export function createBuildings3d({ scene, uniforms }) {
       const hi = (o && o.hi) || _hi;
       d[i] = x; d[i + 1] = z; d[i + 2] = -y;
       d[i + 3] = (o && o.yaw) || 0; d[i + 4] = (o && o.scale) || 1; d[i + 5] = (o && o.phase) || ((x * 0.013 + y * 0.007) % 6.28); d[i + 6] = o && o.team ? 1 : 0;
-      d[i + 7] = o && o.hp != null ? o.hp : 1; d[i + 8] = (o && o.destroyed) || 0; d[i + 9] = (o && o.flash) || 0; d[i + 10] = 0;
+      d[i + 7] = o && o.hp != null ? o.hp : 1; d[i + 8] = (o && o.destroyed) || 0; d[i + 9] = (o && o.flash) || 0; d[i + 10] = (255 - bid++ % 127) / 256;   // outline id 255 down (units count up from 1)
       d[i + 11] = hi[0]; d[i + 12] = hi[1]; d[i + 13] = hi[2]; d[i + 14] = hi[3];
       return true;
     },
     end() {
       let tris = 0, draws = 0, inst = 0;
-      for (const k in types) { const t = types[k]; flushInstances(t.inst, t.n); t.body.visible = t.hull.visible = t.n > 0; if (t.n) { tris += t.n * t.tris * 2; draws += 2; inst += t.n; } }
+      for (const k in types) { const t = types[k]; flushInstances(t.inst, t.n); t.body.visible = t.ids.visible = t.n > 0; if (t.n) { tris += t.n * t.tris * 2; draws += 2; inst += t.n; } }
       stats.tris = tris; stats.draws = draws; stats.instances = inst;
     },
     /** sprite-like pick / bar frame for a building type (see mesh3d.silhouetteFrame) */
@@ -283,6 +285,6 @@ export function createBuildings3d({ scene, uniforms }) {
     /** shadow casters: [{ mesh, mat }] (shadow.js) */
     casters() { return Object.values(types).map((t) => ({ mesh: t.body, mat: t.body.userData.depthMat })); },
     setRim(on) { rimU.value = on ? 1 : 0; },
-    dispose() { for (const k in types) { types[k].inst.geo.dispose(); types[k].body.material.dispose(); types[k].hull.material.dispose(); } scene.remove(group); },
+    dispose() { for (const k in types) { types[k].inst.geo.dispose(); types[k].body.material.dispose(); types[k].ids.material.dispose(); } scene.remove(group); },
   };
 }

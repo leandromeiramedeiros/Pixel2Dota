@@ -69,11 +69,12 @@ void main(){
 // the ID target, 2) the ID meshes draw against it (ID vertex bias: ID_BIAS in depth, so the surface the scene shows passes; occluded unit pixels
 // get no id), 3) MSAA only: the ID meshes again into raw_rt with their own depth (nearest unit per pixel, no scene occlusion: MSAA-resolved scene depth
 // leaves holes at a unit's inner steps in 2), raw keeps "same unit" whole), 4) OUTLINE draws INTO the scene target: a pixel takes the line
-// when a 4-neighbour shows a different unit than the pixel's raw id, at that unit's depth
+// when a neighbour within OUTLINE_PX shows a different unit than the pixel's raw id, at that unit's depth
 // (gl_FragDepth, depth test LESS) -> only where that unit is in front of what the pixel shows. So only real silhouettes get a line (unit vs
 // ground / sky / farther unit), never a unit's own inner depth steps (same id); the line sits at the unit's depth, so fog / mist / DoF treat it
 // like the unit. Nearest unit wins on a crossing. 1 px of the low-res target = 1 art px.
 export const ID_BIAS = 1e-4;
+export const OUTLINE_PX = 2;   // line width in art px (round brush)
 const DEPTH_COPY = /* glsl */ `
 precision highp float;
 uniform sampler2D tDepth;
@@ -86,8 +87,9 @@ varying vec2 vUv;
 void main(){
   float me = texture2D(tRaw, vUv).a, best = 2.;
   vec3 col = vec3(0.);
-  for (int k = 0; k < 4; k++) {
-    vec2 o = k == 0 ? vec2(1., 0.) : k == 1 ? vec2(-1., 0.) : k == 2 ? vec2(0., 1.) : vec2(0., -1.);
+  for (int dy = -${OUTLINE_PX}; dy <= ${OUTLINE_PX}; dy++) for (int dx = -${OUTLINE_PX}; dx <= ${OUTLINE_PX}; dx++) {
+    vec2 o = vec2(float(dx), float(dy));
+    if (dot(o, o) < .5 || dot(o, o) > ${OUTLINE_PX * OUTLINE_PX}.5) continue;   // round brush of radius OUTLINE_PX
     vec4 n = texture2D(tId, vUv + o * uTexel);
     if (n.a <= 0. || abs(n.a - me) < .5 / 256.) continue;
     float nd = texture2D(tIdD, vUv + o * uTexel).r;
