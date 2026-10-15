@@ -95,7 +95,7 @@ export function installFxDemo({ r, units, mouse, myHero, heightAt }) {
   inv('invoker_ghost_walk', ({ S }, o, t0) => o.push({ at: t0, ev: sp('invoker_ghost_walk', S, { r: 400, dur: 6 }) }));
   inv('invoker_ice_wall', ({ S }, o, t0) => { const cx = S.x + 200, h = 300; o.push({ at: t0, ev: sp('invoker_ice_wall', S, { x: Math.round(cx), y: Math.round(S.y - h), x2: Math.round(cx), y2: Math.round(S.y + h), r: 60, dur: 6 }) }); });
   inv('invoker_emp', ({ S, G }, o, t0) => o.push({ at: t0, ev: sp('invoker_emp', S, { x: G.x, y: G.y, r: 675, dur: 2.9 }) }));
-  inv('invoker_tornado', ({ S }, o, t0) => { const p = proj('invoker_tornado', S, S.x, S.y, { ...dirx(S, 1500), sp: 1000 }); o.push({ at: t0, ev: p }, { at: t0, ev: sp('invoker_tornado', S, { ...dirx(S, 1500), r: 200, dur: 1.5, lift: 1.6 }) }); ends(o, t0 + 1.5, p.id); });
+  inv('invoker_tornado', ({ S, T }, o, t0) => { const p = proj('invoker_tornado', S, S.x, S.y, { ...dirx(S, 1500), sp: 1000 }); o.push({ at: t0, ev: p }, { at: t0, ev: sp('invoker_tornado', S, { ...dirx(S, 1500), r: 200, dur: 1.5, lift: 1.6 }) }, { at: t0 + 0.4, ev: sp('invoker_tornado', S, { sub: 'lift', t: T.id, x: Math.round(T.x), y: Math.round(T.y), dur: 1.6 }) }); ends(o, t0 + 1.5, p.id); });
   inv('invoker_alacrity', ({ S, A }, o, t0) => o.push({ at: t0, ev: sp('invoker_alacrity', S, { t: A.id, dur: 9 }) }));
   inv('invoker_sun_strike', ({ S, G }, o, t0) => o.push({ at: t0, ev: sp('invoker_sun_strike', S, { x: G.x, y: G.y, r: 175, dur: 1.7 }) }));
   inv('invoker_forge_spirit', ({ S }, o, t0) => o.push({ at: t0, ev: sp('invoker_forge_spirit', S, { n: 3, dur: 20, r: 80 }) }));
