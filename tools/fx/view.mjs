@@ -1,7 +1,12 @@
 // FX review sheet:   node tools/fx/view.mjs <hero> [ability ...] [--no-ref]      (npm run fx:view -- lina)
-//   -> tools/.cache/ref/<hero>/fx/sheet.png (gitignored, PRIVATE: holds the Dota reference panels): per ability, the OG panel from tools/fx/ref.mjs
-//      (og.png, built on demand) on top, OUR FX below at t = 0.1 / 0.4 / 1.0 s. Ours = client/src/fxdemo.js (__fx.fire) in the render sandbox, headless
-//      Chrome (swiftshader), Ultra preset, day, fixed camera, sim paused + stepped at 30 Hz. Our frames are also kept as <ability>/ours_<t>.png.
+//   -> tools/.cache/ref/<hero>/fx/sheet.png (gitignored). One block per ability (1580 x 468): title, OG row, colour strip, OURS row.
+//      Each row = 4 equal 384x216 frames: t = 0.1 / 0.4 / 1.0 s after the cast event (showcase close-up) + the game camera at 0.4 s.
+//   OG row:  <ability>/cap/og_0.1.png og_0.4.png og_1.0.png og_game.png (real-game captures, tools/fx/render/), cover-fit 16:9.
+//            Missing -> ref.mjs CPU preview cpu_<t>.png, labelled APPROXIMATION (no game-cam frame).   Strip: ref.json palette.
+//   OURS:    client/src/fxdemo.js (__fx.fire) in the render sandbox, headless Chrome (swiftshader), Ultra, day, sim paused + stepped at 30 Hz,
+//            960x540 shots kept as <ability>/ours_<0.1|0.4|1.0|game>.png. Staging (fxdemo): caster S faces +x, dummy T = S + 640 x.
+//            Close-up = distance 550, pitch 60, fovH43 50, lookH 70, aimed 200 u short of T (UNIT/POINT target) or at S (no target / passive).
+//            Game cam = distance 1134, pitch 60, fovH43 70, centred S + 380 x.
 // Own ports only (vite 5310, Chrome CDP 9340); both are killed on exit. Never touches the dev server (npm run dev / 5180).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,10 +23,13 @@ import { ourAbilities, buildRef } from './ref.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHROME = process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const VITE_PORT = +(process.env.FX_VITE_PORT || 5310), CDP_PORT = +(process.env.FX_CDP_PORT || 9340);
-const TIMES = [0.1, 0.4, 1.0], HZ = 30;
-const VW = 960, VH = 540, CW = 480, CH = 270;          // viewport, sheet cell (screenshot scale 0.5)
-const CAM = { x: -800, y: -700, dist: 1134 };          // fxdemo stages the caster at x-380, the enemy at x+260, the ally at (x-160, y-170)
-const BG = '#14161f', LABEL = '#e0e6ff', DIM = '#8892b0';
+export const TIMES = [0.1, 0.4, 1.0], GAME_T = 0.4, HZ = 30;
+export const SLOTS = [...TIMES.map((t) => t.toFixed(1)), 'game'];     // cap/og_<slot>.png, ours_<slot>.png
+const VW = 960, VH = 540, FW = 384, FH = 216;                          // viewport, sheet frame (16:9)
+const CAM = { x: -800, y: -700, dist: 1134 };                          // game camera centre = fxdemo stage centre (caster at x-380, dummy at x+260)
+const CLOSE = { dist: 550, pitch: 60, lead: 200 };                     // showcase close-up; aim = dummy - lead (targeted) or caster
+const PAD = 10, GAP = 8, TITLE = 14, STRIP = 10, SG = 3, BOTTOM = 7;
+const BG = '#14161f', LABEL = '#e0e6ff', DIM = '#8892b0', OGC = '#ffcf70', WARN = '#ff9a60';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------------------------------------------- headless Chrome (CDP)
@@ -53,28 +61,34 @@ async function chrome(port) {
   return {
     logs, ev,
     async goto(url) { await send('Page.navigate', { url }); },
-    async shot() { const r = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: VW, height: VH, scale: CW / VW } }); return Buffer.from(r.result.data, 'base64'); },
+    async shot() { const r = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: VW, height: VH, scale: 1 } }); return Buffer.from(r.result.data, 'base64'); },
     close() { try { ws.close(); } catch { /* closed */ } proc.kill(); setTimeout(() => fs.rmSync(prof, { recursive: true, force: true }), 1500).unref(); },
   };
 }
 
-// In-page: Ultra, day, paused, units moved off the stage, camera fixed. Then per ability: fire, step to each t, screenshot.
+// In-page: Ultra, day, paused, units moved off the stage, game camera on the stage centre (fxdemo stages around the camera target).
 const SETUP = `(async () => {
   for (let i = 0; i < 240 && !(window.__fx && window.__frame && window.__r); i++) await new Promise((r) => setTimeout(r, 250));
   if (!window.__fx) throw new Error('sandbox did not expose __fx');
   const Q = await import('/src/render/quality.js');
-  Q.applyQuality(__r, 'ultra'); Q.applyOptions(__r, Q.levelOptions('ultra'));
+  Q.applyQuality(__r, 'ultra'); Q.applyOptions(__r, { ...Q.levelOptions('ultra'), dof: false });   // no DoF: FX stay sharp in the close-up
   for (const id of ['hud', 'keys']) { const e = document.getElementById(id); if (e) e.style.display = 'none'; }
   window.__calm = true; window.__pause = true; __view.night = false; __r.setClock(150);
   const B = /tower|rax|ancient|fountain|building|shop|ward/;
   for (const u of __units.values()) if (!B.test(u.kind || '') && Math.hypot(u.x - (${CAM.x}), u.y - (${CAM.y})) < 1600) { u.x += 4000; u.goal = null; }
-  __r.snapTarget(${CAM.x}, ${CAM.y}); __r.rig.distance = __r.rig.distanceGoal = ${CAM.dist};
+  window.__cam = (x, y, d, pitch) => { __r.snapTarget(x, y); const g = __r.rig; g.distance = g.distanceGoal = d; g.yaw = g.yawGoal = 0; if (pitch != null) g.pitchUser = g.pitchGoal = pitch; };
+  __cam(${CAM.x}, ${CAM.y}, ${CAM.dist});
   __frame(1 / ${HZ}, 4);
   return __fx.keys.length;
 })()`;
+// after fire(): the staged caster -> close-up aim point
+const AIM = (hero, targeted) => `(() => {
+  const S = [...__units.values()].find((u) => u.short === ${JSON.stringify(hero)}) || { x: ${CAM.x - 380}, y: ${CAM.y} };
+  return ${targeted} ? { x: S.x + 640 - ${CLOSE.lead}, y: S.y } : { x: S.x, y: S.y };
+})()`;
 
-/** Our frames for each ability: Map ability -> [png Buffer per TIMES]. One fresh page per ability (no FX left over from the previous one). */
-async function captureOurs(hero, abilities, log) {
+/** Our frames per ability: Map ability -> { [slot]: png Buffer }. One fresh page per ability (no FX left over from the previous one). */
+async function captureOurs(hero, abilities, targeted, log) {
   const vite = await (await import('vite')).createServer({ configFile: path.join(ROOT, 'client/vite.config.js'), logLevel: 'error', server: { port: VITE_PORT, strictPort: true, host: '127.0.0.1', hmr: false } });
   await vite.listen();
   const B = await chrome(CDP_PORT), out = new Map();
@@ -87,15 +101,23 @@ async function captureOurs(hero, abilities, log) {
       await B.ev(SETUP);
       const ok = await B.ev(`__fx.fire(${JSON.stringify(ab)})`);
       if (!ok) { log(`  ${ab}: no fxdemo entry`); continue; }
-      const shots = []; let t = 0;
+      const a = await B.ev(AIM(hero, targeted(ab)));
+      const close = `__cam(${a.x}, ${a.y}, ${CLOSE.dist}, ${CLOSE.pitch})`, game = `__cam(${CAM.x}, ${CAM.y}, ${CAM.dist})`;
+      await B.ev(`(${close}, __frame(1e-4, 1), 1)`);
+      const shots = {}; let t = 0;
       for (const T of TIMES) {
         const n = Math.round((T - t) * HZ); t += n / HZ;
         await B.ev(`(__frame(1 / ${HZ}, ${n}), 1)`);
         await sleep(60);
-        shots.push(await B.shot());
+        shots[T.toFixed(1)] = await B.shot();
+        if (T === GAME_T) {     // same instant, game camera; then back (a ~0 dt frame re-renders without advancing the FX)
+          await B.ev(`(${game}, __frame(1e-4, 1), 1)`); await sleep(60);
+          shots.game = await B.shot();
+          await B.ev(`(${close}, __frame(1e-4, 1), 1)`);
+        }
       }
       out.set(ab, shots);
-      log(`  ${ab}: ${TIMES.join(' / ')} s`);
+      log(`  ${ab}: ${SLOTS.join(' / ')}  aim ${Math.round(a.x)},${Math.round(a.y)}`);
     }
     if (B.logs.length) log('page errors:\n  ' + [...new Set(B.logs)].slice(0, 8).join('\n  '));
   } finally { kill(); }
@@ -103,7 +125,38 @@ async function captureOurs(hero, abilities, log) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- sheet
-const pngC = (buf) => decodePng(buf);   // { W, H, rgba }: what Canvas.blit takes
+/** Cover-fit (centre crop) + area-average resample to W x H, alpha composited over black. */
+function fit(img, W, H) {
+  const s = Math.max(W / img.W, H / img.H), cw = W / s, ch = H / s, ox = (img.W - cw) / 2, oy = (img.H - ch) / 2;
+  const rgba = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const x0 = ox + x / s, x1 = ox + (x + 1) / s, y0 = oy + y / s, y1 = oy + (y + 1) / s;
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let sy = Math.floor(y0); sy < Math.ceil(y1); sy++) for (let sx = Math.floor(x0); sx < Math.ceil(x1); sx++) {
+      const wy = Math.min(y1, sy + 1) - Math.max(y0, sy), wx = Math.min(x1, sx + 1) - Math.max(x0, sx);
+      if (wx <= 0 || wy <= 0) continue;
+      const i = (Math.min(img.H - 1, Math.max(0, sy)) * img.W + Math.min(img.W - 1, Math.max(0, sx))) * 4, w = wx * wy * img.rgba[i + 3] / 255;
+      r += img.rgba[i] * w; g += img.rgba[i + 1] * w; b += img.rgba[i + 2] * w; n += wx * wy;
+    }
+    const d = (y * W + x) * 4; rgba[d] = r / n; rgba[d + 1] = g / n; rgba[d + 2] = b / n; rgba[d + 3] = 255;
+  }
+  return { W, H, rgba };
+}
+const load = (f) => (fs.existsSync(f) ? decodePng(fs.readFileSync(f)) : null);
+function label(C, x, y, s, color) { C.rect(x, y, s.length * 4 + 4, 9, '#000000'); drawText(C, x + 2, y + 2, s, color, 1); }
+function frame(C, x, y, img, tag, color, missing) {
+  if (img) C.blit(fit(img, FW, FH), x, y, 1);
+  else { C.rect(x, y, FW, FH, '#1c1f2b'); drawText(C, x + 12, y + FH / 2 - 5, missing, DIM, 2); }
+  label(C, x + 3, y + 3, tag, color);
+}
+
+/** OG frames for one ability: cap/ captures, else the CPU approximation. -> { imgs: { slot: img|null }, approx } */
+function ogFrames(adir) {
+  const cap = Object.fromEntries(SLOTS.map((s) => [s, load(path.join(adir, 'cap', `og_${s}.png`))]));
+  if (TIMES.some((t) => cap[t.toFixed(1)])) return { imgs: cap, approx: false };
+  return { imgs: { ...Object.fromEntries(TIMES.map((t) => [t.toFixed(1), load(path.join(adir, `cpu_${t.toFixed(1)}.png`))])), game: null }, approx: true };
+}
+
 async function main() {
   const args = process.argv.slice(2), noRef = args.includes('--no-ref'), pos = args.filter((a) => !a.startsWith('--'));
   const hero = pos[0];
@@ -112,39 +165,40 @@ async function main() {
   if (pos.length > 1) abilities = abilities.filter((a) => pos.slice(1).some((p) => a === p || a === hero + '_' + p));
   const dir = path.join(CACHE, hero, 'fx'), t0 = Date.now();
   fs.mkdirSync(dir, { recursive: true });
-  // OG panels (tools/fx/ref.mjs), built when missing
   if (!noRef) {
-    const missing = abilities.filter((a) => !fs.existsSync(path.join(dir, a, 'og.png')));
-    if (missing.length) { console.log(`ref: ${missing.length} OG panel(s)`); await buildRef(hero, missing, console.log); }
+    const missing = abilities.filter((a) => !fs.existsSync(path.join(dir, a, 'ref.json')) || !fs.existsSync(path.join(dir, a, 'cpu_0.1.png')));
+    if (missing.length) { console.log(`ref: ${missing.length} abilit(ies)`); await buildRef(hero, missing, console.log); }
   }
+  const refOf = (a) => { try { return JSON.parse(fs.readFileSync(path.join(dir, a, 'ref.json'), 'utf8')); } catch { return null; } };
+  const targeted = (a) => /UNIT_TARGET|POINT/.test(refOf(a)?.numbers?.behavior || '');
   console.log(`ours: ${abilities.length} abilities (vite :${VITE_PORT}, chrome :${CDP_PORT})`);
-  const ours = await captureOurs(hero, abilities, console.log);
-  const rows = [];
+  const ours = await captureOurs(hero, abilities, targeted, console.log);
+
+  const W = PAD * 2 + 4 * FW + 3 * GAP, BH = TITLE + FH + SG + STRIP + SG + FH + BOTTOM;
+  const C = new Canvas(W, TITLE + abilities.length * BH, BG);
+  drawText(C, PAD, 4, `${hero} FX   OG DOTA 2 (TOP)  VS  OURS (BOTTOM)   T AFTER CAST 0.1 / 0.4 / 1.0 S + GAME CAMERA AT ${GAME_T} S`, LABEL, 1);
+  let y = TITLE;
   for (const ab of abilities) {
-    const og = !noRef && fs.existsSync(path.join(dir, ab, 'og.png')) ? pngC(fs.readFileSync(path.join(dir, ab, 'og.png'))) : null;
-    const shots = (ours.get(ab) || []).map(pngC);
-    fs.mkdirSync(path.join(dir, ab), { recursive: true });
-    (ours.get(ab) || []).forEach((b, k) => fs.writeFileSync(path.join(dir, ab, `ours_${TIMES[k]}.png`), b));
-    rows.push({ ab, og, shots });
-  }
-  const PAD = 10, GAP = 6, oursW = TIMES.length * CW + (TIMES.length - 1) * GAP;
-  const W = PAD * 2 + Math.max(oursW, ...rows.map((r) => (r.og ? r.og.W : 0)));
-  const rowH = (r) => 16 + (r.og ? r.og.H + 8 : 0) + 12 + CH + 14;
-  const H = 22 + rows.reduce((s, r) => s + rowH(r), 0);
-  const C = new Canvas(W, H, BG);
-  drawText(C, PAD, 6, `${hero} FX  -  OG DOTA 2 (TOP)  VS  OURS (BOTTOM)   REF ONLY NEVER COMMIT`, '#ff8080', 2);
-  let y = 22;
-  for (const r of rows) {
+    const adir = path.join(dir, ab), ref = noRef ? null : refOf(ab), og = noRef ? { imgs: {}, approx: true } : ogFrames(adir), shots = ours.get(ab) || {};
+    fs.mkdirSync(adir, { recursive: true });
+    for (const f of ['ours_1.png']) fs.rmSync(path.join(adir, f), { force: true });   // v1 name
+    for (const s of SLOTS) if (shots[s]) fs.writeFileSync(path.join(adir, `ours_${s}.png`), shots[s]);
     C.rect(0, y, W, 1, '#2a3350');
-    drawText(C, PAD, y + 4, r.ab.replace(hero + '_', '').replace(/_/g, ' '), LABEL, 2); y += 16;
-    if (r.og) { C.blit(r.og, PAD, y, 1); y += r.og.H + 8; }
-    drawText(C, PAD, y, 'OURS  ' + TIMES.map((t) => `T ${t}S`).join('   ') + '   ULTRA  DAY  FIXED CAMERA', DIM, 1); y += 12;
-    if (r.shots.length) r.shots.forEach((s, k) => C.blit(s, PAD + k * (CW + GAP), y, 1));
-    else drawText(C, PAD, y + CH / 2, 'NO FXDEMO ENTRY', '#ff8080', 2);
-    y += CH + 14;
+    const roots = ref ? `${ref.mapping.roots.length} ROOTS  ${ref.systems.length} SYSTEMS  ${ref.mapping.source === 'precache' ? 'PRECACHE' : 'FOLDER MATCH'}` : '';
+    drawText(C, PAD, y + 4, `${ab.replace(hero + '_', '').replace(/_/g, ' ')}`, LABEL, 1);
+    drawText(C, PAD + 200, y + 4, `${(ref?.numbers?.behavior || '').replace(/DOTA_ABILITY_BEHAVIOR_/g, '').replace(/ /g, '')}   ${roots}${og.approx ? '   OG = CPU APPROXIMATION (NO CAP/)' : ''}`, og.approx ? WARN : DIM, 1);
+    y += TITLE;
+    SLOTS.forEach((s, k) => {
+      const x = PAD + k * (FW + GAP), t = s === 'game' ? `GAME CAM T ${GAME_T}S` : `T ${s}S`;
+      frame(C, x, y, og.imgs[s], `OG ${og.approx ? 'APPROXIMATION ' : ''}${t}`, og.approx ? WARN : OGC, og.approx && s === 'game' ? 'NO CAPTURE' : 'NO OG FRAME');
+      frame(C, x, y + FH + SG + STRIP + SG, shots[s] ? decodePng(shots[s]) : null, `OURS ${t}`, LABEL, 'NO FXDEMO ENTRY');
+    });
+    y += FH + SG;
+    (ref?.palette || []).slice(0, 8).forEach((h, i) => { C.rect(PAD + i * 52, y, 48, STRIP, h); });
+    y += STRIP + SG + FH + BOTTOM;
   }
   const out = path.join(dir, 'sheet.png');
   fs.writeFileSync(out, encodePng(C.W, C.H, C.px));
-  console.log(`${out}  ${W}x${H}  ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`${out}  ${C.W}x${C.H} (block ${W}x${BH})  ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 }
-main().catch((e) => { console.error(e.message || e); process.exit(1); });
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((e) => { console.error(e.message || e); process.exit(1); });

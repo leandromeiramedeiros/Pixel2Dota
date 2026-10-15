@@ -31,13 +31,13 @@ Skill `.claude/skills/vox-unit/SKILL.md` (one or many units per run): `npm run v
 reads -> model file + registry line -> `vox:check` -> `vox:shot -- <short> --small` (<= 3 fix rounds) -> full `vox:shot` (or `vox:view -- <short> --poses`, skill `vox-view`) to the creative director -> register in `VOX_UNITS`, portrait (heroes), done.
 
 ## Spell FX reference (`tools/fx/`)
-The director approves each ability from a sheet with the OG Dota 2 FX on top and ours below. All output is private, in the gitignored `tools/.cache/ref/<hero>/fx/`: never commit it and never copy it to docs/ or client/. Numbers and colours read from `ref.json` may go into code.
-- `npm run fx:ref -- <hero> [ability ...]` (`--list` shows the mapping only) reads the local game files only. It maps each ability to its `.vpcf` roots and walks `m_Children`. Per ability it writes `<ability>/ref.json`, `tex/*.png` and `og.png`:
-  - `ref.json` holds the emitters, renderers, lifetimes, rates, radii, fades, colours, textures and light colours, plus `ambiguous` notes on the mapping.
-  - `tex/*.png` holds frame 0 of each texture.
-  - `og.png` holds a CPU preview at 0.1 / 0.4 / 1.0 s, the textures, the swatches and a params table. The preview is approximate: `ref.json` `preview.cannot` lists what it skips (models, moving CPs, curves, forces).
-- `npm run fx:view -- <hero> [ability ...]` builds `og.png` if it is missing. It then fires `__fx.fire(key)` from `client/src/fxdemo.js` in headless Chrome: Ultra, day, fixed camera, sim stepped at 30 Hz, using its own ports (vite 5310, CDP 9340). The result is `sheet.png`: per ability, OG over OURS at the same three times.
-- Hero agent loop: `fx:ref` -> read `og.png` and `ref.json` -> build the FX on `render/fx/geo3d.js` -> `fx:view -- <hero> <ability>` -> fix -> hand `sheet.png` to the director. If an ability has no or a wrong mapping, extend `ALIAS` in `tools/fx/lib/vpcf.mjs`.
+The director approves each ability from a sheet with the OG Dota 2 FX on top and ours below. Output lives in the gitignored `tools/.cache/ref/<hero>/fx/`; numbers and colours read from `ref.json` may go into code.
+- `npm run fx:ref -- <hero> [ability ...]` (`--list` shows the mapping only) reads the local game files. The particle list comes from the ability's KV `precache` block when it has one, else from file names in the hero's particle folders (`mapping.source`; no built-in ability has a precache block today). Per ability it writes `<ability>/`:
+  - `ref.json`: `tree` (every root system -> children, with delay and the control points it uses), `palette` (6-8 colours), per-system emitters, renderers, lifetimes, rates, radii, fades, colours, textures, light colours, and `ambiguous` mapping notes.
+  - `tex/*.png` (frame 0 of each texture), `og.png` (CPU preview + textures + params table) and `cpu_<t>.png` (bare CPU preview frames). The CPU preview is approximate (`preview.cannot`).
+- OG frames: real-game captures in `<ability>/cap/og_0.1.png`, `og_0.4.png`, `og_1.0.png` (s after the cast event, close-up) and `og_game.png` (game camera at 0.4 s), written by `tools/fx/render/`.
+- `npm run fx:view -- <hero> [ability ...]` fires `__fx.fire(key)` from `client/src/fxdemo.js` in headless Chrome (Ultra, day, no DoF, sim stepped at 30 Hz, own ports vite 5310 / CDP 9340) and writes `sheet.png`: per ability a 1580 x 469 block, OG row (`cap/`, else the CPU frames labelled APPROXIMATION), palette strip, OURS row, each `0.1 / 0.4 / 1.0 s close-up + game cam`. Close-up: distance 550, pitch 60, aimed 200 u short of the dummy (unit / point target; the dummy stands 640 u east of the caster) or at the caster. Ours are kept as `ours_<0.1|0.4|1.0|game>.png`.
+- Hero agent loop: `fx:ref` -> read `ref.json` and the OG frames -> build the FX on `render/fx/geo3d.js` -> `fx:view -- <hero> <ability>` -> fix -> hand `sheet.png` to the director. If an ability has no or a wrong mapping, extend `ALIAS` in `tools/fx/lib/vpcf.mjs`.
 
 ## Grid and densities
 - Axes: x = right seen from the front, y = depth (**the model faces -y**), z = up. Feet on z 0, centred on `META.cx, cy`.

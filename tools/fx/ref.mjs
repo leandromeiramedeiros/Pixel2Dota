@@ -4,7 +4,8 @@
 //   ref.json   mapping (ability -> vpcf roots, variants, ambiguity notes), gameplay numbers, every system of the tree (emitters, renderers, lifetimes,
 //              rates, radii, fades, colours, textures, light colours), preview capabilities.  Numbers / colours from here may be committed elsewhere.
 //   tex/*.png  frame 0 of every texture the tree uses.
-//   og.png     the OG panel: CPU preview at t = 0.1 / 0.4 / 1.0 s, texture thumbnails, colour swatches, key params per system.
+//   og.png     CPU-preview panel (approximate) + textures + params table.   cpu_<t>.png  the bare CPU preview cells (view.mjs fallback when cap/ is missing).
+//   Particle list: the ability's KV "precache" block when it has one, else folder-name matching (mapping.source). ref.json tree = roots -> children with CPs.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,17 +93,44 @@ export function buildAbility(hero, ability, claims = new Map()) {
   const cps = [[0, 0, 0], [D, 0, 0]];
   const ref = {
     hero: hero.short, ability, numbers: nums,
-    mapping: { folders: hero.folders, stems: m.stems, primary, roots, files: m.files, variants: m.variants },
+    mapping: { source: m.source, folders: hero.folders, stems: m.stems, primary, roots, files: m.files, variants: m.variants },
     ambiguous: notes,
+    tree: treeOf(flatAll),
+    palette: palette(flatAll),
     systems: flatAll.map(({ classes, ...s }) => ({ ...s, classes })),
     textures: vtex.map((t) => ({ vtex: t, ...(tex.get(t) ? { file: tex.get(t).file, size: [tex.get(t).W, tex.get(t).H], seqs: tex.get(t).seqs, frames: tex.get(t).frames } : { missing: true }) })),
     colors: [...new Map(flatAll.flatMap((s) => (s.colors || []).map((c) => [c.hex, c]))).values()].map((c) => c.hex),
     preview: { ...PREVIEW, times: TIMES, cps: { 0: 'origin (the caster, or the cast point of a ground-target spell)', 1: `+x ${D} (cast range, clamped 300-900)`, other: 'CP0, or CP0 -> CP1 for paths' }, system: primary },
   };
   fs.writeFileSync(path.join(dir, 'ref.json'), JSON.stringify(ref, null, 1));
-  const og = panel(hero, ability, ref, flatAll, flatP, tex, cps);
+  const { C: og, cells } = panel(hero, ability, ref, flatAll, flatP, tex, cps);
   fs.writeFileSync(path.join(dir, 'og.png'), encodePng(og.W, og.H, og.px));
+  TIMES.forEach((t, k) => { const f = path.join(dir, `cpu_${t.toFixed(1)}.png`); if (cells[k]) fs.writeFileSync(f, encodePng(cells[k].W, cells[k].H, cells[k].rgba)); else fs.rmSync(f, { force: true }); });
   return { dir, ref, roots: roots.length, systems: flatAll.length, textures: vtex.length };
+}
+
+/** Root systems as nested trees: { name, path, delay (s, absolute), cps: [control points the system's operators use], off?, children: [...] }. */
+function treeOf(flat) {
+  const out = [], stack = [];
+  for (const s of flat) {
+    const n = { name: s.name, path: s.path, delay: s.delay, cps: s.cps || [], ...(s.cpConfig?.length ? { cpConfig: s.cpConfig.map((c) => c.cp) } : {}), ...(s.disabled ? { off: true } : {}), ...(s.error ? { error: s.error } : {}), children: [] };
+    stack.length = s.depth;
+    (s.depth && stack[s.depth - 1] ? stack[s.depth - 1].children : out).push(n);
+    stack[s.depth] = n;
+  }
+  return out;
+}
+
+/** 6-8 representative colours of the enabled systems: colour literals weighted by how many systems use them, saturated first, spread out. */
+function palette(flat, max = 8) {
+  const w = new Map();
+  for (const s of flat) if (!s.disabled && !s.error) for (const c of new Set((s.colors || []).map((c) => c.hex))) w.set(c, (w.get(c) || 0) + 1);
+  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const sat = (h) => { const c = rgb(h), mx = Math.max(...c), mn = Math.min(...c); return mx < 24 ? 0 : (mx - mn) / mx; };
+  const cand = [...w.keys()].sort((a, b) => (sat(b) > 0.25) - (sat(a) > 0.25) || w.get(b) - w.get(a));
+  const out = [];
+  for (const h of cand) { if (out.length >= max) break; if (out.every((o) => Math.hypot(...rgb(o).map((v, i) => v - rgb(h)[i])) > 48)) out.push(h); }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- OG panel
@@ -112,7 +140,7 @@ function panel(hero, ability, ref, flatAll, flatP, tex, cps) {
   const rowsT = flatAll.filter((s) => !s.error).slice(0, 30);
   const TH = 64, tPer = Math.floor(PW / (TH + 30)), texRows = Math.ceil(texList.length / tPer);
   const H = 4 + 18 + 12 * Math.min(3, ref.ambiguous.length + 1) + CH + 8 + (texRows ? texRows * (TH + 14) + 4 : 0) + (cols.length ? 26 : 0) + 12 + rowsT.length * 9 + 12;
-  const C = new Canvas(PW, H, BG);
+  const C = new Canvas(PW, H, BG), cells = [];
   let y = 4;
   const n = ref.numbers || {}, vals = Object.entries(n.values || {}).slice(0, 8).map(([k, v]) => `${k} ${v}`).join('  ');
   drawText(C, 0, y, `OG DOTA 2   ${ability}   ${ref.mapping.roots.length} ROOTS  ${flatAll.length} SYSTEMS  ${ref.mapping.files.length} FILES  ${ref.mapping.variants.length} VARIANTS`, '#ffcf70', 1);
@@ -126,7 +154,7 @@ function panel(hero, ability, ref, flatAll, flatP, tex, cps) {
     const cam = camera({ W: CW, H: CH, scale: sc, cx: CW / 2 - ((x0 + x1) / 2) * sc, cy: CH / 2 - ((y0 + y1) / 2) * sc });
     const look = (t) => tex.get(t)?.img || null;
     TIMES.forEach((t, k) => {
-      const img = render(flatP, t, cps, cam, look);
+      const img = render(flatP, t, cps, cam, look); cells[k] = img;
       C.blit(img, k * (CW + GAP), y, 1);
       drawText(C, k * (CW + GAP) + 4, y + 4, `OG CPU PREVIEW  T ${t}S  ${path.basename(ref.mapping.primary, '.vpcf')}`, '#ffcf70', 1);
       drawText(C, k * (CW + GAP) + 4, y + CH - 9, `GRID 100U  BLUE CP0 ORIGIN  RED CP1 +X ${cps[1][0]}U  ${Math.round(sc * 100) / 100} PX/U`, DIM, 1);
@@ -177,7 +205,7 @@ function panel(hero, ability, ref, flatAll, flatP, tex, cps) {
     y += 9;
   }
   drawText(C, 0, H - 9, 'REF ONLY  NEVER COMMIT  -  LOCAL GAME FILES  -  CPU PREVIEW IS APPROXIMATE (SEE REF.JSON PREVIEW.CANNOT)', '#ff8080', 1);
-  return C;
+  return { C, cells };
 }
 
 // ---------------------------------------------------------------------------------------------------------------- hero
@@ -203,7 +231,7 @@ async function main() {
   if (bad.length) throw new RefError(`not an ability of ${hero}: ${bad.join(', ')}  (have: ${all.join(', ')})`);
   if (args.includes('--list')) {
     const h = heroInfo(hero);
-    for (const a of want.length ? want : all) { const m = abilityFiles(h, a); console.log(`${a.padEnd(34)} ${String(m.files.length).padStart(3)} files ${String(m.variants.length).padStart(3)} variants  ${m.files.slice(0, 5).map((f) => path.basename(f, '.vpcf')).join(' ')}`); }
+    for (const a of want.length ? want : all) { const m = abilityFiles(h, a); console.log(`${a.padEnd(34)} ${String(m.files.length).padStart(3)} files ${String(m.variants.length).padStart(3)} variants  ${m.source === 'precache' ? 'PRECACHE ' : ''}${m.files.slice(0, 5).map((f) => path.basename(f, '.vpcf')).join(' ')}`); }
     return;
   }
   console.log(`fx ref ${hero} -> ${path.join(CACHE, hero, 'fx')}`);

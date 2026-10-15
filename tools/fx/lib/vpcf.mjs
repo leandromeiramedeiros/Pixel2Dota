@@ -18,7 +18,22 @@ export function heroInfo(short) {
   const folders = String(h.particle_folder || `particles/units/heroes/hero_${short}`).split(',').map((s) => s.trim()).filter(Boolean);
   const slots = Object.keys(h).filter((k) => /^Ability\d+$/.test(k)).sort((a, b) => +a.slice(7) - +b.slice(7)).map((k) => h[k]).filter((a) => a && !/^special_bonus|^generic_hidden/.test(a));
   const defs = h.AbilityDefinitions || {}, glob = kv('scripts/npc/npc_abilities.txt').DOTAAbilities || {};
-  return { key, short, folders, slots, def: (a) => defs[a] || glob[a] || null };
+  return { key, short, folders, slots, def: (a) => defs[a] || glob[a] || null, precache: (a) => precacheOf(f, a) || precacheOf('scripts/npc/npc_abilities.txt', a) };
+}
+/**
+ * The ability's own `precache` block (hero file, then npc_abilities.txt): { particles: [vpcf], folders: [dir] } or null. Read from the raw text
+ * because the block repeats its "particle" key. Built-in (C++) abilities have none; the folder matcher in abilityFiles() is the fallback.
+ */
+function precacheOf(file, ability) {
+  const t = pak().readText(file), i = t.indexOf(`"${ability}"`);
+  if (i < 0) return null;
+  const blk = (s, from) => { const a = s.indexOf('{', from); if (a < 0) return null; let d = 0; for (let j = a; j < s.length; j++) { if (s[j] === '{') d++; else if (s[j] === '}' && !--d) return [a, j]; } return null; };
+  const ab = blk(t, i); if (!ab) return null;
+  const body = t.slice(ab[0], ab[1] + 1), k = body.search(/"precache"/i); if (k < 0) return null;
+  const pc = blk(body, k); if (!pc) return null;
+  const particles = [], folders = [];
+  for (const m of body.slice(pc[0], pc[1]).matchAll(/"(particle|particle_folder)"\s+"([^"]+)"/gi)) (m[1].toLowerCase() === 'particle' ? particles : folders).push(m[2].replace(/\\/g, '/'));
+  return particles.length || folders.length ? { particles, folders } : null;
 }
 /** Gameplay numbers of an ability def (cast range / point, duration, AoE-ish values at level 1, sound, behaviour). */
 export function abilityNumbers(def) {
@@ -67,6 +82,15 @@ function names(f, a) {
  * scepter / small LOD copies. Matching: ability key minus hero prefix (lina_dragon_slave -> dragon_slave) + ALIAS stems, against file names.
  */
 export function abilityFiles(hero, ability) {
+  // 1. the ability's own precache list (exact); a particle_folder entry adds that folder's files (variants split off)
+  const pc = hero.precache?.(ability);
+  if (pc) {
+    const files = [], variants = [], esc = (d) => d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const f of pc.particles) if (pak().entries.has(f + '_c')) files.push(f);
+    for (const d of pc.folders) for (const p of pak().list(new RegExp('^' + esc(d) + '/[^/]+\\.vpcf_c$'))) (VARIANT.test(path.basename(p, '.vpcf_c')) ? variants : files).push(p.replace(/_c$/, ''));
+    if (files.length) return { files: [...new Set(files)].sort(), variants: [...new Set(variants)].sort(), stems: [], source: 'precache' };
+  }
+  // 2. fallback: name matching in the hero's particle folders
   const all = hero.folders.flatMap((f) => pak().list(new RegExp('^' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/[^/]+\\.vpcf_c$')));
   const pre = ability.startsWith(hero.short + '_') ? ability.slice(hero.short.length + 1) : ability.replace(/^[a-z]+_/, '');
   const al = ALIAS[ability] || [], excl = al.some((s) => s.startsWith('='));
@@ -80,7 +104,7 @@ export function abilityFiles(hero, ability) {
     if (!want.some((w) => names(f, w))) continue;
     (VARIANT.test(f) ? variants : files).push(p.replace(/_c$/, ''));
   }
-  return { files: files.sort(), variants: variants.sort(), stems: want };
+  return { files: files.sort(), variants: variants.sort(), stems: want, source: 'folder name match (no precache block)' };
 }
 
 // ---------------------------------------------------------------------------------------------------------------- KV3 load (cached)
@@ -160,6 +184,16 @@ function colorsIn(o, out = [], pre = '') {
   }
   return out;
 }
+/** Control point numbers a system's operators read or write (integer fields named like a control point; children / preview config excluded). */
+function cpsIn(o, out = new Set(), top = true) {
+  if (!o || typeof o !== 'object') return out;
+  for (const [k, v] of Object.entries(o)) {
+    if (top && (k === 'm_Children' || k === 'm_controlPointConfigurations')) continue;
+    if (/ControlPoint|CP/.test(k) && Number.isInteger(v) && v >= 0 && v < 64) out.add(v);
+    else if (v && typeof v === 'object') cpsIn(v, out, false);
+  }
+  return top ? [...out].sort((a, b) => a - b) : out;
+}
 /** Every resource ref (vtex / vmat / vmdl) inside an object. */
 function resIn(o, out = new Set()) {
   if (!o || typeof o !== 'object') return out;
@@ -178,6 +212,7 @@ export function summarize(p, o) {
     emitters: [], renderers: [], init: {}, ops: {}, colors: [], textures: [], classes: { init: [], op: [], force: [], constraint: [] },
     cpConfig: (o.m_controlPointConfigurations?.[0]?.m_drivers || []).map((d) => ({ cp: d.m_iControlPoint ?? 0, attach: d.m_iAttachType, offset: d.m_vecOffset, entity: d.m_entityName })),
     children: childrenOf(o),
+    cps: cpsIn(o),
   };
   if (o.m_ConstantColor) S.colors.push({ key: 'm_ConstantColor', hex: hexOf(o.m_ConstantColor), rgb: o.m_ConstantColor.slice(0, 3), a: o.m_ConstantColor[3] ?? 255 });
   for (const e of o.m_Emitters || []) {
