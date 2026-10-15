@@ -4,7 +4,7 @@
 // Sheet format: { pal:{ch:'#rrggbb[aa]'}, anchor:[x,y], px?:N, emit?:{ch:strength}, frames:{ key:[rows] } }, '.' = transparent.
 //   Dirs: s e n (+ mirrored w) for 1x sheets; 8-dir sheets also paint se ne (sw/nw mirror se/ne). px = pixel density (2 = drawn at 2x, shown at the same world size).
 import * as THREE from 'three';
-import { withVoxPortrait } from './portraits.js';
+import { withVoxPortrait, portraitShorts } from './portraits.js';
 
 let sheetMods = {};
 try { sheetMods = import.meta.glob('./sheets/*.js'); } catch { /* not running under vite (node tests) */ }
@@ -20,6 +20,8 @@ export async function loadSheets() {
       if (def && def.frames) out[name] = def;
     } catch (e) { console.warn('[atlas] sheet "' + name + '" failed to load:', e && e.message); }
   }));
+  // Heroes with a voxel portrait but no 2D sheet: portrait-only def.
+  await Promise.all(portraitShorts().filter((s) => !out[s]).map(async (s) => { const def = await withVoxPortrait(s, null); if (def) out[s] = def; }));
   return out;
 }
 
@@ -150,7 +152,7 @@ export function buildAtlas(sheets, opts = {}) {
       return build(name, key, false);
     },
     has(name, key) { return !!(reg[name] && (reg[name].frames[key] || (/_(w|sw|nw)_\d+$/.test(key) && reg[name].frames[key.replace(/_(w|sw|nw)_(\d+)$/, (_, d, i) => '_' + MIRROR[d] + '_' + i)]))); },
-    hasSheet(name) { return !!reg[name]; },
+    hasSheet(name) { return !!reg[name] && !reg[name].def.portraitOnly; },
     /** resolve(sheet, anim, dir 's'|'n'|'e'|'w', i) -> frame with the fallback chain. */
     resolve(name, anim, dir, i, prefix = '', clamp = false) {
       const r = reg[name]; if (!r) return null;

@@ -19,7 +19,7 @@ function loadPortrait(short) {
   if (portraitLoading.has(short)) return portraitLoading.get(short);
   const load = sheetLoaders['../art/sheets/' + short + '.js'];
   const p = (load ? load() : Promise.resolve(null)).then(async (m) => {
-    const sh = m && await withVoxPortrait(short, m.default), rows = sh && sh.frames && sh.frames.portrait;
+    const sh = await withVoxPortrait(short, m && m.default), rows = sh && sh.frames && sh.frames.portrait;
     if (!rows) return;
     const w = Math.max(...rows.map((r) => r.length)), h = rows.length;
     const c = document.createElement('canvas'); c.width = w; c.height = h;
