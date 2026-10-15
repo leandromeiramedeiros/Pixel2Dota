@@ -8,6 +8,7 @@ import * as invoker_forged_spirit from './creeps/invoker_forged_spirit.js';
 import * as juggernaut from './heroes/juggernaut.js';
 import * as juggernaut_healing_ward from './creeps/juggernaut_healing_ward.js';
 import * as lina from './heroes/lina.js';
+import * as lion from './heroes/lion.js';
 import * as melee_dire from './creeps/melee_dire.js';
 import * as melee_radiant from './creeps/melee_radiant.js';
 import * as pudge from './heroes/pudge.js';
@@ -19,6 +20,7 @@ export const VOX = {   // alphabetical (parallel branches merge clean)
   juggernaut: { kind: 'hero', unit: 'npc_dota_hero_juggernaut', mod: juggernaut },
   juggernaut_healing_ward: { kind: 'creep', unit: 'npc_dota_juggernaut_healing_ward', mod: juggernaut_healing_ward },
   lina: { kind: 'hero', unit: 'npc_dota_hero_lina', mod: lina },
+  lion: { kind: 'hero', unit: 'npc_dota_hero_lion', mod: lion },
   melee_dire: { kind: 'creep', unit: 'npc_dota_creep_badguys_melee', mod: melee_dire },
   melee_radiant: { kind: 'creep', unit: 'npc_dota_creep_goodguys_melee', mod: melee_radiant },
   pudge: { kind: 'hero', unit: 'npc_dota_hero_pudge', mod: pudge },
