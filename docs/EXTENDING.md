@@ -43,7 +43,7 @@ any spell without a server) or a real match with cheats. Never self-certify visu
 2. `shared/test/data.test.js DECISION_ITEMS` and [DECISIONS.md](DECISIONS.md) item list.
 3. `server/src/sim/items.js`: `stats` apply automatically (`applyStats`); actives need a `useInfo` case (targeting/range/ready) and a `use` case; hooks (`onAttack`, `onDamaged` ...)
    per the header. Boots go in `BOOTS` (ms does not stack). Tests: `server/test/items.test.js`.
-4. Shop: `client/src/ui/shopdata.js SHOP_CATEGORIES` (tooltips/recipe trees are generic from DATA). Icon: `tools/art/icons/items.mjs` + rebuild icons.
+4. Shop: automatic. `client/src/ui/shopdata.js SHOP_COLUMNS` holds Dota's columns and order verbatim from `scripts/shops.txt`, so an item in DATA shows up in its Dota slot. A key missing there (event / new item) has to be added to its column. Tooltips, recipe trees and the detail panel are generic from DATA. Icon: `tools/art/icons/items.mjs` + rebuild icons.
 5. Fx: `client/src/render/fx/items.js R.spell('item_x', ...)` (an `item_*` fallback exists). Bots: add to `BUILD` lists if they should buy it.
 
 ## Add or convert a spell to 3D fx

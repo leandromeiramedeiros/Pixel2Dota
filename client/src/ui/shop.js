@@ -1,7 +1,10 @@
-// Shop panel (DOM). Pure rules live in shopdata.js.
-//   createShop(parent, { sheets, send, tooltip, onMessage }) -> { el, open(), close(), toggle(), isOpen(), update({ gold, items, inRange, dead }) }
+// Shop panel (DOM), Dota layout: every column at once (BASIC | UPGRADES, shops.txt order) + a detail panel for the selected item.
+//   Click / tap selects (details), right-click / double-click / BUY buys. Pure rules live in shopdata.js.
+//   createShop(parent, { sheets, send, tooltip, onMessage }) -> { el, open(), close(), toggle(), isOpen(), select(key), update({ gold, items, inRange, dead }) }
 import { MSG, ORDER } from '../../../shared/protocol.js';
-import { SHOP_CATEGORIES, buyCheck, effectiveCost, clampPanelPos, parsePanelPos } from './shopdata.js';
+import { DATA } from '../../../shared/data.js';
+import { SHOP_GROUPS, SHOP_CATEGORIES, buyCheck, effectiveCost, usedIn, clampPanelPos, parsePanelPos } from './shopdata.js';
+import { renderTip } from './tooltip.js';
 import { prettyName, fmtGold } from './format.js';
 import { pixelEl } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
@@ -10,6 +13,8 @@ const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) 
 
 const POS_KEY = 'p2d.shopPos';
 const REASON = { range: 'Out of shop range', gold: 'Not enough gold', full: 'Inventory full', dead: 'You are dead', unknown: 'Unknown item' };
+// column headers are one icon wide: short labels, full name on hover
+const SHORT = { consumables: 'CONSUM', attributes: 'ATTRIB', equipment: 'EQUIP', misc: 'MISC', secret: 'SECRET', accessories: 'ACCESS', support: 'SUPP', magical: 'MAGIC', armor: 'ARMOR', weapons: 'WEAPON', artifacts: 'ARTIF' };
 
 export function createShop(parent, { sheets, send, tooltip, onMessage }) {
   const el = h('div', 'h-shop h-panel');
@@ -17,20 +22,18 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
   const status = h('span', 'st'); const gold = h('span', 'h-gold'); const x = h('span', 'x', 'X');
   gold.style.padding = '0'; gold.style.height = 'auto';
   head.append(title, status, gold, x);
-  const body = h('div', 'body'); const cats = h('div', 'cats'); const grid = h('div', 'grid');
-  body.append(cats, grid);
-  const foot = h('footer'); const hint = h('span', null, 'Click or right-click to buy'); const rng = h('span', 'rng');
+  const body = h('div', 'body'); const cols = h('div', 'cols'); const det = h('div', 'det');
+  body.append(cols, det);
+  const foot = h('footer');
+  const hint = h('span', 'hint');
+  hint.append(h('span', 'hm', 'Click: info - Right-click / double-click: buy'), h('span', 'ht', 'Tap: info - BUY to purchase'));
+  const rng = h('span', 'rng');
   foot.append(hint, rng);
   el.append(head, body, foot); parent.append(el);
 
-  let cat = SHOP_CATEGORIES[0].id, ctx = { gold: 0, items: [], inRange: false, dead: false }, opened = false;
-  const catEls = {}, itemEls = [];
+  let ctx = { gold: 0, items: [], inRange: false, dead: false }, opened = false, sel = null, detSig = '';
+  const itemEls = [];
   const goldIcon = pixelEl(GLYPHS.coin, null, 1); goldIcon.style.width = 'calc(9 * var(--u))';
-
-  for (const c of SHOP_CATEGORIES) {
-    const b = h('div', 'cat', c.name); catEls[c.id] = b; cats.append(b);
-    b.addEventListener('click', () => { cat = c.id; build(); });
-  }
   x.addEventListener('click', () => api.close());
 
   // ---- drag by the header (mouse + touch via pointer events); position is remembered and re-clamped on resize / rotation
@@ -75,28 +78,73 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
     if (!r.ok) { onMessage && onMessage(REASON[r.reason] || 'Cannot buy', true); return; }
     send(MSG.ORDER, { t: ORDER.BUY, key });
   }
-
-  function build() {
-    for (const id in catEls) catEls[id].classList.toggle('on', id === cat);
-    grid.textContent = ''; itemEls.length = 0;
-    const c = SHOP_CATEGORIES.find((k) => k.id === cat);
-    for (const key of c.items) {
-      const it = h('div', 'it'); it.dataset.key = key;
-      const ico = sheets && sheets.icons ? pixelEl(sheets.icons, key, 1) : h('canvas', 'px');
-      const cost = h('div', 'c', fmtGold(effectiveCost(key, ctx.items).cost));
-      it.append(ico, cost);
-      it.addEventListener('click', () => buy(key));
-      it.addEventListener('contextmenu', (e) => { e.preventDefault(); buy(key); });
-      tooltip.bind(it, () => {
-        const r = buyCheck(key, ctx), extra = [];
-        const ec = effectiveCost(key, ctx.items);
-        if (ec.consumed > 0) extra.push({ text: `Components owned: pay ${fmtGold(ec.cost)}g`, cls: 'note stat' });
-        if (!r.ok) extra.push({ text: r.reason === 'gold' ? `Need ${fmtGold(r.need)} more gold` : REASON[r.reason], cls: 'bad' });
-        return { type: 'item', key, items: ctx.items, extra };
-      });
-      grid.append(it); itemEls.push({ key, it, cost });
-    }
+  function select(key) {
+    if (!DATA.items[key]) return;
+    sel = key; detSig = '';
+    for (const e of itemEls) e.it.classList.toggle('sel', e.key === sel);
     refresh();
+  }
+
+  // ---- columns: group header spanning its columns, column header, items stacked in shops.txt order (empty columns keep their header)
+  for (const g of SHOP_GROUPS) {
+    const grp = h('div', 'grp ' + g.id); const gc = h('div', 'gc');
+    grp.append(h('div', 'gh', g.name), gc); cols.append(grp);
+    for (const c of SHOP_CATEGORIES.filter((k) => k.group === g.id)) {
+      const col = h('div', 'col' + (c.items.length ? '' : ' empty')); col.dataset.col = c.id;
+      const ch = h('div', 'ch', SHORT[c.id] || c.name); ch.title = c.name;
+      const list = h('div', 'ci');
+      col.append(ch, list); gc.append(col);
+      for (const key of c.items) {
+        const it = h('div', 'it'); it.dataset.key = key;
+        const ico = sheets && sheets.icons ? pixelEl(sheets.icons, key, 1) : h('canvas', 'px');
+        const cost = h('div', 'c', fmtGold(effectiveCost(key, ctx.items).cost));
+        it.append(ico, cost);
+        it.addEventListener('click', () => select(key));
+        it.addEventListener('dblclick', (e) => { e.preventDefault(); buy(key); });
+        it.addEventListener('contextmenu', (e) => { e.preventDefault(); select(key); buy(key); });
+        tooltip.bind(it, () => {
+          const r = buyCheck(key, ctx), extra = [];
+          const ec = effectiveCost(key, ctx.items);
+          if (ec.consumed > 0) extra.push({ text: `Components owned: pay ${fmtGold(ec.cost)}g`, cls: 'note stat' });
+          if (!r.ok) extra.push({ text: r.reason === 'gold' ? `Need ${fmtGold(r.need)} more gold` : REASON[r.reason], cls: 'bad' });
+          return { type: 'item', key, items: ctx.items, extra };
+        });
+        list.append(it); itemEls.push({ key, it, cost });
+      }
+    }
+  }
+
+  // ---- detail panel: icon, name, cost, BUY, stats / description / recipe tree (owned parts highlighted), used in
+  const dHead = h('div', 'dh'), dIco = h('div', 'di'), dName = h('div', 'dn'), dCost = h('div', 'dc');
+  const dTxt = h('div', 'dt'); dTxt.append(dName, dCost); dHead.append(dIco, dTxt);
+  const buyB = h('div', 'buy', 'BUY'), why = h('div', 'why');
+  const dBody = h('div', 'db'), used = h('div', 'used');
+  const empty = h('div', 'none', 'Select an item');
+  det.append(empty, dHead, buyB, why, dBody, used);
+  buyB.addEventListener('click', () => { if (sel) buy(sel); });
+  det.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  function renderDetail(ec) {
+    dIco.textContent = '';
+    if (sheets && sheets.icons) dIco.append(pixelEl(sheets.icons, sel, 1));
+    dName.textContent = prettyName(sel);
+    dCost.textContent = '';
+    dCost.append(pixelEl(GLYPHS.coin, null, 1), document.createTextNode(fmtGold(ec.cost)));
+    if (ec.consumed > 0) dCost.append(h('s', null, fmtGold(DATA.items[sel].cost)));
+    renderTip(dBody, { type: 'item', key: sel, items: ctx.items }, sheets, { head: false, onPick: select });
+    used.textContent = '';
+    const ups = usedIn(sel);
+    if (ups.length) {
+      used.append(h('div', 'uh', 'Used in'));
+      const row = h('div', 'ur');
+      for (const k of ups) {
+        const b = h('div', 'u'); b.title = prettyName(k);
+        if (sheets && sheets.icons) b.append(pixelEl(sheets.icons, k, 1));
+        b.addEventListener('click', () => select(k));
+        row.append(b);
+      }
+      used.append(row);
+    }
   }
 
   function refresh() {
@@ -110,12 +158,20 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
       e.it.classList.toggle('poor', ctx.inRange && r.reason === 'gold');
       const c = String(fmtGold(r.cost)); if (e.cost.textContent !== c) e.cost.textContent = c;
     }
+    det.classList.toggle('on', !!sel);
+    if (!sel) return;
+    const r = buyCheck(sel, ctx), ec = effectiveCost(sel, ctx.items);
+    const sig = sel + '|' + ec.cost + '|' + (ctx.items || []).map((i) => (i && i.key) || '').join(',');
+    if (sig !== detSig) { detSig = sig; renderDetail(ec); }
+    buyB.classList.toggle('dis', !r.ok);
+    why.textContent = r.ok ? '' : r.reason === 'gold' ? `Need ${fmtGold(r.need)} more gold` : REASON[r.reason] || '';
   }
 
-  build();
+  refresh();
   const api = {
     el,
     isOpen: () => opened,
+    select,
     open() { opened = true; el.classList.add('open'); refresh(); if (pos) pos = place(pos.x, pos.y); },
     close() { opened = false; el.classList.remove('open'); tooltip.hide(); },
     toggle() { opened ? api.close() : api.open(); },
