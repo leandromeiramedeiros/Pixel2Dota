@@ -19,8 +19,9 @@
 //   WORLD  camera = intents to renderer.cam (render/camdir.js); locked to the hero by default (CAM toggles it), the joystick leads it, the aim point
 //          leans it.  Locked one-finger press (classifyPress): tap = move there (an enemy: attack it); hold still = keep moving to the finger (WALK_MS
 //          repeat); quick deliberate drag = peek (look around, springs back on release).  Unlocked: drag pans.  Pinch zooms.  Minimap (top-left, under
-//          the top bar) suspends the lock while pressed (cast on a far spot with the other thumb) and the camera returns when it / that cast ends; the
-//          aim joystick of a long-range spell held past its rim pans fast.  Portrait tap locks + resets the zoom, portrait hold = stats panel (hud.js).
+//          the top bar) suspends the lock while pressed (cast on a far spot with the other thumb) and the camera returns when it / that cast ends; a
+//          minimap tap while aiming a long / global spell (TP) puts the aim on the tapped spot (the joystick fine-tunes from there); the
+//          aim joystick of a long-range spell held past its rim pans fast.  The CANCEL target slides clear of an aim pressed right under it.  Portrait tap locks + resets the zoom, portrait hold = stats panel (hud.js).
 //   Portrait phones get a "turn your phone sideways" overlay that blocks input.
 import { MSG, ORDER, TEAM, ST, KIND, ACTIVE_SLOTS, INV_SLOTS } from '../../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
@@ -280,6 +281,25 @@ export function rayToEdge(px, py, ux, uy, W, H, m = 0) {
   const tx = ux > 1e-9 ? (x1 - px) / ux : ux < -1e-9 ? (x0 - px) / ux : Infinity;
   const ty = uy > 1e-9 ? (y1 - py) / uy : uy < -1e-9 ? (y0 - py) / uy : Infinity;
   const r = Math.min(tx, ty); return Number.isFinite(r) ? Math.max(0, r) : 0;
+}
+/**
+ * Where a long / global aim is measured from.  Camera following: the hero, and fz = the hero's offset from the camera (refreshed every
+ * update).  Camera let go (edge pan / minimap): the hero's spot rides with the camera, cam + fz, fz frozen from the last followed update, so
+ * a minimap jump carries the aim to the tapped area.  No fz yet (the aim began with the camera already free) or fz reset to 0 (minimap tap
+ * while aiming): the camera's spot itself.   -> { x, y, fz }
+ */
+export function carryAnchor(fz, hero, camPos, free) {
+  if (!free) return { x: hero.x, y: hero.y, fz: { x: hero.x - camPos.x, y: hero.y - camPos.y } };
+  const f = fz || { x: 0, y: 0 };
+  return { x: camPos.x + f.x, y: camPos.y + f.y, fz: f };
+}
+/** CANCEL target (anchor px, scale 1).  An aim pressed at (px, py) within minD of it (same units as def) would cancel mid-aim, so for that
+ *  aim it slides left along its row until clear (the top wheel item slots sit right under it). */
+export const CANCEL_POS = { x: 6, y: -252, size: 58 };
+export function cancelSpot(px, py, minD, def = CANCEL_POS) {
+  const dy = def.y - py;
+  if (Math.hypot(def.x - px, dy) >= minD) return { x: def.x, y: def.y };
+  return { x: Math.min(def.x, px - Math.sqrt(Math.max(0, minD * minD - dy * dy))), y: def.y };
 }
 
 // aim sensitivity s: the thumb's drag from the button counts s times (full range at AIM_R / s px).  0.75..2.5 in 0.25 steps, default 1.5.
@@ -635,7 +655,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     for (const b of abBtns) place(b.el, SZ.ab, Math.cos(b.polar.a * RAD) * b.polar.r, -Math.sin(b.polar.a * RAD) * b.polar.r);
     const sm = smallArcLayout(abBtns.length);
     wiBtns.forEach((b, j) => { b.polar = sm[j]; place(b.el, SZ.wi, Math.cos(b.polar.a * RAD) * b.polar.r, -Math.sin(b.polar.a * RAD) * b.polar.r); });
-    place(cancelEl, 58, 6, -252);
+    place(cancelEl, CANCEL_POS.size, CANCEL_POS.x, CANCEL_POS.y);
     aimKnob.style.width = aimKnob.style.height = px(30); aimKnob.style.marginLeft = aimKnob.style.marginTop = -Math.round(15 * K) + 'px';
     const padD = aimR() * 2;
     pad.style.width = pad.style.height = padD + 'px'; pad.style.marginLeft = pad.style.marginTop = -padD / 2 + 'px';
@@ -978,6 +998,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const rect = pad.parentNode.getBoundingClientRect();
     aim.ox = rect.left; aim.oy = rect.top;
     pad.style.left = (aim.x0 - rect.left) + 'px'; pad.style.top = (aim.y0 - rect.top) + 'px';   // the joystick ring sits where the thumb pressed
+    placeCancel(aim.x0 - rect.left, aim.y0 - rect.top);                                         // never within the joystick's reach (+ its pan zone)
     R.classList.add('aiming'); cancelEl.classList.remove('hot'); aimKnob.classList.add('t-on');
     aim.tg = targetingFor(b, aim.info, key, true, lvl, realRange(info));
     aimStart(aim);
@@ -993,12 +1014,26 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     a.fw = Math.min(a.info.range * 0.75, vw * T.AIM_START_W);
     a.dirOnly = a.info.mode === 'point' && !!a.tg && (a.tg.shape.type === 'line' || a.tg.shape.type === 'cone');
   }
-  /** Where a long aim is measured from: the hero, or once the camera let go of it (edge pan / minimap) the hero's spot carried along with the camera. */
+  /** Where a long aim is measured from: the hero, or once the camera let go of it (edge pan / minimap) the hero's spot carried along with the
+   *  camera (carryAnchor: the offset is taken while following, so the minimap's jump, which lands before the next update, carries it too). */
   function aimAnchor(a, u) {
-    if (!(cam && tempFree() && longAim(a.rr))) { a.fz = null; return { x: u.x, y: u.y }; }
-    const p = cam.position;
-    if (!a.fz) a.fz = { x: u.x - p.x, y: u.y - p.y };
-    return { x: p.x + a.fz.x, y: p.y + a.fz.y };
+    a.carried = false;
+    if (!(cam && longAim(a.rr))) { a.fz = null; return { x: u.x, y: u.y }; }
+    const free = tempFree(), c = carryAnchor(a.fz, u, cam.position, free);
+    a.fz = c.fz; a.carried = free;
+    return c;
+  }
+  /** Minimap pressed while aiming a long / global spell (Dota mobile): the aim jumps to the tapped spot, the joystick restarts there (fine-tune). */
+  function aimToMinimap() {
+    const a = aim; if (!a || !cam || !longAim(a.rr)) return;
+    a.fz = { x: 0, y: 0 }; a.x0 = a.ex; a.y0 = a.ey;
+    if (!a.moved) { a.moved = true; clearReorderTimer(); clearLong(); hideTip(); }   // a deliberate aim: the release casts (no tooltip / reorder)
+    pad.style.left = (a.x0 - a.ox) + 'px'; pad.style.top = (a.y0 - a.oy) + 'px';
+  }
+  function placeCancel(px, py) {   // anchor px; null = the layout spot
+    const def = { x: CANCEL_POS.x * K, y: CANCEL_POS.y * K };
+    const s = px == null ? def : cancelSpot(px, py, aimR() * (T.AIM_OVER + T.AIM_OVER_RAMP) + (CANCEL_POS.size / 2) * K + 10, def);
+    cancelEl.style.left = Math.round(s.x) + 'px'; cancelEl.style.top = Math.round(s.y) + 'px';
   }
 
   /** Recompute the aim point from the current drag (also each frame: the hero / camera move under a still thumb, snapped units are followed). */
@@ -1018,11 +1053,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const hasDrag = !!j;
     let ax, ay, unitId = '';
     if (j) { ax = anc.x + j.x; ay = anc.y + j.y; a.over = j.over; a.wdir = { x: j.dx, y: j.dy }; }
+    else if (a.carried) { ax = anc.x; ay = anc.y; a.over = 0; }                                  // camera let go (minimap): the carried spot itself
     else { ax = u.x + Math.cos(u.facing || 0) * a.fw; ay = u.y + Math.sin(u.facing || 0) * a.fw; a.over = 0; }   // not dragging yet: the preview ahead of the hero
     const unit = a.info.mode === 'unit' || a.info.mode === 'unitpoint';
     if (unit) {
-      const o = { team: a.info.team, myTeam: myTeam(), visible, maxD: hasDrag ? T.SNAP : a.info.range + 400 };
-      const s = snapUnit(unitList(), hasDrag ? ax : u.x, hasDrag ? ay : u.y, o);
+      const at = hasDrag || a.carried;   // a dragged / carried aim snaps around the aim point, an undragged one around the hero
+      const o = { team: a.info.team, myTeam: myTeam(), visible, maxD: at ? T.SNAP : a.info.range + 400 };
+      const s = snapUnit(unitList(), at ? ax : u.x, at ? ay : u.y, o);
       if (s) { unitId = s.id; ax = s.x; ay = s.y; }
     }
     const rr = a.tg ? a.tg.ring : 0;
@@ -1056,7 +1093,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     freeAim = false; if (cam) cam.aimAt(null);   // the frame lifts the suspend: the camera returns to the hero (a.point is already fixed)
     pointers.delete(a.ptr); a.b.ptr = null;
     a.b.el.classList.remove('bad'); aimKnob.classList.remove('t-on');
-    R.classList.remove('aiming'); cancelEl.classList.remove('hot');
+    R.classList.remove('aiming'); cancelEl.classList.remove('hot'); placeCancel(null);
     if (renderer.setHover) renderer.setHover(null);
     if (H.setTargeting) H.setTargeting(null);
     try { a.b.el.releasePointerCapture(a.ptr); } catch { /* */ }
@@ -1280,7 +1317,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const sb = root.querySelector('.h-sb'); if (sb) on(sb, 'click', () => setSb(false));
     if (H.setPortraitCentre) H.setPortraitCentre(() => { setLocked(true); recentre(); });      // portrait tap/double-tap centres on the hero (hold = stats panel, in hud.js)
     const mm = root.querySelector('.h-mm');
-    if (mm) on(mm, 'pointerdown', (e) => { mmPtr = e.pointerId; if (cam) cam.suspend(true); }, true);   // suspended before minimap.js jumps (keeps the lock)
+    if (mm) on(mm, 'pointerdown', (e) => { mmPtr = e.pointerId; if (cam) cam.suspend(true); aimToMinimap(); }, true);   // suspended before minimap.js jumps (keeps the lock); an aim jumps with it
     const mmUp = (e) => { if (e.pointerId !== mmPtr) return; mmPtr = null; if (aim) freeAim = true; };   // aiming: stay there until the cast
     on(window, 'pointerup', mmUp); on(window, 'pointercancel', mmUp);
   }

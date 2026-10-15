@@ -6,7 +6,7 @@ import { TEAM, KIND, ST } from '../../shared/protocol.js';
 import {
   T, touchWanted, isPortrait, castClass, selfCastTarget, arcLayout, angleDiff, joyShouldSend, dragVector, aimWorldOffset,
   snapUnit, pickAttackTarget, cycleCandidates, pinchGoal, validTarget, touchScale, aimShape, holdPhase, releaseAction, aimCancelled, inRect,
-  smallArcLayout, loadItemOrder, saveItemOrder, itemMapKey, usableItem, packWheelItems, placeWheelItem, dropAction, BAG_POS, bagBox, aimJoy, rayToEdge, clampSens, aimRadius, loadAimSens, saveAimSens, SENS, SENS_STEPS,
+  smallArcLayout, loadItemOrder, saveItemOrder, itemMapKey, usableItem, packWheelItems, placeWheelItem, dropAction, BAG_POS, bagBox, aimJoy, rayToEdge, carryAnchor, cancelSpot, CANCEL_POS, clampSens, aimRadius, loadAimSens, saveAimSens, SENS, SENS_STEPS,
 } from '../src/ui/touch.js';
 import { targetInfo } from '../src/ui/targeting.js';
 
@@ -328,4 +328,34 @@ test('rayToEdge: distance along a direction to the inset view edge', () => {
   assert.equal(rayToEdge(400, 200, 0, -1, 800, 400, 50), 150);
   assert.ok(Math.abs(rayToEdge(400, 200, Math.SQRT1_2, Math.SQRT1_2, 800, 400, 0) - 200 * Math.SQRT2) < 1e-9, 'diagonal hits the bottom first');
   assert.equal(rayToEdge(-50, 200, -1, 0, 800, 400, 0), 0, 'off-screen point pulled in');
+});
+
+test('carryAnchor: a long aim rides with the camera once it is let go; the offset is taken while following (minimap jump regression)', () => {
+  const hero = { x: -6000, y: -6000 };
+  let c = carryAnchor(null, hero, { x: -5900, y: -5800 }, false);          // following: the hero, offset recorded
+  assert.deepEqual([c.x, c.y], [-6000, -6000]); assert.deepEqual(c.fz, { x: -100, y: -200 });
+  // the minimap jumps the camera BEFORE the next update: the hero's spot must ride along, not stay on the (now off-screen) hero
+  c = carryAnchor(c.fz, hero, { x: 5000, y: 5000 }, true);
+  assert.deepEqual([c.x, c.y], [4900, 4800]);
+  c = carryAnchor(c.fz, hero, { x: 6000, y: 5000 }, true);                 // edge pan / minimap drag keeps carrying it
+  assert.deepEqual([c.x, c.y], [5900, 4800]);
+  c = carryAnchor(null, hero, { x: 3000, y: 2000 }, true);                 // aim began with the camera already free: the camera's spot
+  assert.deepEqual([c.x, c.y], [3000, 2000]);
+  c = carryAnchor({ x: 0, y: 0 }, hero, { x: 1234, y: -77 }, true);        // minimap tap while aiming (fz reset): exactly the tapped spot
+  assert.deepEqual([c.x, c.y], [1234, -77]);
+});
+
+test('cancelSpot: the CANCEL target is never within an aim press joystick + pan reach (top wheel item slots sit right under it)', () => {
+  const R = aimRadius(T.AIM_R, SENS.DEF), minD = R * (T.AIM_OVER + T.AIM_OVER_RAMP) + CANCEL_POS.size / 2 + 10;
+  assert.deepEqual(cancelSpot(-150, -40, minD), { x: CANCEL_POS.x, y: CANCEL_POS.y }, 'far press: the layout spot');
+  const top = P(smallArcLayout(4)[5]);
+  assert.ok(Math.hypot(top.x - CANCEL_POS.x, top.y - CANCEL_POS.y) < minD, 'sanity: the last small slot is under the default spot');
+  for (const n of [0, 4, 6]) {
+    for (const p of smallArcLayout(n).map(P).concat(arcLayout(n).map(P))) {
+      const s = cancelSpot(p.x, p.y, minD);
+      assert.ok(Math.hypot(s.x - p.x, s.y - p.y) >= minD - 1e-9, `${n}: ${p.x.toFixed(0)},${p.y.toFixed(0)}`);
+      assert.equal(s.y, CANCEL_POS.y, 'same row (clear of the top bar)');
+      assert.ok(s.x <= CANCEL_POS.x, 'slides left, toward the screen');
+    }
+  }
 });
