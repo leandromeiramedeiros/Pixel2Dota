@@ -57,6 +57,7 @@ ${VOX_GLSL}
 #endif
 uniform sampler2D uTiles, uMap;
 uniform vec2 uAtlas, uMapSize;
+uniform float uGround;       // ground detail tier (quality preset "ground"): 0 palettes + one layer noise, 1 + lane stones / soil lip / flowers, 2 + cracked dirt / sand patches / 2nd octave, 3 + micro detail
 uniform vec4 uMapRect;       // x0, y1, tile size, unused
 uniform vec2 uBase[16];      // atlas cell origin of the canonical texture per kind (type * 2 + side), used when a neighbour bleeds in
 varying vec2 vUv;
@@ -210,11 +211,35 @@ void main(){
           alb = VT[pre * 5 + tn]; em = 0.;
           float vm = vnoise(dqw * .009 + 3.) * .6 + vnoise(dqw * .034 + 9.) * .4;
           float vq = floor(vm * 5. + th) / 5.;
+          if (ft < .5) {
+            // open ground, after the Dota 2 ground blends: two grass layers + sand patches (Radiant), cracked earth + dead grass (Dire); edges dithered per cell
+            bool gd = fs > .5;
+            float gm = vnoise(dqw * .02 + (gd ? 23. : 7.)) * (uGround > 1.5 ? .65 : 1.) + (uGround > 1.5 ? vnoise(dqw * .07 + 1.) * .35 : 0.) + (th - .5) * .1;
+            float fp = uGround > .5 ? vnoise(dqw * .05 + 31.) : 0.;
+            if (!gd) {
+              if (gm > .6) alb *= vec3(1.16, 1.1, .8);                 // sunlit yellow-green layer
+              else if (gm < .33) alb *= vec3(.84, .95, .92);           // lush dark layer
+              float sp = uGround > 1.5 ? vnoise(dqw * .014 + 61.) + (th - .5) * .08 : 0.;
+              if (sp > .75) alb = VT[30 + tn];                         // sandy patch (lane sand palette)
+              else if (fp > .66 && h1 < .07) { float c = h2; alb = c < .3 ? vec3(.88, .4, .58) : c < .6 ? vec3(.93, .8, .3) : c < .85 ? vec3(.9, .88, .78) : vec3(.45, .58, .9); }   // flower clumps
+            } else {
+              if (gm > .66) alb = mix(alb, vec3(.42, .37, .21) * (.85 + .3 * vn), .85);   // dead ochre grass
+              else if (gm < .3) alb *= vec3(.8, .8, .84);                               // dark cracked earth
+              if (fp > .7 && h1 < .03) alb = h2 < .6 ? vec3(.6, .24, .12) : vec3(.36, .22, .34);   // rust leaves / dusk-violet weeds
+            }
+            if (uGround > 2.5) {   // ultra micro detail: sun-catching blade cells, pebbles with a shadow cell, rare ember glints on Dire
+              float hp = hash12(dq * .91 + 17.), hs = hash12((dq - vec2(1., 0.)) * .91 + 17.);
+              if (hp < .012) alb = mix(alb, gd ? vec3(.5, .49, .46) : vec3(.62, .6, .52), .75);
+              else if (hs < .012) alb *= .7;
+              else if (!gd && h2 > .965 && gm > .45) alb = alb * 1.22 + vec3(.03, .04, 0.);
+              else if (gd && h2 > .997 && fp > .5) { alb = vec3(.95, .42, .12); em = .25; }
+            }
+          }
           if (ft > 3.5 && ft < 4.5) {
             // lanes (after the Dota 2 lane blends): stone patches in the worn path, a dark soil lip with grass tufts where the grass meets it
             bool dl = fs > .5;
             float pm = vnoise(dqw * .012 + (dl ? 41. : 17.)) * .7 + vnoise(dqw * .05 + 5.) * .3;
-            if (dl && pm <= .6) {   // Dire cracked dirt between the slab patches: sparse dark crack lines on a 5-cell jittered net
+            if (dl && pm <= .6 && uGround > 1.5) {   // Dire cracked dirt between the slab patches: sparse dark crack lines on a 5-cell jittered net
               vec2 g = floor(vc / 5.); float d1 = 99., d2 = 99.;
               for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
                 vec2 q = g + vec2(float(i), float(j));
@@ -223,7 +248,7 @@ void main(){
               }
               if (d2 - d1 < .6 && h2 < .7) alb *= .62;
             }
-            if (pm > (dl ? .6 : .57)) {
+            if (uGround > .5 && pm > (dl ? .6 : .57)) {
               if (!dl) {   // Radiant: mossy grey-olive flagstones, 3 x 3 cells, running bond, a few missing
                 float off = mod(floor(vc.y / 3.), 2.) * 1.;
                 vec2 bid = vec2(floor((vc.x + off) / 3.), floor(vc.y / 3.)), inb = vec2(mod(vc.x + off, 3.), mod(vc.y, 3.));
@@ -241,7 +266,7 @@ void main(){
                 if (d2 - d1 < .85) alb *= .5;
               }
             }
-            if (!swapped && dGrass < 2.6) {
+            if (uGround > .5 && !swapped && dGrass < 2.6) {
               float e = 1. - dGrass / 2.6;
               if (th < e * 1.1) alb = mix(alb, dl ? vec3(.17, .17, .15) : vec3(.22, .2, .11), .6);
               else if (!dl && h1 < e * .5) alb = VT[2];

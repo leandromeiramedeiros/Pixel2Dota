@@ -38,7 +38,7 @@ const DEFAULTS = {
   shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off)
   wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5, atmos: 3,   // atmos: showcase sky/mist/cloud tier 0|1|2|3; wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
   maxLights: 32, shadowPoints: 10,   // light pool size (lights.js) / spell lights with a cube shadow (shadow.js)
-  drawDist: 9000, msaa: 2,   // drawDist: world units from the camera that trees / clutter / terrain / far plane reach (showcase mist closes before it); msaa: scene target samples (0 = off)
+  drawDist: 9000, msaa: 2, ground: 3,   // drawDist: world units from the camera that trees / clutter / terrain / far plane reach (showcase mist closes before it); msaa: scene target samples (0 = off); ground: terrain detail tier 0..3
 };
 
 const DMG_COL = { phys: '#ff6a55', mag: '#6aa8ff', pure: '#ffb347' };
@@ -452,6 +452,7 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'maxLights') lights.setMax(value);
       if (name === 'shadowPoints') lights.setMaxShadow(value);
       if (name === 'msaa') post.setSamples(value | 0);
+      if (name === 'ground') uniforms.uGround.value = +value || 0;
       if (name === 'drawDist') post.state.drawDist = +value || 5500;
     },
     minimapCanvas: () => terrain.minimapCanvas(),

@@ -31,6 +31,7 @@ export function createSharedUniforms() {
     uLevels: { value: LIGHT_LEVELS },
     uFog: { value: fogTex },
     uFogMap: { value: new THREE.Vector4(-8832, 8832, 17664, 0) },           // x0, y1, size (world), enabled
+    uGround: { value: 3 },                                                  // terrain ground detail tier (quality preset `ground`, terrain.js)
     uFogMist: { value: 1 },                                                 // fog-of-war mist on (atmos >= 1: medium and up)
     uVoid: { value: voidTex },                                              // static mist over the dead ground behind the fountains + map rim (fog.js voidMask)
     uFogLv: { value: new THREE.Vector3(0.5, 0.41, 0.6) },                   // fogged (explored) brightness, never-seen brightness, fogged desaturation; fog.js sets these from FOG_LEVEL / FOG_UNSEEN_DARKEN / FOG_DESAT

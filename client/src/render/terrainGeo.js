@@ -14,11 +14,18 @@ export function hash2(x, y, s = 0) {
   return (h >>> 0) / 4294967296;
 }
 
-/** Radiant (0) / Dire (1) art side of a tile, with a hashed dither band across the x+y diagonal. */
+const vnoise2 = (x, y, s) => {   // bilinear value noise on the integer lattice, smoothstepped
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy, s), b = hash2(ix + 1, iy, s), c = hash2(ix, iy + 1, s), d = hash2(ix + 1, iy + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+};
+
+/** Radiant (0) / Dire (1) art side of a tile: the x+y diagonal pushed around by two octaves of smooth noise, so the border is one organic seam
+ *  (Dota's grass gives way to Dire earth along the river), never a per-tile speckle. */
 export function tileSide(map, tx, ty) {
-  const cx = map.x0 + (tx + 0.5) * map.tile, cy = map.y1 - (ty + 0.5) * map.tile, s = cx + cy, band = 900;
-  if (Math.abs(s) >= band) return s < 0 ? 0 : 1;
-  return hash2(tx, ty, 7) < 0.5 + 0.5 * (s / band) ? 1 : 0;
+  const cx = map.x0 + (tx + 0.5) * map.tile, cy = map.y1 - (ty + 0.5) * map.tile;
+  const n = vnoise2(tx / 14, ty / 14, 7) * 0.7 + vnoise2(tx / 4, ty / 4, 8) * 0.3;
+  return cx + cy + (n - 0.5) * 1500 < 0 ? 0 : 1;
 }
 
 const typeAt = (map, tx, ty) => (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h ? TT.WALL : map.type[ty * map.w + tx]);

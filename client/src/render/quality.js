@@ -9,15 +9,16 @@ export const LEVELS = ['low', 'medium', 'high', 'ultra'];
 //   atmos: showcase sky tier (0 flat distance fog + sun / stars, 1 volumetric mist + clouds, 2 denser mist, scattering, more cloud steps, 3 densest / most steps)
 //   shadows: key-light map + marched height-field for the spell lights (false = no shadows at all)   shadowPoints: spell lights with a real cube shadow (5 depth renders each)
 //   maxLights: dynamic light pool   particles / ambient / clutter: density multipliers (0 = off)   wind: 1 full / .5 half / 0 static   bloomLevels: bloom mips (5 = full)
+//   ground: terrain detail tier (0 palettes + one layer noise, 1 + lane stones / soil lip / flowers, 2 + cracked dirt / sand patches, 3 + pebbles / sunlit blades / embers)
 //   drawDist: world units trees / clutter / terrain / far plane reach   msaa: scene target samples (0 = off)
 // medium = one notch down everywhere it costs (2 cube shadows, 16 lights, no water SSR, 60% particles, half clutter / ambient, half wind, shorter view);
 // low = potato: no shadows / rim / SSR / light scatter / ambient / clutter / wind, 8 lights, 30% particles, 3 bloom mips, short view. Outlines stay on.
 // high = full look at 4 cube shadows; ultra = 10 cube shadows, densest atmosphere, longest view, 2x MSAA.
 export const PRESETS = {
-  low: { bloomStrength: 0.9, bloomLevels: 3, shadows: false, shadowPoints: 0, maxLights: 8, particles: 0.3, ambient: 0, clutter: 0, outlines: true, rim: false, wind: 0, ssr: false, rays: false, atmos: 0, drawDist: 2400, msaa: 0 },
-  medium: { bloomStrength: 0.9, bloomLevels: 4, shadows: true, shadowPoints: 2, maxLights: 16, particles: 0.6, ambient: 0.5, clutter: 0.5, outlines: true, rim: true, wind: 0.5, ssr: false, rays: true, atmos: 1, drawDist: 3600, msaa: 0 },
-  high: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 4, maxLights: 24, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, ssr: true, rays: true, atmos: 2, drawDist: 5500, msaa: 0 },
-  ultra: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 10, maxLights: 32, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, ssr: true, rays: true, atmos: 3, drawDist: 9000, msaa: 2 },
+  low: { bloomStrength: 0.9, bloomLevels: 3, shadows: false, shadowPoints: 0, maxLights: 8, particles: 0.3, ambient: 0, clutter: 0, outlines: true, rim: false, wind: 0, ssr: false, rays: false, atmos: 0, drawDist: 2400, msaa: 0, ground: 0 },
+  medium: { bloomStrength: 0.9, bloomLevels: 4, shadows: true, shadowPoints: 2, maxLights: 16, particles: 0.6, ambient: 0.5, clutter: 0.5, outlines: true, rim: true, wind: 0.5, ssr: false, rays: true, atmos: 1, drawDist: 3600, msaa: 0, ground: 1 },
+  high: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 4, maxLights: 24, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, ssr: true, rays: true, atmos: 2, drawDist: 5500, msaa: 0, ground: 2 },
+  ultra: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 10, maxLights: 32, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, ssr: true, rays: true, atmos: 3, drawDist: 9000, msaa: 2, ground: 3 },
 };
 export const LABEL = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra' };
 export const STORE_KEY = 'p2d.gfx';          // preset level
