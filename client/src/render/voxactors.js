@@ -1,5 +1,6 @@
 // Voxel units drawn as real 3D meshes (model: shared/vox/<name>.js, mesher: voxmesh.js). One instanced geometry per pose frame, lit like
-// buildings3d.js (shadow map, key + point lights, Bayer-quantised light, fog grade) plus an inverted-hull outline in the team / selection colour.
+// buildings3d.js (shadow map, key + point lights, Bayer-quantised light, fog grade). Outline: an ID pass (idScene: outline colour + per-instance id, same vertex
+// shader and depth) that post.js turns into a 1-art-px silhouette line (render/post.js OUTLINE), so inner depth steps never get a line.
 // What makes a ~44-voxel chibi read from the 60 deg game camera:
 //   - lean: the model tilts back about its feet, away from the camera, so the camera sees it from ~LEAN_TO deg like the offline renders
 //     (pitch 30), not from above (top of the hair, no face). Shadow passes use the same lean, so self-shadow lands where it is drawn.
@@ -19,6 +20,7 @@ import { ART_UNITS_PER_PX } from '../../../shared/constants.js';
 import { COMMON_GLSL } from './shaderlib.js';
 import { WIND_GLSL, windAt } from './wind.js';
 import { DEPTH_FRAG } from './shadow.js';
+import { ID_BIAS } from './post.js';
 import { instancedGeo, flushInstances, DEPTH_GLSL } from './mesh3d.js';
 import { buildVoxFrames } from './voxmesh.js';
 import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
@@ -58,7 +60,6 @@ export function voxEntry(mod, o = {}) {
 export const VOX_HEROES = VOX_UNITS;   // old name
 export const LEAN_TO = 30 * Math.PI / 180;    // view pitch the model is shown at (deg above the horizon)
 export const LEAN_K = 1;                      // share of (camera pitch - LEAN_TO) taken by the lean
-const OUT_W = 3;                       // outline thickness, world units
 // voxel death (world units, seconds): burst speed out / up, gravity, bounce restitution, ground slide kept after the bounce, launch stagger,
 // lean release, dissolve start (+ up to DIE_FADE_J per voxel) -> fully gone at DIE_T
 export const DIE_T = 1.45;   // dissolve length, counted from the end of the ragdoll (RAG_T) for heroes
@@ -88,7 +89,7 @@ attribute vec3 aCol, aSm;
 attribute float aEmit, aFace, aHash;                             // voxmesh.js: aEmit 0 = lit, else gain * 100; aFace = face id | team 8 | corner * 16; aHash = (segment * 32 + random 0..31) - 128
 attribute vec3 iPos;
 attribute vec4 iXf, iTi, iHi, iMs, iTm;
-uniform float uPull, uOutW, uLeanTo, uLeanK, uQ;
+uniform float uPull, uLeanTo, uLeanK, uQ;
 uniform sampler2D uRag;                                          // ragdoll: row = slot, texel 2s = segment s quaternion, 2s+1 = translation + ground height
 varying vec3 vW, vN, vFoot, vCol;
 varying float vE;
@@ -106,9 +107,6 @@ void main(){
   vec3 nf = (sd > .5 ? 1. : -1.) * ax3(fa);
   vec3 p = position;
   float sc = iXf.y;
-#ifdef HULL
-  p += aSm * (uOutW / sc);
-#endif
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 n = rotY(normalize(mix(nf, aSm, .7)), c, s), o;
   float dt = iTm.w, die = step(0., dt), dieO = die, alpha = iTi.a;
@@ -158,15 +156,15 @@ void main(){
   const vec3 LUM = vec3(.299, .587, .114);
   al = mix(al, min(iTm.rgb * (dot(al, LUM) / max(dot(iTm.rgb, LUM), .05)), vec3(1.)), tf);
   vW = w; vN = n; vFoot = iPos; vE = aEmit > .5 ? 1. : 0.; vCol = al * iTi.rgb * mix(1., aEmit * .01, vE); vTi = vec4(iXf.w, alpha, iMs.x, iMs.y); vMs = iMs;
-  vHi = vec4(iHi.rgb, iHi.a * (1. - dieO));                      // no outline on flying voxels (a ragdoll keeps it)
+  vHi = vec4(iHi.rgb, iHi.a * (1. - dieO));                      // iHi.a = outline id (k / 256); 0 on flying voxels (a ragdoll keeps its line)
   vec4 cr = projectionMatrix * viewMatrix * vec4(w, 1.);
 #ifdef SHADOW
   gl_Position = die * alpha < .5 * die ? vec4(2., 2., 2., 1.) : cr;   // dissolved death voxels stop casting
 #else
   gl_Position = propDepth(cr, iPos, uPull);
 #endif
-#ifdef HULL
-  gl_Position.z += 6e-4 * gl_Position.w;                         // behind the body: the foot depth squeezes the model's own depth range
+#ifdef ID
+  gl_Position.z -= ${(2 * ID_BIAS).toExponential()} * gl_Position.w;   // toward the camera: passes against the copied scene depth (post.js OUTLINE)
 #endif
 }`;
 
@@ -181,9 +179,9 @@ varying vec4 vTi, vHi, vMs;
 void main(){
   vec2 dp = floor(gl_FragCoord.xy);
   if (vTi.y < 1. && bayer4(dp) > vTi.y) discard;               // fade = Bayer dissolve, like the sprites
-#ifdef HULL
+#ifdef ID
   if (vHi.a <= 0.) discard;
-  gl_FragColor = vec4(fogGrade(vHi.rgb, vFoot, dp), 1.);
+  gl_FragColor = vec4(fogGrade(vHi.rgb, vFoot, dp), vHi.a);       // outline colour (fog-graded where the unit stands) + instance id
 #else
   vec3 n = normalize(vN);
   float em = vE;
@@ -213,8 +211,10 @@ function footFrame(fp, unit) {
 
 /** ground(x, z) = terrain height at plane coords (x, z = -game y), for the ragdolls. */
 export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
-  const rimU = { value: 1 }, outU = { value: OUT_W }, leanU = { value: LEAN_TO };
+  const rimU = { value: 1 }, leanU = { value: LEAN_TO };
   const group = new THREE.Group(); group.name = 'voxactors'; scene.add(group);
+  const idScene = new THREE.Scene(); idScene.name = 'vox_ids';   // outline ID pass (post.js), never in the main scene
+  let nid = 0;
   const stats = { draws: 0, tris: 0, instances: 0, buildMs: 0 };
   const models = {}, all = [], empty = new THREE.BufferGeometry();
   const ragData = new Float32Array(12 * 4 * RAG_SLOTS), ragTex = new THREE.DataTexture(ragData, 12, RAG_SLOTS, THREE.RGBAFormat, THREE.FloatType);
@@ -222,14 +222,15 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
   const ragU = { value: ragTex }, rags = new Map(), ragSlot = new Array(RAG_SLOTS).fill(null), segBuf = new Float32Array(48), W0 = [0, 0];
   if (voxEnabled) for (const name in VOX_UNITS) {
     const h = VOX_UNITS[name], m = models[name] = { h, anims: {}, built: false, vu: 1, radius: 0, qU: { value: 1 } };
-    const un = { ...uniforms, uPull: { value: 12 }, uOutW: outU, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU, uRag: ragU, uNightGlow: { value: h.night || 0 } };
+    const un = { ...uniforms, uPull: { value: 12 }, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU, uRag: ragU, uNightGlow: { value: h.night || 0 } };
     for (const anim in h.anims) m.anims[anim] = h.anims[anim].map((_, i) => {
       const body = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide }));
-      const hull = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.BackSide, defines: { HULL: 1 } }));
+      const ids = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide, defines: { ID: 1 } }));
       body.userData.depthMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: DEPTH_FRAG, uniforms: un, side: THREE.DoubleSide, defines: { SHADOW: 1 } });
-      for (const o of [body, hull]) { o.frustumCulled = false; o.matrixAutoUpdate = false; o.visible = false; group.add(o); }
-      body.renderOrder = 1; hull.renderOrder = 2; body.name = `vox_${name}_${anim}${i}`; hull.name = `vox_hull_${name}_${anim}${i}`;
-      const fr = { inst: null, n: 0, body, hull, tris: 0, pf: null };
+      for (const o of [body, ids]) { o.frustumCulled = false; o.matrixAutoUpdate = false; o.visible = false; }
+      group.add(body); idScene.add(ids);
+      body.renderOrder = 1; body.name = `vox_${name}_${anim}${i}`; ids.name = `vox_id_${name}_${anim}${i}`;
+      const fr = { inst: null, n: 0, body, ids, tris: 0, pf: null };
       all.push(fr);
       return fr;
     });
@@ -242,7 +243,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
     for (const anim in frames) frames[anim].forEach((geo, i) => {
       const f = m.anims[anim][i], inst = f.inst = instancedGeo(geo, h.max, IFLOATS);
       inst.geo.setIndex(geo.index); inst.geo.setDrawRange(0, geo.drawRange.count);
-      f.tris = inst.tris = geo.drawRange.count / 3; f.body.geometry = f.hull.geometry = inst.geo; m.vu = geo.userData.unit; m.qU.value = geo.userData.q;
+      f.tris = inst.tris = geo.drawRange.count / 3; f.body.geometry = f.ids.geometry = inst.geo; m.vu = geo.userData.unit; m.qU.value = geo.userData.q;
       f.pf = footFrame(geo.userData.fp, h.unit); f.joints = geo.userData.joints || null;
     });
     const idle = (m.anims.idle || Object.values(m.anims)[0])[0];
@@ -298,7 +299,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
 
   const _w = [1, 1, 1];
   return {
-    group, stats, models,
+    group, idScene, stats, models,
     has(name) { return !!models[name]; },
     nameOf: voxNameOf,
     /** decal radius of a model (world units at scale 1, its idle footprint); 0 until built */
@@ -306,7 +307,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
     dieT: DIE_T, ragT: RAG_T, ragStart, ragEnd, ragStep, hasRag: (key) => rags.has(key),
     /** mesh these models now (e.g. on match load) instead of on first sight */
     prepare(names) { for (const n of names) { const m = models[n]; if (m && !m.built) build(m); } },
-    begin() { for (const f of all) f.n = 0; },
+    begin() { for (const f of all) f.n = 0; nid = 0; },
     /**
      * o: { anim, idx, facing (game radians), tint [r,g,b], alpha, flash, outline [r,g,b,a] | null, emit, rim, scale, team [r,g,b] | null (tints mat.team voxels),
      *   death (seconds since death; < 0 or null = alive) }. Returns the pose frame drawn ({ pf: footprint frame, ... }) or null (unknown / instance cap).
@@ -319,7 +320,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
       d[i + 3] = (o.facing || 0) + Math.PI / 2;      // model front (+z) = game facing
       d[i + 4] = m.h.unit * m.vu * (o.scale || 1); d[i + 5] = 0; d[i + 6] = o.flash || 0;
       d[i + 7] = t[0]; d[i + 8] = t[1]; d[i + 9] = t[2]; d[i + 10] = o.alpha == null ? 1 : o.alpha;
-      d[i + 11] = ol ? ol[0] : 0.07; d[i + 12] = ol ? ol[1] : 0.03; d[i + 13] = ol ? ol[2] : 0.06; d[i + 14] = 1;   // no team colour: dark outline
+      d[i + 11] = ol ? ol[0] : 0.07; d[i + 12] = ol ? ol[1] : 0.03; d[i + 13] = ol ? ol[2] : 0.06; d[i + 14] = (nid++ % 255 + 1) / 256;   // dark line unless hovered / selected; a = outline id 1..255 (post.js: a line where it changes)
       d[i + 15] = o.emit == null ? 1 : o.emit; d[i + 16] = o.rim == null ? 1 : o.rim; d[i + 17] = 0; d[i + 18] = 0;   // iMs.z = ragdoll slot + 1 (0 = none)
       d[i + 19] = tc ? tc[0] : 0; d[i + 20] = tc ? tc[1] : 0; d[i + 21] = tc ? tc[2] : 0; d[i + 22] = o.death == null || o.death < 0 ? -1 : o.death;
       if (o.rag != null && o.death >= 0) { const r = rags.get(o.rag); if (r) d[i + 17] = r.slot + 1; }
@@ -327,11 +328,11 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
     },
     end() {
       let tris = 0, draws = 0, n = 0;
-      for (const f of all) { if (!f.inst) continue; flushInstances(f.inst, f.n); f.body.visible = f.hull.visible = f.n > 0; if (f.n) { tris += f.n * f.tris * 2; draws += 2; n += f.n; } }
+      for (const f of all) { if (!f.inst) continue; flushInstances(f.inst, f.n); f.body.visible = f.ids.visible = f.n > 0; if (f.n) { tris += f.n * f.tris * 2; draws += 2; n += f.n; } }
       stats.tris = tris; stats.draws = draws; stats.instances = n;
     },
     casters() { return all.map((f) => ({ mesh: f.body, mat: f.body.userData.depthMat })); },
     setRim(on) { rimU.value = on ? 1 : 0; },
-    dispose() { ragTex.dispose(); for (const f of all) { if (f.inst) f.inst.geo.dispose(); f.body.material.dispose(); f.hull.material.dispose(); f.body.userData.depthMat.dispose(); } scene.remove(group); },
+    dispose() { ragTex.dispose(); for (const f of all) { if (f.inst) f.inst.geo.dispose(); f.body.material.dispose(); f.ids.material.dispose(); f.body.userData.depthMat.dispose(); } scene.remove(group); },
   };
 }

@@ -54,6 +54,7 @@ export function renderPortrait(build, opts = {}) {
     light: opts.light ?? [-0.8, 0.66, 0.42],              // key: upper left front
     fill: opts.fill ?? [0.85, -0.5, 0.45, 0.2],           // low fill from the right (the ramps are warm, so it reads warm)
     ambient: opts.ambient ?? 0.15, levels: opts.levels ?? [0.4, 0.66, 0.93],
+    lines: 0,                                            // silhouette-only outline (as in game, render/post.js OUTLINE): no depth-break lines inside the figure
     rim: [
       { dir: [1, -0.45], col: opts.rimCol ?? rgbHex(mix(sc, [255, 246, 206], 0.8)), w: 2, k: 1 },   // hot gold-white rim, back right (brighter than the hair's top step)
       { dir: [-1, -0.3], col: '#86a6ff', w: 1, k: 0.95 },                                               // cool kicker, back left

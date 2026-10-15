@@ -25,7 +25,7 @@ test('presets: low is a potato (no shadows/ambient/clutter/ssr/rays/wind, few li
   for (const l of LEVELS) {
     assert.deepEqual(Object.keys(PRESETS[l]).sort(), keys, l);
     for (const k of ['pixelScale', 'bloom', 'dof', 'fps', 'vsync', 'resolution']) assert.ok(!(k in PRESETS[l]), l + ' must not set the user option ' + k);
-    assert.equal(PRESETS[l].outlines, true, 'outlines stay');
+    assert.equal(PRESETS[l].outlines, true, 'unit silhouette outline on every level (post.js OUTLINE)');
   }
   assert.deepEqual(LEVELS, ['low', 'medium', 'high', 'ultra']);
   assert.deepEqual(presetSettings('nope'), presetSettings('high'));

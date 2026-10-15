@@ -80,7 +80,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   const map = getMap();
   const per = new Map();            // unit id -> { hp, flash, frame, dust, lastDir }
   const picks = [];                 // pickable sprites drawn this frame
-  const state = { selected: '', hover: '', myTeam: 0, myHero: '', simBuildings: false, simSeen: 0, frame: 0, treesDrawn: 0, unitsDrawn: 0, outlines: true };
+  const state = { selected: '', hover: '', myTeam: 0, myHero: '', simBuildings: false, simSeen: 0, frame: 0, treesDrawn: 0, unitsDrawn: 0 };
 
   // tree spatial grid (512u cells)
   const TREE_CELL = 512, TREE_SCALE = 0.9;

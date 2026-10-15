@@ -118,7 +118,7 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   geo3d fx and beams use stepped bands, never ordered dither.
 - **Voxel units** (`voxmesh.js`, `voxactors.js`): one compact geometry per pose frame (12 B / vertex: Int8 position + face byte, Int8 smooth normal +
   hash, Uint8 colour + emit gain), built lazily on a hero's first `add()`, drawn instanced. The vertex shader leans each body 30 deg about its feet away
-  from the camera (in the shadow pass too), pushes an inverted-hull outline, and breaks the model into falling voxels on death (heroes ragdoll 2 s first: `ragdoll.js`, per-segment transforms in the `uRag` texture; VOXEL.md). Emissive tiers: eye <= 1,
+  from the camera (in the shadow pass too), writes an outline id (`idScene`, silhouette line drawn by `post.js` OUTLINE), and breaks the model into falling voxels on death (heroes ragdoll 2 s first: `ragdoll.js`, per-segment transforms in the `uRag` texture; VOXEL.md). Emissive tiers: eye <= 1,
   signature ~1.2, spell 1.5-1.7. Until sprite removal (batch 7) units still sort at foot depth.
 - **Pick** (`render/pick.js`, shared by hover and click via `renderer.pick`; `H` in the sandbox draws the boxes): hit = cursor inside the live unit's screen box (visible body, leaned like the model, min 20x28 css px, bigger for touch); overlap: units beat buildings, then box centre nearest the cursor, then nearest the camera, then id; trees only if no unit is hit. End state: an ID-buffer pick.
 - **Ground fx must be geo3d discs/quads at `heightAt`**, never billboards drawn below a unit's foot. Legacy sprites (`sprites.js`, retiring in batch 7) sort

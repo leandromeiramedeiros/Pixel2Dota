@@ -1,4 +1,4 @@
-// Low-res HDR pipeline: scene -> HalfFloat render target (nearest, with a depth texture) ->
+// Low-res HDR pipeline: scene -> HalfFloat render target (nearest, with a depth texture) -> unit outline (OUTLINE, below) ->
 //   half / quarter-res scene blur (tilt-shift DOF) -> threshold + progressive bloom -> water SSR (low-res depth ray-march)
 //   -> final pass (DOF mix, SSR mix, light scatter halo, grade, atmospheric perspective, vignette, Bayer dither, nearest upscale).
 // WATER MASK CONTRACT: scene RT alpha = 1 for everything except water top tiles (terrain.js), which write 1 - fogBrightness,
@@ -65,6 +65,39 @@ void main(){
 // normal (quantised to the 6-unit light grid so ripples stay pixel-art), view-space ray march (+ binary refine) against depth.
 // Misses fall back to the haze/sky colour. Roughness = mix to the blurred scene levels with ray length. Point lights are
 // reflected analytically (closest approach of the rippled reflection ray to each light) so they smear into glints / bokeh.
+// Unit outline (state.outline = voxactors.js idScene: rgb = outline colour, a = instance id k / 256). 1) DEPTH_COPY puts the scene depth into
+// the ID target, 2) the ID meshes draw against it (ID vertex bias: ID_BIAS in depth, so the surface the scene shows passes; occluded unit pixels
+// get no id), 3) MSAA only: the ID meshes again into raw_rt with their own depth (nearest unit per pixel, no scene occlusion: MSAA-resolved scene depth
+// leaves holes at a unit's inner steps in 2), raw keeps "same unit" whole), 4) OUTLINE draws INTO the scene target: a pixel takes the line
+// when a 4-neighbour shows a different unit than the pixel's raw id, at that unit's depth
+// (gl_FragDepth, depth test LESS) -> only where that unit is in front of what the pixel shows. So only real silhouettes get a line (unit vs
+// ground / sky / farther unit), never a unit's own inner depth steps (same id); the line sits at the unit's depth, so fog / mist / DoF treat it
+// like the unit. Nearest unit wins on a crossing. 1 px of the low-res target = 1 art px.
+export const ID_BIAS = 1e-4;
+const DEPTH_COPY = /* glsl */ `
+precision highp float;
+uniform sampler2D tDepth;
+varying vec2 vUv;
+void main(){ gl_FragDepth = texture2D(tDepth, vUv).r; gl_FragColor = vec4(0.); }`;
+const OUTLINE = /* glsl */ `
+precision highp float;
+uniform sampler2D tId, tIdD, tRaw; uniform vec2 uTexel;
+varying vec2 vUv;
+void main(){
+  float me = texture2D(tRaw, vUv).a, best = 2.;
+  vec3 col = vec3(0.);
+  for (int k = 0; k < 4; k++) {
+    vec2 o = k == 0 ? vec2(1., 0.) : k == 1 ? vec2(-1., 0.) : k == 2 ? vec2(0., 1.) : vec2(0., -1.);
+    vec4 n = texture2D(tId, vUv + o * uTexel);
+    if (n.a <= 0. || abs(n.a - me) < .5 / 256.) continue;
+    float nd = texture2D(tIdD, vUv + o * uTexel).r;
+    if (nd < best) { best = nd; col = n.rgb; }
+  }
+  if (best > 1.5) discard;
+  gl_FragDepth = min(best + ${ID_BIAS.toExponential()}, 1.);                       // the unit's own depth (undo the ID bias)
+  gl_FragColor = vec4(col, 1.);                                    // alpha 1: not water (WATER MASK CONTRACT)
+}`;
+
 const SSR = /* glsl */ `
 precision highp float;
 uniform sampler2D tScene, tDepth, tDofA, tDofB, tBloom;
@@ -499,6 +532,8 @@ export function createPost(renderer, shared) {
   const mDown = mk(DOWN, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
   const mBox = mk(BOX, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
   const mAdapt = mk(ADAPT, { tSrc: { value: null }, tPrev: { value: null }, uUp: { value: 1 }, uDown: { value: 1 } });
+  const mDepthCopy = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: DEPTH_COPY, uniforms: { tDepth: { value: null } }, depthTest: true, depthWrite: true, depthFunc: THREE.AlwaysDepth, colorWrite: false });
+  const mOutline = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: OUTLINE, uniforms: { tId: { value: null }, tIdD: { value: null }, tRaw: { value: null }, uTexel: { value: new THREE.Vector2() } }, depthTest: true, depthWrite: true, depthFunc: THREE.LessDepth });
   const mUp = mk(UP, { tSrc: { value: null }, tPrev: { value: null }, uTexel: { value: new THREE.Vector2() }, uMix: { value: 1 } });
   const glArr = Array.from({ length: 8 }, () => new THREE.Vector4()), gcArr = Array.from({ length: 8 }, () => new THREE.Vector3());
   const sharedLP = shared ? shared.uLP : { value: new Float32Array(128) }, sharedLC = shared ? shared.uLC : { value: new Float32Array(128) }, sharedLN = shared ? shared.uLN : { value: 0 };
@@ -538,14 +573,15 @@ export function createPost(renderer, shared) {
   // 1x1 adaptation ping-pong (HalfFloat, persists across resizes)
   const adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, flat));
   let adaptI = 0, lastT = -1;
-  let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, atm_rt = null, sdof_rt = null, atmb_rt = null, downs = [], ups = [], w = 0, h = 0, samples = 0;
+  let scene_rt = null, id_rt = null, raw_rt = null, ssr_rt = null, dofA = null, dofB = null, atm_rt = null, sdof_rt = null, atmb_rt = null, downs = [], ups = [], w = 0, h = 0, samples = 0;
   const LEVELS = 5;
-  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, sky: 0, atmos: 2, focus: 800, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS, drawDist: 9000 };   // drawDist: the flat showcase fog closes inside it   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
+  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, sky: 0, atmos: 2, focus: 800, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS, drawDist: 9000, outline: null };   // drawDist: the flat showcase fog closes inside it   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
   let ssrDirty = false;
   const noBloom = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); noBloom.needsUpdate = true;   // stands in for the bloom texture when bloom is off (adds nothing)
 
   function disposeRTs() {
     if (scene_rt) { scene_rt.dispose(); scene_rt.depthTexture && scene_rt.depthTexture.dispose(); }
+    if (id_rt) { id_rt.dispose(); id_rt.depthTexture.dispose(); if (raw_rt) raw_rt.dispose(); raw_rt = null; }
     if (ssr_rt) ssr_rt.dispose(); if (dofA) dofA.dispose(); if (dofB) dofB.dispose(); if (atm_rt) atm_rt.dispose(); if (sdof_rt) sdof_rt.dispose(); if (atmb_rt) atmb_rt.dispose();
     for (const t of downs) t.dispose(); for (const t of ups) t.dispose();
   }
@@ -557,6 +593,10 @@ export function createPost(renderer, shared) {
     scene_rt = new THREE.WebGLRenderTarget(w, h, { ...rtOpts, samples });   // MSAA (ultra): three resolves colour + depth into the textures after the scene pass
     scene_rt.depthTexture = new THREE.DepthTexture(w, h);
     scene_rt.depthTexture.minFilter = scene_rt.depthTexture.magFilter = THREE.NearestFilter;
+    id_rt = new THREE.WebGLRenderTarget(w, h, rtOpts);   // outline ID pass (no MSAA: ids must not blend)
+    id_rt.depthTexture = new THREE.DepthTexture(w, h);
+    id_rt.depthTexture.minFilter = id_rt.depthTexture.magFilter = THREE.NearestFilter;
+    if (samples) raw_rt = new THREE.WebGLRenderTarget(w, h, rtOpts);   // outline raw IDs (own depth buffer; MSAA only)
     ssr_rt = new THREE.WebGLRenderTarget(w, h, flat);
     atm_rt = new THREE.WebGLRenderTarget(w, h, flat); sdof_rt = new THREE.WebGLRenderTarget(w, h, flat); atmb_rt = new THREE.WebGLRenderTarget(w, h, flat);
     dofA = new THREE.WebGLRenderTarget(Math.max(2, (w + 1) >> 1), Math.max(2, (h + 1) >> 1), lin);
@@ -604,16 +644,25 @@ export function createPost(renderer, shared) {
     renderer.setRenderTarget(scene_rt);
     renderer.setClearColor(0x050509, 1); renderer.clear(true, true, false);
     renderer.render(sceneObj, camera);
+    if (state.outline) {   // unit outline (OUTLINE above): scene depth -> ID target, ID meshes, then the line drawn into the scene target
+      renderer.setRenderTarget(id_rt); renderer.setClearColor(0x000000, 0); renderer.clear(true, false, false);
+      mDepthCopy.uniforms.tDepth.value = scene_rt.depthTexture; pass(mDepthCopy, id_rt);
+      renderer.render(state.outline, camera);
+      if (raw_rt) { renderer.setRenderTarget(raw_rt); renderer.clear(true, true, false); renderer.render(state.outline, camera); }
+      const o = mOutline.uniforms; o.tId.value = id_rt.texture; o.tIdD.value = id_rt.depthTexture; o.tRaw.value = (raw_rt || id_rt).texture; o.uTexel.value.set(1 / w, 1 / h);
+      pass(mOutline, scene_rt);
+    }
+    const sceneTex = scene_rt.texture;
     const doDof = state.dof && state.dofStrength > 0, doSsr = state.ssr && state.ssrStrength > 0;
     if (doDof || doSsr) {
-      mBox.uniforms.tSrc.value = scene_rt.texture; mBox.uniforms.uTexel.value.set(1 / w, 1 / h);
+      mBox.uniforms.tSrc.value = sceneTex; mBox.uniforms.uTexel.value.set(1 / w, 1 / h);
       pass(mBox, dofA);
       mDown.uniforms.tSrc.value = dofA.texture; mDown.uniforms.uTexel.value.set(1 / dofA.width, 1 / dofA.height);
       pass(mDown, dofB);
     }
     let bloomTex = null;
     if (state.bloom) {
-      mPre.uniforms.tSrc.value = scene_rt.texture; mPre.uniforms.uTexel.value.set(1 / w, 1 / h); mPre.uniforms.uThreshold.value = state.threshold;
+      mPre.uniforms.tSrc.value = sceneTex; mPre.uniforms.uTexel.value.set(1 / w, 1 / h); mPre.uniforms.uThreshold.value = state.threshold;
       const nL = Math.min(LEVELS, Math.max(2, state.bloomLevels | 0 || LEVELS));
       pass(mPre, downs[0]);
       for (let i = 1; i < nL; i++) {
@@ -644,7 +693,7 @@ export function createPost(renderer, shared) {
     if (doSsr) {
       ssrDirty = true;
       const u = mSsr.uniforms, pm = camera.projectionMatrix;
-      u.tScene.value = scene_rt.texture; u.tDepth.value = scene_rt.depthTexture; u.tDofA.value = dofA.texture; u.tDofB.value = dofB.texture;
+      u.tScene.value = sceneTex; u.tDepth.value = scene_rt.depthTexture; u.tDofA.value = dofA.texture; u.tDofB.value = dofB.texture;
       u.tBloom.value = bloomTex || noBloom;
       u.uProj.value.copy(pm); u.uInvProj.value.copy(camera.projectionMatrixInverse); u.uCamWorld.value.copy(camera.matrixWorld); u.uView.value.copy(camera.matrixWorldInverse);
       u.uPAB.value.set(pm.elements[10], pm.elements[14]);
@@ -654,7 +703,7 @@ export function createPost(renderer, shared) {
     }
     const showcase = state.sky > SKY_MIN, f = finalUniforms;
     f.uHz.value.fromArray(pal.haze);
-    f.tScene.value = scene_rt.texture; f.tBloom.value = bloomTex || noBloom; f.tDofA.value = dofA.texture; f.tDofB.value = dofB.texture; f.tSsr.value = ssr_rt.texture;
+    f.tScene.value = sceneTex; f.tBloom.value = bloomTex || noBloom; f.tDofA.value = dofA.texture; f.tDofB.value = dofB.texture; f.tSsr.value = ssr_rt.texture;
     f.uBloom.value = bloomTex ? state.bloomStrength : 0; f.uVig.value = state.vignette; f.uNight.value = night; f.uTime.value = time;
     f.uOut.value.set(outW, outH);
     f.uBt.value.set(1.5 / dofB.width, 1.5 / dofB.height);
@@ -665,7 +714,7 @@ export function createPost(renderer, shared) {
       const a = atmU, fr = api.fogRange();
       a.uAtmos.value = state.atmos; a.uDofK.value = state.dofStrength; a.uFocus.value = state.focus; a.uSky.value = state.sky; a.uRT.value.set(w, h); a.uPxAng.value = camera.fov * Math.PI / 180 / h;
       a.uFog.value.set(fr[0], fr[1]);   // medium+: denser rolling fog; a short draw distance pulls both in
-      a.uNight.value = night; a.uTime.value = time; a.tDepth.value = scene_rt.depthTexture; a.tScene.value = scene_rt.texture; a.tDofA.value = dofA.texture;
+      a.uNight.value = night; a.uTime.value = time; a.tDepth.value = scene_rt.depthTexture; a.tScene.value = sceneTex; a.tDofA.value = dofA.texture;
       if (shared) { const k = shared.uKeyDir.value, e = pal.elev, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; a.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, at the time-of-day elevation inside the visible sky band
       a.uHor.value.fromArray(pal.hor); a.uZen.value.fromArray(pal.zen); a.uCloudAmb.value.fromArray(pal.cloud); a.uGlow.value.fromArray(pal.glow);
       a.uBody.value.set(pal.body[0], pal.body[1], pal.body[2], pal.bodyK); a.uSkyN.value = pal.n; a.uMoon.value = pal.sunN;
@@ -685,7 +734,7 @@ export function createPost(renderer, shared) {
     fogRange() { const mm = Math.min(state.atmos, 1), end = Math.min(4200 + (3200 - 4200) * mm, state.drawDist * 0.85); return [Math.min(1500 + (1000 - 1500) * mm, end * 0.4), end]; },
     /** scene-target MSAA samples (0 = off); rebuilds the targets */
     setSamples(n) { n = n | 0; if (n === samples) return; samples = n; if (w) setRT(w, h, true); }, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
-    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); mAtmos.dispose(); mSdof.dispose(); mSdofAtm.dispose(); quadGeo.dispose(); noBloom.dispose(); },
+    dispose() { disposeRTs(); mPre.dispose(); mOutline.dispose(); mDepthCopy.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); mAtmos.dispose(); mSdof.dispose(); mSdofAtm.dispose(); quadGeo.dispose(); noBloom.dispose(); },
   };
   return api;
 }

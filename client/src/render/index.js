@@ -35,7 +35,7 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
-  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off)
+  shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off); outlines: voxel-unit silhouette line (post.js OUTLINE)
   wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5, atmos: 3,   // atmos: showcase sky/mist/cloud tier 0|1|2|3; wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
   maxLights: 32, shadowPoints: 10,   // light pool size (lights.js) / spell lights with a cube shadow (shadow.js)
   drawDist: 9000, msaa: 2, ground: 3,   // drawDist: world units from the camera that trees / clutter / terrain / far plane reach (showcase mist closes before it); msaa: scene target samples (0 = off); ground: terrain detail tier 0..3
@@ -352,7 +352,7 @@ export function createRenderer({ canvas, sheets }) {
 
     lights.clear(); sprites.begin();
     if (settings.fog) { if (!fog.state.enabled) fog.setEnabled(true); fog.update(view, view.spectator ? -2 : myTeam, dt); }   // -2: both teams' vision else if (fog.state.enabled) fog.setEnabled(false);
-    actors.state.outlines = settings.outlines;
+    post.state.outline = settings.outlines ? vox.idScene : null;
     actors.draw(view, dt, nightK, time, settings);
     particles.update(dt, time);
     if (settings.ambient > 0 && settings.particles > 0) {
