@@ -18,7 +18,7 @@ function nums(arr, cur) {
   return wrap;
 }
 
-function foot(tip, el) {
+function foot(tip, el, noCost) {
   const f = h('div', 'foot');
   const add = (cls, label, arr) => {
     if (!arr) return;
@@ -28,7 +28,7 @@ function foot(tip, el) {
   };
   add('mana', 'MP', tip.mana); add('cd', 'CD', tip.cd);
   if (tip.range) add('cd', 'RNG', tip.range);
-  if (tip.cost) f.append(h('span', 'cost', fmtGold(tip.cost) + 'g'));
+  if (tip.cost && !noCost) f.append(h('span', 'cost', fmtGold(tip.cost) + 'g'));
   if (f.childNodes.length) el.append(f);
 }
 
@@ -42,7 +42,7 @@ function rows(tip, el) {
   }
 }
 
-function treeEl(tree, items, sheets) {
+function treeEl(tree, items, sheets, onPick) {
   const owned = markOwned(tree, items || []);
   const box = h('div', 'tree');
   const walk = (n, depth) => {
@@ -50,6 +50,7 @@ function treeEl(tree, items, sheets) {
     row.style.paddingLeft = `calc(${depth * 4} * var(--u))`;
     if (sheets && sheets.icons) row.append(pixelEl(sheets.icons, n.key, 1));
     row.append(h('span', null, prettyName(n.key)), h('span', null, fmtGold(n.cost)));
+    if (onPick) { row.classList.add('pick'); row.addEventListener('click', () => onPick(n.key)); }
     box.append(row);
     if (!owned.get(n)) for (const p of n.parts) walk(p, depth + 1);
     if (n.recipeCost > 0 && !owned.get(n) && depth >= 0) {
@@ -62,7 +63,8 @@ function treeEl(tree, items, sheets) {
   return box;
 }
 
-export function renderTip(el, d, sheets) {
+/** opts (shop detail panel): { head:false } drops the title + cost line, { onPick(key) } makes recipe rows clickable. */
+export function renderTip(el, d, sheets, opts = {}) {
   el.textContent = '';
   if (d.type === 'text') {
     el.append(h('h4', null, d.title));
@@ -81,13 +83,13 @@ export function renderTip(el, d, sheets) {
   }
   if (d.type === 'item') {
     const tip = itemTip(d.key);
-    el.append(h('h4', null, tip.title));
+    if (opts.head !== false) el.append(h('h4', null, tip.title));
     if (tip.sub) el.append(h('div', 'sub', tip.sub));
     for (const s of tip.stats) el.append(h('div', 'stat', s.text));
     rows(tip, el);
     for (const n of tip.notes) el.append(h('div', 'note', n));
-    foot(tip, el);
-    if (tip.recipe && tip.recipe.parts.length) el.append(treeEl(tip.recipe, d.items, sheets));
+    foot(tip, el, opts.head === false);
+    if (tip.recipe && tip.recipe.parts.length) el.append(treeEl(tip.recipe, d.items, sheets, opts.onPick));
     if (d.extra) for (const x of d.extra) el.append(h('div', x.cls || 'note', x.text));
   }
 }

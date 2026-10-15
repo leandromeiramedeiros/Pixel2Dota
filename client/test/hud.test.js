@@ -11,7 +11,7 @@ import {
   abilitySlotForCode, itemSlotForCode, targetInfo, teamOk, abilityReady, itemReady, canLearn, requiredLevel, pipCount,
   orderForRightClick, orderForAttackClick, resolveTargetClick, resolveSelfCast, orderCast, PORTRAIT, portraitPhase,
 } from '../src/ui/targeting.js';
-import { SHOP_CATEGORIES, categoryOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned, clampPanelPos, parsePanelPos } from '../src/ui/shopdata.js';
+import { SHOP_CATEGORIES, SHOP_COLUMNS, SHOP_GROUPS, shopCategories, categoryOf, groupOf, recipeTree, effectiveCost, buyCheck, inShopRange, sellValue, usedIn, markOwned, clampPanelPos, parsePanelPos } from '../src/ui/shopdata.js';
 import { abilityTip, itemTip, recipeLines, slotCharges } from '../src/ui/tipdata.js';
 import { rasterRows, parseColor } from '../src/ui/pixels.js';
 import { expandUnits, hudScale } from '../src/ui/style.js';
@@ -168,7 +168,42 @@ test('categories cover every item exactly once', () => {
   const seen = new Map();
   for (const c of SHOP_CATEGORIES) for (const k of c.items) { assert.ok(DATA.items[k], k); seen.set(k, (seen.get(k) || 0) + 1); }
   for (const k of Object.keys(DATA.items)) { if (/recipe/.test(k) || DATA.items[k].sell === false) continue; assert.equal(seen.get(k), 1, k + ' category count'); }
-  assert.equal(categoryOf('item_blink'), 'upgrades'); assert.equal(categoryOf('zzz'), null);
+  assert.equal(categoryOf('item_blink'), 'misc'); assert.equal(categoryOf('zzz'), null);   // shops.txt lists Blink under misc (BASIC)
+  assert.equal(groupOf('item_blink'), 'basic'); assert.equal(groupOf('item_bracer'), 'upgrades'); assert.equal(groupOf('zzz'), null);
+});
+
+test('shop columns: Dota display order from scripts/shops.txt', () => {
+  assert.deepEqual(SHOP_GROUPS.map((g) => g.id), ['basic', 'upgrades']);
+  assert.deepEqual(SHOP_COLUMNS.map((c) => [c.group, c.id, c.src]), [
+    ['basic', 'consumables', 'consumables'], ['basic', 'attributes', 'attributes'], ['basic', 'equipment', 'weapons_armor'], ['basic', 'misc', 'misc'], ['basic', 'secret', 'secretshop'],
+    ['upgrades', 'accessories', 'basics'], ['upgrades', 'support', 'support'], ['upgrades', 'magical', 'magics'], ['upgrades', 'armor', 'defense'], ['upgrades', 'weapons', 'weapons'], ['upgrades', 'artifacts', 'artifacts'],
+  ]);
+  assert.deepEqual(SHOP_CATEGORIES.map((c) => c.id), SHOP_COLUMNS.map((c) => c.id));   // empty columns keep their header
+  // no key in two columns of the full Dota lists; every shown item keeps its shops.txt position
+  const all = SHOP_COLUMNS.flatMap((c) => c.order);
+  assert.equal(new Set(all).size, all.length);
+  for (const c of SHOP_CATEGORIES) {
+    const order = SHOP_COLUMNS.find((x) => x.id === c.id).order;
+    const idx = c.items.map((k) => order.indexOf(k));
+    assert.ok(idx.every((v, i) => v >= 0 && (i === 0 || v > idx[i - 1])), c.id + ' follows shops.txt order');
+  }
+  // the 40 items we sell today, pinned per column (shops.txt order)
+  const cols = Object.fromEntries(SHOP_CATEGORIES.map((c) => [c.id, c.items]));
+  assert.deepEqual(cols, {
+    consumables: ['item_tpscroll', 'item_clarity', 'item_faerie_fire', 'item_ward_observer', 'item_ward_sentry', 'item_enchanted_mango', 'item_flask', 'item_tango'],
+    attributes: ['item_branches', 'item_gauntlets', 'item_slippers', 'item_mantle', 'item_circlet', 'item_belt_of_strength', 'item_boots_of_elves', 'item_robe', 'item_ogre_axe', 'item_blade_of_alacrity', 'item_staff_of_wizardry'],
+    equipment: ['item_quelling_blade', 'item_ring_of_protection', 'item_blades_of_attack', 'item_gloves', 'item_chainmail', 'item_broadsword', 'item_claymore', 'item_mithril_hammer'],
+    misc: ['item_ring_of_regen', 'item_sobi_mask', 'item_magic_stick', 'item_boots', 'item_blink'],
+    secret: [],
+    accessories: ['item_magic_wand', 'item_bracer', 'item_wraith_band', 'item_null_talisman', 'item_power_treads', 'item_phase_boots'],
+    support: [], magical: [],
+    armor: ['item_black_king_bar'],
+    weapons: ['item_lesser_crit'],
+    artifacts: [],
+  });
+  // an item added to DATA shows up in its Dota slot without touching the shop
+  const more = { items: { ...DATA.items, item_crown: { cost: 450, sell: true } } };
+  assert.deepEqual(shopCategories(more).find((c) => c.id === 'attributes').items.slice(7, 10), ['item_robe', 'item_crown', 'item_ogre_axe']);
 });
 
 test('recipe tree: sums to the item cost', () => {
