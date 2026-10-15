@@ -14,6 +14,7 @@ Goal: full Dota 2 parity and the full roster. The user is the creative director.
   Use vite on 5300+ (`npx vite client --port 53xx --strictPort`), game server `PORT=259x node server/src/index.js`, headless Chrome. Kill what you start.
 - `npm test` green before reporting. Run `npm run build` if you touched the client.
 - Never self-certify visuals. Save screenshots under `tools/.cache/view/` and report their absolute paths.
+- Visual work passes an independent reviewer agent (checklist: `.claude/skills/vox-unit/SKILL.md` "Review") before it reaches the director.
 - Report: commit hash, what changed (terse), screenshot paths, open questions. No recap.
 - Commit message trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (or your model).
 

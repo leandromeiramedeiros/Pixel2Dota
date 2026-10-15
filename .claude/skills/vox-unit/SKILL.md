@@ -23,10 +23,21 @@ Read `docs/VOXEL.md` (grids, kit, rules) once. Samples: `shared/vox/heroes/lina.
 4. **Check.** `npm run vox:check -- <short>` (grid, feet z 0, walls, tiers, mesh). Fix until green.
 5. **Look.** `npm run vox:shot -- <short> --small` -> `tools/art/out/<short>_vox_small.png`; view it next to `sheet.png`, fix the biggest
    difference (`npm run vox:view -- <short> --poses` puts ref and voxel in one image). Max 3 look-and-fix rounds.
-6. **Full sheet.** `npm run vox:shot -- <short>` -> `docs/voxel-chibi/<short>_vox.png`. Send it to the creative director (SendUserFile) with
-   the signature reads (skill `vox-view` for a ref-vs-voxel compare image; never commit it). Never self-certify visuals.
+6. **Full sheet.** `npm run vox:shot -- <short>` -> `docs/voxel-chibi/<short>_vox.png`, plus the FX sheet (`npm run fx:view -- <short>`).
+   Report both paths with the signature reads. Never self-certify visuals.
+   **Review gate:** the main session has an independent reviewer agent check the sheets before the director sees them (see Review below).
+   Fix its list (max 2 rounds), then the main session sends the sheets to the director.
 7. **After approval.** Register in `VOX_UNITS` (`client/src/render/voxactors.js`, `voxEntry(MOD, { unit, max, lean })`; buildings `lean: false`).
    Heroes: `npm run vox:portrait -- <short>` (optional `PORTRAIT` export for framing). `npm test` and `npx vite build client` pass.
+
+## Review (independent reviewer agent, fresh context: sheets + reference + this list only)
+Verdict PASS, or FIX with concrete numbered fixes (part, problem, expected). Check:
+- **Likeness:** recognizable at a glance next to `tools/.cache/ref/<short>/sheet.png` (silhouette, head / hair, signature colour block, weapon).
+- **Chibi read:** big head, short legs; one colour scheme; no noise.
+- **Clean render:** no doubled or inner outlines, holes, z-fighting or floating parts; face readable in the showcase and at the game camera.
+- **Anims:** idle / walk / attack / cast / stunned read and don't pop. The pick box stays stable (idle frame).
+- **FX vs OG on the FX sheet:** same shape, colour key, timing and scale per spell; subtle bloom with no whiteout; crisp particles; lights from spells only.
+- **Checks green:** `vox:check`, `npm test`.
 
 ## Director rules
 - Dota 2 likeness at a glance; chibi proportions; restraint (no noise, no whiteout bloom, subtle emissive).
