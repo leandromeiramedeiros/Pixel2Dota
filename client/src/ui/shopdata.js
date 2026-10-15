@@ -5,7 +5,8 @@ import { INV_SLOTS } from '../../../shared/protocol.js';
 
 // Dota 2 shop columns, in display order, from scripts/shops.txt (pak01). `src` = the shops.txt block; `order` = that block's items
 // verbatim (the full Dota list, so new items land in their Dota slot automatically). The sideshop / pregame / event blocks are not columns.
-export const SHOP_GROUPS = [{ id: 'basic', name: 'BASIC' }, { id: 'upgrades', name: 'UPGRADES' }];
+// Groups = Dota's shop tabs (dota_hud_shop GridBasicsTab / GridUpgradesTab), one shown at a time; names = DOTA_Shop_Category_* / DOTA_SUBSHOP_* (dota_english).
+export const SHOP_GROUPS = [{ id: 'basic', name: 'BASICS' }, { id: 'upgrades', name: 'UPGRADES' }];
 export const SHOP_COLUMNS = [
   { id: 'consumables', name: 'Consumables', group: 'basic', src: 'consumables', order: [
     'item_tpscroll', 'item_clarity', 'item_faerie_fire', 'item_smoke_of_deceit', 'item_ward_observer', 'item_ward_sentry', 'item_enchanted_mango', 'item_flask',
@@ -39,7 +40,7 @@ export const SHOP_COLUMNS = [
     'item_lesser_crit', 'item_mage_slayer', 'item_heavens_halberd', 'item_desolator', 'item_revenants_brooch', 'item_basher', 'item_maelstrom', 'item_invis_sword',
     'item_greater_crit', 'item_abyssal_blade', 'item_mjollnir', 'item_silver_edge', 'item_bfury', 'item_nullifier', 'item_manta', 'item_radiance',
     'item_rapier', 'item_monkey_king_bar', 'item_butterfly', 'item_satanic'] },
-  { id: 'artifacts', name: 'Artifacts', group: 'upgrades', src: 'artifacts', order: [
+  { id: 'artifacts', name: 'Armaments', group: 'upgrades', src: 'artifacts', order: [
     'item_sange', 'item_yasha', 'item_kaya', 'item_dragon_lance', 'item_kaya_and_sange', 'item_sange_and_yasha', 'item_yasha_and_kaya', 'item_hurricane_pike',
     'item_echo_sabre', 'item_diffusal_blade', 'item_witch_blade', 'item_specialists_array', 'item_harpoon', 'item_disperser', 'item_devastator', 'item_hydras_breath',
     'item_overwhelming_blink', 'item_swift_blink', 'item_arcane_blink', 'item_skadi'] },

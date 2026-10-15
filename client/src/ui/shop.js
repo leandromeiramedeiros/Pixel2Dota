@@ -1,9 +1,10 @@
-// Shop panel (DOM), Dota layout: every column at once (BASIC | UPGRADES, shops.txt order) + a detail panel for the selected item.
+// Shop panel (DOM), Dota layout: BASICS / UPGRADES tabs (one shown), each tab = its category columns side by side, items stacked
+//   in shops.txt order (empty columns keep their header), + a detail panel for the selected item.
 //   Click / tap selects (details), right-click / double-click / BUY buys. Pure rules live in shopdata.js.
-//   createShop(parent, { sheets, send, tooltip, onMessage }) -> { el, open(), close(), toggle(), isOpen(), select(key), update({ gold, items, inRange, dead }) }
+//   createShop(parent, { sheets, send, tooltip, onMessage }) -> { el, open(), close(), toggle(), isOpen(), select(key), tab(id), update({ gold, items, inRange, dead }) }
 import { MSG, ORDER } from '../../../shared/protocol.js';
 import { DATA } from '../../../shared/data.js';
-import { SHOP_GROUPS, SHOP_CATEGORIES, buyCheck, effectiveCost, usedIn, clampPanelPos, parsePanelPos } from './shopdata.js';
+import { SHOP_GROUPS, SHOP_CATEGORIES, groupOf, buyCheck, effectiveCost, usedIn, clampPanelPos, parsePanelPos } from './shopdata.js';
 import { renderTip } from './tooltip.js';
 import { prettyName, fmtGold } from './format.js';
 import { pixelEl } from './pixels.js';
@@ -14,14 +15,15 @@ const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) 
 const POS_KEY = 'p2d.shopPos';
 const REASON = { range: 'Out of shop range', gold: 'Not enough gold', full: 'Inventory full', dead: 'You are dead', unknown: 'Unknown item' };
 // column headers are one icon wide: short labels, full name on hover
-const SHORT = { consumables: 'CONSUM', attributes: 'ATTRIB', equipment: 'EQUIP', misc: 'MISC', secret: 'SECRET', accessories: 'ACCESS', support: 'SUPP', magical: 'MAGIC', armor: 'ARMOR', weapons: 'WEAPON', artifacts: 'ARTIF' };
+const SHORT = { consumables: 'CONSUM', attributes: 'ATTRIB', equipment: 'EQUIP', misc: 'MISC', secret: 'SECRET', accessories: 'ACCESS', support: 'SUPP', magical: 'MAGIC', armor: 'ARMOR', weapons: 'WEAPON', artifacts: 'ARMAM' };
 
 export function createShop(parent, { sheets, send, tooltip, onMessage }) {
   const el = h('div', 'h-shop h-panel');
   const head = h('header'); const title = h('h3', null, 'SHOP');
   const status = h('span', 'st'); const gold = h('span', 'h-gold'); const x = h('span', 'x', 'X');
   gold.style.padding = '0'; gold.style.height = 'auto';
-  head.append(title, status, gold, x);
+  const tabs = h('div', 'tabs');
+  head.append(title, tabs, status, gold, x);
   const body = h('div', 'body'); const cols = h('div', 'cols'); const det = h('div', 'det');
   body.append(cols, det);
   const foot = h('footer');
@@ -32,7 +34,8 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
   el.append(head, body, foot); parent.append(el);
 
   let ctx = { gold: 0, items: [], inRange: false, dead: false }, opened = false, sel = null, detSig = '';
-  const itemEls = [];
+  const itemEls = [], tabEls = {}, grpEls = {};
+  let cur = SHOP_GROUPS[0].id;
   const goldIcon = pixelEl(GLYPHS.coin, null, 1); goldIcon.style.width = 'calc(9 * var(--u))';
   x.addEventListener('click', () => api.close());
 
@@ -50,7 +53,7 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
   let drag = null;
   head.classList.add('drag');
   head.addEventListener('pointerdown', (e) => {
-    if (e.button > 0 || (e.target.closest && e.target.closest('.x'))) return;
+    if (e.button > 0 || (e.target.closest && e.target.closest('.x, .tab'))) return;
     e.preventDefault(); e.stopPropagation();
     const r = el.getBoundingClientRect();
     drag = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
@@ -78,17 +81,27 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
     if (!r.ok) { onMessage && onMessage(REASON[r.reason] || 'Cannot buy', true); return; }
     send(MSG.ORDER, { t: ORDER.BUY, key });
   }
+  function showTab(id) {
+    if (!grpEls[id]) return;
+    cur = id;
+    for (const k in grpEls) { const on = k === id; grpEls[k].classList.toggle('on', on); tabEls[k].classList.toggle('on', on); }
+    cols.scrollTop = 0;
+    if (pos && opened) pos = place(pos.x, pos.y);   // 5 vs 6 columns: keep a dragged panel on screen
+  }
   function select(key) {
     if (!DATA.items[key]) return;
+    const g = groupOf(key); if (g && g !== cur) showTab(g);   // recipe tree / used-in can point into the other tab
     sel = key; detSig = '';
     for (const e of itemEls) e.it.classList.toggle('sel', e.key === sel);
     refresh();
   }
 
-  // ---- columns: group header spanning its columns, column header, items stacked in shops.txt order (empty columns keep their header)
+  // ---- tabs (BASICS | UPGRADES) -> that group's columns: column header, items stacked in shops.txt order (empty columns keep their header)
   for (const g of SHOP_GROUPS) {
-    const grp = h('div', 'grp ' + g.id); const gc = h('div', 'gc');
-    grp.append(h('div', 'gh', g.name), gc); cols.append(grp);
+    const tb = h('div', 'tab', g.name); tb.dataset.tab = g.id; tabEls[g.id] = tb; tabs.append(tb);
+    tb.addEventListener('click', () => showTab(g.id));
+    const grp = h('div', 'grp ' + g.id); const gc = h('div', 'gc'); grpEls[g.id] = grp;
+    grp.append(gc); cols.append(grp);
     for (const c of SHOP_CATEGORIES.filter((k) => k.group === g.id)) {
       const col = h('div', 'col' + (c.items.length ? '' : ' empty')); col.dataset.col = c.id;
       const ch = h('div', 'ch', SHORT[c.id] || c.name); ch.title = c.name;
@@ -167,11 +180,16 @@ export function createShop(parent, { sheets, send, tooltip, onMessage }) {
     why.textContent = r.ok ? '' : r.reason === 'gold' ? `Need ${fmtGold(r.need)} more gold` : REASON[r.reason] || '';
   }
 
+  // tallest column / widest tab of either tab (style.js .body height, .cols min-width): same panel size on both tabs
+  el.style.setProperty('--rows', Math.max(1, ...SHOP_CATEGORIES.map((c) => c.items.length)));
+  el.style.setProperty('--ncol', Math.max(...SHOP_GROUPS.map((g) => SHOP_CATEGORIES.filter((c) => c.group === g.id).length)));
+  showTab(cur);
   refresh();
   const api = {
     el,
     isOpen: () => opened,
     select,
+    tab: showTab,
     open() { opened = true; el.classList.add('open'); refresh(); if (pos) pos = place(pos.x, pos.y); },
     close() { opened = false; el.classList.remove('open'); tooltip.hide(); },
     toggle() { opened ? api.close() : api.open(); },

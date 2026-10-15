@@ -166,25 +166,29 @@ const CSS = `
 :is(.h-tip, .h-shop .db) .tr span:last-child { margin-left:auto; color:var(--gold); font-family:'Press Start 2P',monospace; font-size:5u; }
 :is(.h-tip, .h-shop .db) .bad { color:var(--warn); margin-top:3u; }
 
-/* ---------- shop: Dota layout, every column at once (BASIC | UPGRADES) + detail panel. --sc cell, --si icon, --dw detail width ---------- */
-.h-shop { --sc:22u; --si:20u; --dw:124u; position:absolute; right:3u; bottom:70u; height:256u; max-height:calc(100% - 110u); max-width:calc(100% - 6u); display:none; flex-direction:column; padding:4u; gap:3u; }
+/* ---------- shop: Dota layout, BASICS / UPGRADES tabs, the tab's category columns + detail panel. --sc cell, --si icon, --cg cell gap, --chh column header,
+   --dw detail width, --rows = tallest column of either tab (shop.js) so the panel fits it without scrolling and keeps its size across tabs ---------- */
+.h-shop { --sc:22u; --si:20u; --cg:2u; --chh:9u; --dw:124u; position:absolute; right:3u; bottom:100u; height:auto; max-height:calc(100% - 140u); max-width:calc(100% - 6u); display:none; flex-direction:column; padding:4u; gap:3u; }
 .h-shop.open { display:flex; }
 .h-shop header { display:flex; align-items:center; gap:4u; height:11u; flex:none; }
 .h-shop header.drag { cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; margin:-4u -4u 0; padding:4u 4u 0; height:15u; }
 .h-shop header.drag:active { cursor:grabbing; }
-.h-shop header h3 { margin:0; font-size:9u; color:var(--gold); flex:1; font-weight:700; }
+.h-shop header h3 { margin:0; font-size:9u; color:var(--gold); flex:none; font-weight:700; }
 .h-shop header .st { font-size:7u; }
 .h-shop header .h-gold { display:flex; align-items:center; gap:2u; font-family:'Press Start 2P',monospace; font-size:6u; }
 .h-shop .x { cursor:pointer; padding:1u 3u; background:#2a1414; color:#ff8a7a; box-shadow:0 0 0 1u var(--ink); }
 .h-shop .x:hover { background:#4a1c1c; }
-.h-shop .body { display:flex; gap:4u; flex:1; min-height:0; }
-.h-shop .cols { display:flex; gap:5u; flex:0 1 auto; min-width:0; overflow:hidden auto; align-items:flex-start; scrollbar-width:thin; scrollbar-color:var(--gold2) transparent; overscroll-behavior:contain; }
-.h-shop .grp { display:flex; flex-direction:column; flex:none; }
-.h-shop .gh { position:sticky; top:0; z-index:2; height:9u; padding:1u 1u 0; font-size:6u; font-weight:700; letter-spacing:1u; color:var(--gold); background:#161b28; box-shadow:inset 0 -1u 0 var(--gold2); }
-.h-shop .gc { display:flex; gap:2u; }
+.h-shop .tabs { display:flex; align-self:stretch; align-items:flex-end; gap:2u; margin-left:4u; flex:1; }
+.h-shop .tab { cursor:pointer; padding:2u 6u 1u; font-size:7u; font-weight:700; letter-spacing:1u; color:var(--dim); background:#1a1a1a; box-shadow:inset 0 0 0 1u #2a3248; touch-action:manipulation; user-select:none; -webkit-user-select:none; }
+.h-shop .tab:hover { color:#fff; }
+.h-shop .tab.on { color:var(--gold); background:#2a2312; box-shadow:inset 0 0 0 1u var(--gold2), inset 0 -1u 0 var(--gold); }
+.h-shop .body { display:flex; gap:4u; flex:1 1 auto; min-height:0; height:calc(var(--chh) + 1u + var(--rows, 11) * (var(--sc) + var(--cg))); }
+.h-shop .cols { display:flex; gap:5u; flex:0 1 auto; min-width:calc(var(--ncol, 6) * (var(--sc) + var(--cg))); overflow:hidden auto; align-items:flex-start; scrollbar-width:thin; scrollbar-color:var(--gold2) transparent; overscroll-behavior:contain; }
+.h-shop .grp { display:none; flex-direction:column; flex:none; } .h-shop .grp.on { display:flex; }
+.h-shop .gc { display:flex; gap:var(--cg); }
 .h-shop .col { width:var(--sc); display:flex; flex-direction:column; }
-.h-shop .ch { position:sticky; top:9u; z-index:1; height:9u; padding-top:2u; font-size:4u; line-height:6u; text-align:center; color:var(--dim); white-space:nowrap; overflow:visible; background:#161b28; }
-.h-shop .ci { display:flex; flex-direction:column; gap:2u; padding-top:1u; }
+.h-shop .ch { position:sticky; top:0; z-index:1; height:var(--chh); padding-top:2u; box-sizing:border-box; font-size:4u; line-height:6u; text-align:center; color:var(--dim); white-space:nowrap; overflow:visible; background:#161b28; box-shadow:inset 0 -1u 0 #2a3248; }
+.h-shop .ci { display:flex; flex-direction:column; gap:var(--cg); padding-top:1u; }
 .h-shop .col.empty .ci::after { content:''; height:var(--sc); box-shadow:inset 0 0 0 1u #1f2638; }
 .h-shop .it { position:relative; width:var(--sc); height:var(--sc); flex:none; display:flex; align-items:center; justify-content:center; cursor:pointer; background:#0d1019; box-shadow:0 0 0 1u var(--ink); touch-action:manipulation; }
 .h-shop .it:hover { box-shadow:0 0 0 1u var(--gold); background:#171c2a; }
@@ -355,20 +359,18 @@ html.p2d-touch .h-chat.typing { left:50%; bottom:auto; top:6px; transform:transl
 html.p2d-touch .h-chat input { font-size:16px; padding:8px; }
 html.p2d-touch .h-feed { --u:calc(1.4px * var(--k, 1)); top:calc(58px * var(--k, 1)); right:calc(6px + env(safe-area-inset-right, 0px)); width:calc(190px * var(--k, 1)); }
 /* shop on touch: px sizes (cells >= 36px tap targets, text >= 9px), the column area and the detail panel scroll on their own */
-html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); --sc:max(36px, calc(40px * var(--bk, 1))); --si:calc(var(--sc) - 6px); --dw:max(150px, calc(176px * var(--k, 1)));
+html.p2d-touch .h-shop { --u:calc(1.5px * var(--k, 1)); --sc:max(36px, calc(40px * var(--bk, 1))); --si:calc(var(--sc) - 6px); --cg:2px; --chh:14px; --dw:max(150px, calc(176px * var(--k, 1)));
   z-index:30; right:auto; left:50%; transform:translateX(-50%); bottom:auto; top:calc(54px * var(--bk, 1) + env(safe-area-inset-top, 0px)); height:auto;
   max-height:calc(100% - 54px * var(--bk, 1) - 8px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); max-width:calc(100% - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); overflow:hidden; padding:5px; gap:4px; }   /* starts below the touch toggle buttons so SHOP stays tappable */
 html.p2d-touch .h-shop header.drag { height:30px; margin:-5px -5px 0; padding:5px 5px 0; }
 html.p2d-touch .h-shop header h3 { font-size:14px; } html.p2d-touch .h-shop header .st, html.p2d-touch .h-shop header .h-gold { font-size:12px; }
 html.p2d-touch .h-shop .x { padding:6px 12px; font-size:13px; }
-html.p2d-touch .h-shop .body { gap:5px; }
-html.p2d-touch .h-shop .cols { flex:none; flex-direction:column; gap:6px; align-items:stretch; }   /* beside the bag a phone has ~370px: BASIC above UPGRADES, one vertical scroll */
-html.p2d-touch .h-shop .gc { gap:2px; }
-html.p2d-touch .h-shop .ci { gap:2px; }
-html.p2d-touch .h-shop .gh { height:15px; font-size:11px; letter-spacing:1px; }
-html.p2d-touch .h-shop .ch { top:15px; height:14px; padding-top:3px; font-size:8px; line-height:10px; }
+html.p2d-touch .h-shop .tabs { gap:4px; margin-left:8px; align-self:center; }
+html.p2d-touch .h-shop .tab { min-height:28px; display:flex; align-items:center; padding:0 10px; font-size:11px; letter-spacing:1px; }   /* 28px tall + the header's padding: a full-height tap target */
+html.p2d-touch .h-shop .body { gap:5px; }   /* phone height: the column area scrolls under its sticky headers, tabs stay put */
+html.p2d-touch .h-shop .ch { height:var(--chh); padding-top:3px; font-size:7px; line-height:10px; }
 html.p2d-touch .h-shop .it .c { font-family:'Silkscreen',monospace; font-size:8px; line-height:8px; padding:1px 1px 0; }
-html.p2d-touch .h-shop .det { flex:1 1 0; width:auto; min-width:120px; padding:5px; gap:5px; font-size:10px; line-height:1.3; }
+html.p2d-touch .h-shop .det { flex:0 1 var(--dw); width:auto; min-width:120px; padding:5px; gap:5px; font-size:10px; line-height:1.3; }
 html.p2d-touch .h-shop .di canvas { width:40px; height:40px; }
 html.p2d-touch .h-shop .dn { font-size:13px; } html.p2d-touch .h-shop .dc { font-size:10px; } html.p2d-touch .h-shop .dc canvas { width:11px; }
 html.p2d-touch .h-shop .buy { min-height:40px; display:flex; align-items:center; justify-content:center; padding:0; font-size:15px; }
