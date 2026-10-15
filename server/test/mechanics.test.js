@@ -138,6 +138,27 @@ test('melee heroes attacking one target spread around it and settle instead of s
   assert.ok(late < 2, `settled: ${late.toFixed(1)} units of shoving in the last second`);
 });
 
+// ---------------------------------------------------------------------------------------------------------------- hero steering
+test('heroes walk around standing units in their way instead of shoving through them', () => {
+  const SX = -6500, SY = -5000;   // open base ground (no buildings in this world)
+  const w = new World({ seed: 1, pregame: 0, buildings: false });
+  const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
+  put(w, h, SX, SY); h.facing = 0;
+  const block = [0, 1, 2].map((i) => { const c = makeCreep(w, TEAM.RADIANT, 'melee', SX + 300, SY + (i - 1) * 34, 'mid'); c._lp = null; w.addUnit(c); return c; });
+  const at = block.map((c) => [c.x, c.y]);
+  w.order('a', { t: 'move', x: SX + 700, y: SY });
+  let minGap = Infinity, tArrive = -1;
+  for (let k = 0; k < 150 && tArrive < 0; k++) {
+    w.step(DT);
+    for (const c of block) minGap = Math.min(minGap, Math.hypot(h.x - c.x, h.y - c.y) - h.radius - c.radius);
+    if (Math.hypot(h.x - (SX + 700), h.y - SY) < 10) tArrive = (k + 1) * DT;
+  }
+  const pushed = Math.max(...block.map((c, i) => Math.hypot(c.x - at[i][0], c.y - at[i][1])));
+  assert.ok(tArrive > 0 && tArrive < 700 / h.ms + 0.5, `arrived in ${tArrive.toFixed(2)} s`);
+  assert.ok(minGap > -3, `never pushed into a body (min gap ${minGap.toFixed(1)})`);
+  assert.ok(pushed < 3, `standing creeps not shoved (${pushed.toFixed(1)})`);
+});
+
 // ---------------------------------------------------------------------------------------------------------------- tower aggro
 function towerScene() {
   const w = new World({ seed: 2, pregame: 0 });
