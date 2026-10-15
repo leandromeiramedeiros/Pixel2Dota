@@ -2,8 +2,9 @@
 import { KIND, ST, ABF, ORDER, ACTIVE_SLOTS } from '../../../shared/protocol.js';
 import { canCast, canUseItem, endChannel, interrupt, beginChannel } from './status.js';
 import { getHandler } from './abilities/index.js';
-import { attackable, inAttackRange, acquire } from './combat.js';
+import { attackable, inAttackRange, acquire, heroAggro } from './combat.js';
 import { moveTo, follow, stepMove, faceToward } from './move.js';
+import { engage } from './arc.js';
 import * as H from './heroes.js';
 import * as items from './items.js';
 import { evSpell, evMsg } from './events.js';
@@ -39,7 +40,7 @@ export function push(w, u, o) {
       ord = { t: o.t, x: Math.max(-8800, Math.min(8800, o.x)), y: Math.max(-8800, Math.min(8800, o.y)), _s: 0 }; break;
     case ORDER.ATTACK:
       if (typeof o.id !== 'string') return false;
-      { const t = w.units.get(o.id); if (!t || !attackable(u, t)) return false; }
+      { const t = w.units.get(o.id); if (!t || !attackable(u, t)) return false; heroAggro(w, u, t); }   // the order itself draws aggro
       ord = { t: o.t, id: o.id, _s: 0 }; break;
     case ORDER.STOP: ord = { t: ORDER.STOP }; break;
     case ORDER.HOLD: ord = { t: ORDER.HOLD }; break;
@@ -106,7 +107,7 @@ export function think(w, u, dt) {
     case ORDER.HOLD: {
       let t = u._tgt;
       if (t && !(attackable(u, t) && inAttackRange(u, t, 0))) t = u._tgt = null;
-      if (!t && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius);
+      if (!t && !(u._st & ST.INVIS) && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius);
       break;
     }
     case ORDER.CAST: case ORDER.ITEM: doCast(w, u, o, dt); break;
@@ -114,7 +115,8 @@ export function think(w, u, dt) {
   }
 }
 
-const scanRange = (u) => Math.max(u.atkRange + u.radius + 100, 450);
+/** Attack-move scan: the unit's AttackAcquisitionRange (heroes 800, melee 600, Sniper 950) but never shorter than its attack reach. */
+const scanRange = (u) => (u._acq ? Math.max(u._acq, u.atkRange + u.radius) : Math.max(u.atkRange + u.radius + 100, 450));
 
 export function tauntSource(w, u) {
   for (const m of u._mods) if (m.status & ST.TAUNT && m.taunter) { const t = w.units.get(m.taunter); if (t && !t._dead) return t; }
@@ -124,12 +126,13 @@ export function tauntSource(w, u) {
 function idle(w, u) {
   let t = u._tgt;
   if (t && !(attackable(u, t) && inAttackRange(u, t, 20))) t = u._tgt = null;
-  if (!t && u.atkRate > 0 && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius + 20);
+  if (!t && u.atkRate > 0 && !(u._st & ST.INVIS) && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius + 20);   // invisible units never auto-attack
 }
 
 /** Walk into range of t (chasing), attack once there. u._tgt must already be t. */
 export function chase(w, u, t, dt) {
   u._tgt = t;
+  if (!u._ranged && engage(w, u, t, dt === undefined ? 1 / 30 : dt)) return;   // melee, close: take a free slot on the ring around t
   if (inAttackRange(u, t, -4)) { if (u._mv && u._mv.tgt === t) u._mv = null; return; }
   if (!u._mv || u._mv.tgt !== t) follow(w, u, t, 8, true);
   stepMove(w, u, dt === undefined ? 1 / 30 : dt);

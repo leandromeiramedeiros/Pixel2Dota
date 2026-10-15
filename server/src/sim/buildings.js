@@ -4,7 +4,7 @@ import { FOUNTAIN_RADIUS, FOUNTAIN_HP_PCT, FOUNTAIN_MANA_PCT } from '../../../sh
 import { getMap } from '../../../shared/map.js';
 import { makeBuilding } from './units.js';
 import { attackable, inAttackRange } from './combat.js';
-import { retarget } from './creeps.js';
+import { towerRetarget } from './creeps.js';
 import { evEnd } from './events.js';
 
 const teamOf = (s) => (s.startsWith('good') ? TEAM.RADIANT : TEAM.DIRE);
@@ -91,7 +91,9 @@ export function buildingThink(w, u, dt) {
   if (u.atkRate <= 0 || u._st & ST.STUN) { u._tgt = null; return; }
   let t = u._tgt;
   if (t && !(attackable(u, t) && inAttackRange(u, t, 0))) t = u._tgt = null;
-  if (!t || ((w.tick + u._nid) % 6) === 0) u._tgt = retarget(w, u, u.atkRange);
+  const forced = u._scanT < 0;   // heroAggro: an enemy hero in reach just attacked an allied hero
+  if (forced) u._scanT = 0;
+  if (!t || forced || ((w.tick + u._nid) % 6) === 0) u._tgt = towerRetarget(w, u);
 }
 
 function fountainHeal(w, u, dt) {

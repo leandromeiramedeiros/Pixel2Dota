@@ -1,9 +1,9 @@
 // Lane creeps: wave spawning, lane following, aggro/leash; summon default AI. Pure.
 import { KIND, TEAM, ST } from '../../../shared/protocol.js';
-import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, AGGRO_RANGE_CREEP, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
+import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, WAVE_GROW, ATTACK_RANGE_BUFFER } from '../../../shared/constants.js';
 import { LANES } from '../../../shared/data/lanes.js';
 import { makeCreep } from './units.js';
-import { acquire, attackable, inAttackRange } from './combat.js';
+import { acquire, attackable, inAttackRange, aggroOnAlly } from './combat.js';
 import { moveTo, follow, stepMove } from './move.js';
 import { chase, tauntSource } from './orders.js';
 
@@ -102,12 +102,18 @@ function spawnPoint(w, team, lane) {
 /** Spawn wave number `no` (1-based). Dota spawner: one loose block per lane on the lane line, melee row in front, ranged then siege behind,
  *  everyone already facing down the lane. Each creep keeps its lateral slot (_lo) while walking so the wave does not funnel into one file. */
 export function spawnWave(w, no) {
-  const groups = {};
-  for (const r of w.rax) {
-    if (r._dead) continue;
-    const g = groups[r.team + r._lane] || (groups[r.team + r._lane] = { team: r.team, lane: r._lane, melee: 0, ranged: 0, siege: 0 });
-    if (r._rax === 'melee') { g.melee += WAVE_MELEE; if (no % SIEGE_EVERY === 0) g.siege++; }
-    else g.ranged += WAVE_RANGED;
+  const groups = {}, min = Math.max(0, w.time) / 60;
+  const grow = (type) => WAVE_GROW[type].reduce((n, m) => n + (min >= m - 1e-6 ? 1 : 0), 0);
+  for (const team of [TEAM.RADIANT, TEAM.DIRE]) {
+    // Every lane keeps spawning whatever happens to its own barracks; the ENEMY barracks of that lane decide the grade:
+    // melee rax down -> super melee (+ super siege, assumed), ranged rax down -> super ranged, all enemy rax down -> mega creeps.
+    const er = w.rax.filter((r) => r.team !== team), mega = er.length > 0 && er.every((r) => r._dead);
+    for (const lane of LANE_NAMES) {
+      if (!w.rax.some((r) => r.team === team && r._lane === lane)) continue;   // no spawner on this lane (test maps)
+      const down = (kind) => er.some((r) => r._lane === lane && r._rax === kind && r._dead);
+      const gm = mega ? 'upgraded_mega' : down('melee') ? 'upgraded' : '', gr = mega ? 'upgraded_mega' : down('range') ? 'upgraded' : '';
+      groups[team + lane] = { team, lane, melee: WAVE_MELEE + grow('melee'), ranged: WAVE_RANGED + grow('ranged'), siege: no % SIEGE_EVERY === 0 ? 1 + grow('siege') : 0, grade: { melee: gm, ranged: gr, siege: gm } };
+    }
   }
   for (const g of Object.values(groups)) {
     const path = lanePath(w, g.team, g.lane), sp = spawnPoint(w, g.team, g.lane);
@@ -116,7 +122,7 @@ export function spawnWave(w, no) {
       for (let i = 0; i < n; i++) {
         const lo = (i - (n - 1) / 2) * ROW, back = row * ROW;
         const q = w.nav.nearestWalkable(sp.x - sp.ux * back - sp.uy * lo, sp.y - sp.uy * back + sp.ux * lo, {});
-        const u = makeCreep(w, g.team, type, q.x, q.y, g.lane);
+        const u = makeCreep(w, g.team, type, q.x, q.y, g.lane, g.grade[type]);
         u._lp = path; u._li = sp.i; u._lo = lo; u._mvLi = -1; u._wave = no;
         u.facing = Math.atan2(sp.uy, sp.ux);
         u._scanT = (u._nid % 6);
@@ -127,13 +133,18 @@ export function spawnWave(w, no) {
 }
 
 const rank = (v) => (v._building ? 2 : v.kind === KIND.HERO ? 1 : 0);
-function aggroOnAlly(w, u, v) {
-  if (v.kind !== KIND.HERO || w.time - v._atkHeroT > 2.5) return false;
-  const vic = w.units.get(v._atkHeroId);
-  return !!vic && vic.team === u.team;
-}
 
 /** Pick a target for an AI unit, keeping the current one unless something clearly better turned up. */
+export function towerRetarget(w, u) {
+  // Dota towers stay on their target until it dies or leaves range; the one exception is tower aggro: an enemy hero in
+  // range that attacked an allied hero (aggroOnAlly) pulls the tower off anything that is not itself such a hero.
+  const cur = u._tgt && attackable(u, u._tgt) && inAttackRange(u, u._tgt, 0) ? u._tgt : null;
+  const best = acquire(w, u, u.atkRange);
+  if (!cur) return best;
+  if (best && best !== cur && aggroOnAlly(w, u, best) && !aggroOnAlly(w, u, cur)) return best;
+  return cur;
+}
+
 export function retarget(w, u, range) {
   const cur = u._tgt, best = acquire(w, u, range);
   if (!best) return cur && attackable(u, cur) && inAttackRange(u, cur, 0) ? cur : null;
@@ -156,67 +167,17 @@ export function creepThink(w, u, dt) {
   let t = u._tgt;
   if (t) {
     const d = Math.hypot(t.x - u.x, t.y - u.y) - t.radius;
-    if (!attackable(u, t) || d > AGGRO_RANGE_CREEP + ATTACK_RANGE_BUFFER) t = u._tgt = null;
+    if (!attackable(u, t) || d > u._acq + ATTACK_RANGE_BUFFER) t = u._tgt = null;
     else if (u._lp && laneDist(u) > LEASH) t = u._tgt = null;   // leash = distance from the lane line, not from the next waypoint
   }
   const forced = u._scanT < 0;
   if (forced) u._scanT = 0;
   if (forced || ((w.tick + u._nid) % 6) === 0) {
-    const n = retarget(w, u, AGGRO_RANGE_CREEP);
+    const n = retarget(w, u, u._acq);
     if (n !== t) { t = u._tgt = n; if (n) u._mv = null; }
   }
-  if (t) { u._mvLi = -1; if (u._ranged || !u._lp) chase(w, u, t, dt); else engage(w, u, t, dt); return; }
+  if (t) { u._mvLi = -1; chase(w, u, t, dt); return; }   // chase spreads melee attackers in an arc (arc.js)
   laneWalk(w, u, dt);
-}
-
-// ---------------------------------------------------------------------------------------------------------------- melee arc
-const SLOT_NEAR = 300;   // beyond this (edge distance) a melee creep just chases the target; inside it walks to its own slot on the ring
-/** Ring radius (centre distance) a melee unit attacks t from: comfortably inside its attack range. */
-const ringR = (u, t) => t.radius + u.radius + u.atkRange * 0.7;
-const slotX = (u, t) => t.x + Math.cos(u._slot.a) * ringR(u, t), slotY = (u, t) => t.y + Math.sin(u._slot.a) * ringR(u, t);
-
-/** Is (x,y) taken for a melee slot around t: a body stands there, or another attacker of t has claimed it. */
-function slotTaken(w, u, t, x, y) {
-  const cand = w.index.query(x, y, u.radius + 64, w._qd);
-  for (let i = 0; i < cand.length; i++) {
-    const o = cand[i];
-    if (o === u || o === t || o._dead || o._building || o._noCollide) continue;
-    const m = u.radius + o.radius;
-    if ((o.x - x) ** 2 + (o.y - y) ** 2 < m * m) return true;
-    if (o._slot && o._slot.t === t && o._tgt === t && (slotX(o, t) - x) ** 2 + (slotY(o, t) - y) ** 2 < m * m) return true;
-  }
-  return false;
-}
-/** Dota melee creeps spread in an arc around their target: take the free ring angle nearest the direct approach. */
-function pickSlot(w, u, t) {
-  const R = ringR(u, t), a0 = Math.atan2(u.y - t.y, u.x - t.x), da = (2 * u.radius + 2) / R;
-  for (let k = 0; k * da <= Math.PI; k++) for (const s of k ? [1, -1] : [1]) {
-    const a = a0 + s * k * da, x = t.x + Math.cos(a) * R, y = t.y + Math.sin(a) * R;
-    if (w.nav.walkXY(x, y) && !slotTaken(w, u, t, x, y)) { u._slot = { t, a }; return; }
-  }
-  u._slot = { t, a: a0 };
-}
-/** Melee lane creep vs t: chase from afar, then walk to a free slot on the ring and attack from there.
- *  It stops as soon as it is in range unless it stands inside another body (then it keeps going to its slot). */
-function engage(w, u, t, dt) {
-  u._tgt = t;
-  if (Math.hypot(t.x - u.x, t.y - u.y) - t.radius - u.radius > SLOT_NEAR) { u._slot = null; chase(w, u, t, dt); return; }
-  if (!u._slot || u._slot.t !== t || ((w.tick + u._nid) % 15 === 0 && !inAttackRange(u, t, -4))) pickSlot(w, u, t);
-  const gx = slotX(u, t), gy = slotY(u, t);
-  if (inAttackRange(u, t, -4) && (Math.hypot(gx - u.x, gy - u.y) < 12 || !crowded(w, u))) { if (u._mv) u._mv = null; return; }
-  if (!u._mv || u._mv.tgt) moveTo(w, u, gx, gy, 4, true);
-  else { u._mv.gx = gx; u._mv.gy = gy; }
-  stepMove(w, u, dt);
-}
-function crowded(w, u) {
-  const cand = w.index.query(u.x, u.y, u.radius + 64, w._qd);
-  for (let i = 0; i < cand.length; i++) {
-    const o = cand[i];
-    if (o === u || o._dead || o._building || o._noCollide) continue;
-    const m = u.radius + o.radius - 2;
-    if ((o.x - u.x) ** 2 + (o.y - u.y) ** 2 < m * m) return true;
-  }
-  return false;
 }
 
 const LANE_ARRIVE = 48;

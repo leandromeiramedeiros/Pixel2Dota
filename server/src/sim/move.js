@@ -1,7 +1,9 @@
 // Movement: path following (A* via nav.js), turn rate, knockback, hull separation. Pure.
+import { KIND } from '../../../shared/protocol.js';
 import { canMove } from './status.js';
 
 const TAU = Math.PI * 2;
+const TURN_FREE = 0.2, TURN_STOP = Math.PI / 2;   // rad: walk straight below FREE, curve between, turn in place at/above STOP
 export function norm(a) { while (a > Math.PI) a -= TAU; while (a <= -Math.PI) a += TAU; return a; }
 export const angDiff = (a, b) => norm(b - a);
 
@@ -51,11 +53,16 @@ export function stepMove(w, u, dt) {
       wx = p.x; wy = p.y;
     }
   }
-  const ang = Math.atan2(wy - u.y, wx - u.x);
+  let ang = Math.atan2(wy - u.y, wx - u.x);
+  if (u.kind === KIND.HERO) ang = steer(w, u, m, ang, Math.hypot(wx - u.x, wy - u.y));
+  // Turn while moving: nearly aligned -> full speed straight at the waypoint; otherwise advance along the current facing at
+  // cos(misalignment) speed (a curved start) and only turn in place beyond TURN_STOP. Approximation of Dota's turn-then-walk.
   const rem = faceToward(u, ang, dt);
-  if (rem > 0.35) return false;
-  const step = Math.min(u.ms * dt, Math.hypot(wx - u.x, wy - u.y));
-  const o = nav.slide(u.x, u.y, u.radius, u.x + Math.cos(ang) * step, u.y + Math.sin(ang) * step);
+  if (rem >= TURN_STOP) return false;
+  const along = rem <= TURN_FREE;
+  const step = Math.min(u.ms * dt * (along ? 1 : Math.cos(rem)), Math.hypot(wx - u.x, wy - u.y));
+  const da = along ? ang : u.facing;
+  const o = nav.slide(u.x, u.y, u.radius, u.x + Math.cos(da) * step, u.y + Math.sin(da) * step);
   const moved = Math.hypot(o.x - u.x, o.y - u.y);
   u.x = o.x; u.y = o.y;
   if (moved > 0.01) u._moved = true;
@@ -67,6 +74,41 @@ export function stepMove(w, u, dt) {
       else { m.path = null; m.rep = 0; }
     }
   } else if (m.stuck > 0) m.stuck = Math.max(0, m.stuck - dt);
+  return false;
+}
+
+const STEER_LOOK = 110, STEER_STEP = 0.2, STEER_MAX = 8;   // look-ahead beyond the own hull; probe angle step (rad) and count per side
+/**
+ * Unit-aware local steering for heroes (A* only knows trees/cliffs/buildings). If a STANDING body (not walking, so it will not step
+ * aside) blocks the straight line toward the waypoint within the look-ahead, probe directions fanning out from it and take the first
+ * clear one, sticking to the side picked last time so a row of creeps is passed on one side. Bodies closer than the waypoint only;
+ * the move target is ignored. Fully boxed in -> straight on (separation shoves). Dota paths heroes around units; local approximation.
+ */
+function steer(w, u, m, ang, dist) {
+  const look = Math.min(dist, STEER_LOOK + u.radius);
+  if (look < u.radius) return ang;
+  const cand = w.index.query(u.x, u.y, look + u.radius + 64, w._qs);
+  let n = 0;
+  for (let i = 0; i < cand.length; i++) {
+    const o = cand[i];
+    if (o === u || o._dead || o._building || o._noCollide || o === m.tgt || o === u._tgt || yieldOf(o) >= 1) continue;
+    cand[n++] = o;
+  }
+  cand.length = n;
+  if (!n || !blocked(u, cand, ang, look)) { m.side = 0; return ang; }
+  const s0 = m.side || (u._nid & 1 ? 1 : -1);
+  for (let k = 1; k <= STEER_MAX; k++) for (const s of [s0, -s0]) {
+    const a = ang + s * k * STEER_STEP;
+    if (!blocked(u, cand, a, look)) { m.side = s; return a; }
+  }
+  return ang;
+}
+function blocked(u, list, a, look) {
+  const cx = Math.cos(a), cy = Math.sin(a);
+  for (let i = 0; i < list.length; i++) {
+    const o = list[i], rx = o.x - u.x, ry = o.y - u.y, t = rx * cx + ry * cy, R = u.radius + o.radius;
+    if (t > 0 && t - o.radius <= look && Math.abs(ry * cx - rx * cy) < R) return true;
+  }
   return false;
 }
 

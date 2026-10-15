@@ -49,7 +49,7 @@ export class World {
     this._rng = mulberry32(this.seed >>> 0);
     this.data = opts.data || DATA;
     this.units = new Map(); this.players = new Map(); this.treesDown = new Set();
-    this.projs = []; this._ev = []; this._rm = []; this._hl = []; this._qb = []; this._qc = []; this._qd = []; this._qe = [];
+    this.projs = []; this._ev = []; this._rm = []; this._hl = []; this._qb = []; this._qc = []; this._qd = []; this._qe = []; this._qs = [];
     this._id = 0; this._pid = 0; this._timers = [];
     this.visionSources = new Map();   // temporary team vision (vision.js), mirrored to state.vision by the room
     this.tick = 0; this.time = -(opts.pregame === undefined ? PREGAME : opts.pregame); this.night = false; this.winner = -1;

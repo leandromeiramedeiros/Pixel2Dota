@@ -9,6 +9,7 @@
 //   _channel     active channel {key,left,...}   _kb knockback state   _lastPlayerDmg time of last damage taken from a hero
 import { KIND, TEAM, ST, ABF, INV_SLOTS } from '../../../shared/protocol.js';
 import { HEROES } from '../../../shared/heroes.js';
+import { CREEP_PASSIVES } from '../../../shared/constants.js';
 
 const has = (arr, f) => !!arr && arr.indexOf(f) >= 0;
 
@@ -48,11 +49,13 @@ const visNight = (day) => Math.round(Math.min(day, Math.max(600, day * 0.6)));
 
 export function creepKeys(team) { const s = team === TEAM.RADIANT ? 'goodguys' : 'badguys'; return { melee: s + '_melee', ranged: s + '_ranged', siege: s + '_siege' }; }
 
-export function makeCreep(w, team, type, x, y, lane) {
-  const d = w.data.units[creepKeys(team)[type]];
-  const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: 0.5 };
-  const u = common(w, { kind: KIND.CREEP, key: d.key, team, x, y, base, lane, radius: Math.max(d.hull, 16), projKey: type === 'siege' ? 'siege' : type === 'ranged' ? 'creep_ranged' : '', visDay: d.vision, visNight: d.vision });
-  u._type = type;
+/** Lane creep. grade: '' | 'upgraded' (super: the enemy barracks of that type in this lane is down) | 'upgraded_mega' (all enemy barracks down).
+ *  Stats/bounty come from the graded unit; the wire `key` stays the base creep key (the client has one model per type). */
+export function makeCreep(w, team, type, x, y, lane, grade) {
+  const k0 = creepKeys(team)[type], d = w.data.units[grade ? k0 + '_' + grade : k0] || w.data.units[k0];
+  const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: d.turnRate || 0.5 };
+  const u = common(w, { kind: KIND.CREEP, key: w.data.units[k0].key, team, x, y, base, lane, radius: d.hull || 16, projKey: type === 'siege' ? 'siege' : type === 'ranged' ? 'creep_ranged' : '', visDay: d.vision, visNight: d.vision });
+  u._type = type; u._grade = grade || ''; u._acq = d.acq || 500; u._cp = CREEP_PASSIVES[type] || null;
   return u;
 }
 
@@ -60,19 +63,19 @@ export function makeCreep(w, team, type, x, y, lane) {
 export function makeNeutral(w, name, x, y, o = {}) {
   const d = w.data.units[name === 'roshan' ? 'roshan' : 'neutral_' + name];
   if (!d) throw new Error('unknown neutral ' + name);
-  const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: 0.5 };
+  const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: d.turnRate || 0.5 };
   const ranged = d.projSpeed > 0 && d.atkRange >= 300;
   const u = common(w, { kind: KIND.CREEP, key: d.key, team: TEAM.NEUTRAL, x, y, base, radius: o.radius || Math.max(d.hull, 16), projKey: ranged ? 'creep_ranged' : '', visDay: d.vision || 800, visNight: Math.min(d.vision || 800, 800) });
-  u._neutral = name;
+  u._neutral = name; u._acq = d.acq || 500;
   return u;
 }
 
 export function makeBuilding(w, ent, info) {
   // info: {kind, team, tier, lane, dataKey, rax}
   const d = w.data.units[info.dataKey];
-  const base = { hp: d.hp, mana: 0, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: 0, hull: d.hull, baseAS: 100, goldMin: d.goldMin, goldMax: d.goldMax, xp: d.xp, turnRate: 1 };
+  const base = { hp: d.hp, mana: 0, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: 0, hull: d.hull, baseAS: 100, goldMin: d.goldMin, goldMax: d.goldMax, xp: d.xp, turnRate: d.turnRate || 1 };
   const u = common(w, { kind: info.kind, key: ent.name, team: info.team, x: ent.x, y: ent.y, base, lane: info.lane, tier: info.tier, building: true, radius: Math.min(d.hull, 144), projKey: info.kind === KIND.TOWER ? 'tower' : info.kind === KIND.FOUNTAIN ? 'fountain' : '', visDay: d.vision, visNight: visNight(d.vision) });
-  u._rax = info.rax || '';
+  u._rax = info.rax || ''; u._acq = d.acq || d.atkRange || 0;
   u._bounty = [d.goldMin, d.goldMax];
   return u;
 }
@@ -88,7 +91,7 @@ export function makeHero(w, o) {
   };
   const fx = w.fountains[o.team];
   const u = common(w, { kind: KIND.HERO, key: o.heroKey, team: o.team, owner: o.pid, x: o.x !== undefined ? o.x : fx ? fx.x : 0, y: o.y !== undefined ? o.y : fx ? fx.y : 0, base, radius: d.hull || 24, projKey: d.short, visDay: d.visionDay, visNight: d.visionNight });
-  u._short = d.short;
+  u._short = d.short; u._acq = d.acq || 800;
   u._ranged = d.projSpeed > 0 && d.atkRange >= 300;
   const roster = HEROES[o.heroKey];
   const keys = roster ? roster.abilities : d.abilities;

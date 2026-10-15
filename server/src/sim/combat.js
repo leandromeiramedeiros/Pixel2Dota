@@ -55,7 +55,7 @@ export function acquire(w, u, range) {
     if (v._building) s += 4000;
     else if (v.kind === KIND.HERO) {
       if (!hero) s += 700;
-      if (t - v._atkHeroT < 2.5) { const vic = w.units.get(v._atkHeroId); if (vic && vic.team === u.team) s -= 8000; }
+      if (aggroOnAlly(w, u, v)) s -= 8000;
     }
     if (s < bs) { bs = s; best = v; }
   }
@@ -85,7 +85,8 @@ export function tickAttack(w, u, dt) {
     u._mv = null;
   }
   if (u._cd > 0) return;
-  u._cd = u._interval;
+  // The cooldown is only spent when the attack actually goes off (launch): a windup cancelled by an order, a stun or the
+  // target leaving range + AttackRangeBuffer costs nothing and the unit can start a fresh attack at once.
   u._wind = u._windup; u._windTgt = t;
   u._animType = 'attack'; u._animUntil = w.time + Math.max(u._windup + 0.12, 0.28);
   u.animSeq = (u.animSeq + 1) & 0xffff; u.animRate = Math.max(0.5, Math.min(3, u._asMult));
@@ -93,7 +94,8 @@ export function tickAttack(w, u, dt) {
 }
 
 function launch(w, u, t) {
-  if (!inAttackRange(u, t, ATTACK_RANGE_BUFFER)) return;
+  if (!inAttackRange(u, t, ATTACK_RANGE_BUFFER)) return;   // target escaped during the windup: no attack, no cooldown
+  u._cd = Math.max(0, u._interval - u._windup);              // attack-start to attack-start stays = _interval
   breakInvis(w, u);
   evAtk(w, u.id, t.id, u._ranged ? u._projKey || u._short || 'arrow' : '', u._ranged ? u._base.projSpeed : 0);
   if (u._ranged) {
@@ -115,6 +117,7 @@ export function resolveAttack(w, a, t) {
     for (const ab of a.abilities) if (ab.level > 0) { const h = getHandler(ab.key); if (h.onAttack) h.onAttack(w, a, ab, t, info); }
     items.onAttack(w, a, t, info);
   } else if (a._onAttack) a._onAttack(w, a, t, info);
+  if (a._cp) info.dmg *= creepOut(a._cp, t);
   info.final = info.dmg * info.crit;
   const dealt = damage(w, a, t, info.final, info.type, { attack: true, crit: info.crit > 1, pierce: info.pierce });
   if (hero) {
@@ -126,6 +129,17 @@ export function resolveAttack(w, a, t) {
     items.onAttacked(w, t, a, info, dealt);
   }
   return dealt;
+}
+
+/** Lane creep passive multiplier on its attack vs t (CREEP_PASSIVES). */
+function creepOut(p, t) {
+  const pct = t._building ? p.outBuilding : t.kind === KIND.HERO ? p.outHero : t._cp && t._cp.inHero ? (p.outHeavy ?? p.outCreep) : t.kind === KIND.CREEP ? p.outCreep : 0;
+  return 1 + (pct || 0) / 100;
+}
+/** Siege creep damage taken from src: heroes, units they control, everything else. */
+function creepIn(w, p, src) {
+  const pct = src.kind === KIND.HERO ? p.inHero : heroOf(w, src) ? p.inControlled : p.inBasic;
+  return 1 + (pct || 0) / 100;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- damage
@@ -141,6 +155,7 @@ export function damage(w, src, tgt, amount, type, info) {
   if (tgt._st & ST.INVULN) return 0;
   if ((tgt._st & ST.MAGIC_IMMUNE) && !info.pierce && !info.attack && type !== 'phys') return 0;
   let d = amount;
+  if (tgt._cp && tgt._cp.inHero && src) d *= creepIn(w, tgt._cp, src);
   if (src && src._spellAmp && info.ability && type !== 'phys') d *= 1 + src._spellAmp / 100;   // Rubick Arcane Supremacy
   if (type === 'phys') d *= armorMult(tgt.armor);
   else if (type === 'mag') d *= 1 - tgt._mr;
@@ -153,12 +168,10 @@ export function damage(w, src, tgt, amount, type, info) {
   if (sh && sh.team !== tgt.team) {
     if (tgt.kind === KIND.HERO) {
       (tgt._assist || (tgt._assist = new Map())).set(sh.id, w.time);
-      sh._atkHeroT = w.time; sh._atkHeroId = tgt.id;
-      if (src !== sh) { src._atkHeroT = w.time; src._atkHeroId = tgt.id; }
-      callForHelp(w, sh, tgt);
+      if (info.attack) heroAggro(w, src, tgt);   // only attacks draw creep / tower aggro, spells never do
     }
     tgt._lastPlayerDmg = w.time;
-  } else if (src && src.team !== tgt.team && tgt.kind === KIND.HERO) { src._atkHeroT = w.time; src._atkHeroId = tgt.id; }
+  } else if (src && src.team !== tgt.team && tgt.kind === KIND.HERO && info.attack) { src._atkHeroT = w.time; src._atkHeroId = tgt.id; }
   if (!info.silent) evHit(w, src ? src.id : '', tgt.id, d, type, info.crit);
   if (tgt.kind === KIND.HERO) {
     for (const ab of tgt.abilities) if (ab.level > 0) { const h = getHandler(ab.key); if (h.onDamaged) h.onDamaged(w, tgt, ab, src, d, type); }
@@ -169,13 +182,31 @@ export function damage(w, src, tgt, amount, type, info) {
 }
 const NOINFO = Object.freeze({});
 
-/** A hero hit an enemy hero: the victim's nearby creeps drop what they're doing and rescan (see acquire priority). */
-function callForHelp(w, attacker, victim) {
-  const c = w.index.query(victim.x, victim.y, CREEP_CALL_HELP + 40, w._qd);
+/**
+ * Dota aggro: a hero (or its summon) attacking an enemy hero -- an attack order on it or an attack landing -- marks the
+ * attacker for AGGRO_WINDOW s. The victim's lane creeps within CREEP_CALL_HELP of the ATTACKER and the victim's towers
+ * that can reach the attacker rescan at once, and acquire()/retarget() put a marked hero above everything else.
+ */
+export function heroAggro(w, src, victim) {
+  if (!src || !victim || victim.kind !== KIND.HERO || src.team === victim.team) return;
+  const sh = heroOf(w, src);
+  if (!sh) return;
+  sh._atkHeroT = w.time; sh._atkHeroId = victim.id;
+  if (src !== sh) { src._atkHeroT = w.time; src._atkHeroId = victim.id; }
+  const c = w.index.query(src.x, src.y, Math.max(CREEP_CALL_HELP, 900) + 200, w._qd);
   for (let i = 0; i < c.length; i++) {
     const v = c[i];
-    if (v.team === victim.team && v.kind === KIND.CREEP && !v._dead) v._scanT = -1;
+    if (v._dead || v.team !== victim.team) continue;
+    if (v.kind === KIND.CREEP && !v._neutral && Math.hypot(v.x - src.x, v.y - src.y) <= CREEP_CALL_HELP + v.radius + src.radius) v._scanT = -1;
+    else if (v.kind === KIND.TOWER && v.atkRate > 0 && inAttackRange(v, src, 0)) v._scanT = -1;
   }
+}
+export const AGGRO_WINDOW = 2.5;
+/** Is v a hero that attacked a hero of u's team within the aggro window? */
+export function aggroOnAlly(w, u, v) {
+  if (!v || v.kind !== KIND.HERO || w.time - v._atkHeroT > AGGRO_WINDOW) return false;
+  const vic = w.units.get(v._atkHeroId);
+  return !!vic && vic.team === u.team;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- death & rewards
