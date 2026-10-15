@@ -1,7 +1,7 @@
-// Tile A* (8-dir, no corner cutting) + string pulling + wall sliding on the shared 48u grid. Pure.
+// Tile A* (8-dir, no corner cutting) + string pulling + wall sliding on the shared 48u grid. Pure. Shared: the server sim moves units with it, the client previews order paths.
 // Blocked = static non-walkable | standing tree tile | building hull footprint. One Nav per World (dynamic layers),
 // the big scratch arrays are shared between Worlds (A* is synchronous).
-import { getMap, TT, treeTiles } from '../../../shared/map.js';
+import { getMap, TT, treeTiles } from './map.js';
 
 const SQ2 = Math.SQRT2;
 const MAX_EXPAND = 14000;       // A* expansion cap, then the best partial node is used
