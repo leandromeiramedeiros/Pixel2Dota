@@ -25,6 +25,7 @@ import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
 import * as LINA from '../../../shared/vox/lina.js';
 import * as INVOKER from '../../../shared/vox/heroes/invoker.js';
 import * as CRYSTAL_MAIDEN from '../../../shared/vox/heroes/crystal_maiden.js';
+import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
 import * as SPIRIT from '../../../shared/vox/creeps/invoker_forged_spirit.js';
 import * as JUGGERNAUT from '../../../shared/vox/heroes/juggernaut.js';
 import * as HEALING_WARD from '../../../shared/vox/creeps/juggernaut_healing_ward.js';
@@ -44,6 +45,7 @@ export const VOX_UNITS = {
   invoker_forged_spirit: voxEntry(SPIRIT, { unit: CHAR_UNIT, max: 24, night: 0.25 }),   // summon: up to 2 per Invoker (+ Sun Strike shard spirits); lava glows +25% at night
   juggernaut: voxEntry(JUGGERNAUT, { unit: CHAR_UNIT, max: 10 }),
   juggernaut_healing_ward: voxEntry(HEALING_WARD, { unit: CHAR_UNIT, max: 10, keys: ['npc_dota_juggernaut_healing_ward'] }),   // summon (sim key juggernaut_healing_ward); static, lean off
+  pudge: voxEntry(PUDGE, { unit: CHAR_UNIT, max: 10 }),
   // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
   melee_radiant: voxEntry(MELEE_R, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_goodguys_melee'] }),
   melee_dire: voxEntry(MELEE_D, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_badguys_melee'] }),
