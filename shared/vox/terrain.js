@@ -8,6 +8,9 @@
  */
 export const TERRAINS = {
   grass: { top: ['#2f6a40', '#3f7a3a', '#4e9244', '#5fa64c', '#6db455'], side: ['#6a4630', '#573826', '#7a5438'], shadow: '#1c1a3c', light: '#f6f0b0' },
+  // lanes after the Dota 2 lane blends: Radiant = pale sandy khaki worn path, Dire = ash grey-green cracked dirt (never brown)
+  laneR: { top: ['#6e6a50', '#807a5c', '#918b68', '#a29b74', '#b2aa82'], side: ['#5a5238', '#4a432c', '#6a6244'], shadow: '#1c1a2c', light: '#fff0c0' },
+  laneD: { top: ['#3a3e38', '#464a42', '#52564c', '#5e6256', '#6c7062'], side: ['#34362f', '#282a24', '#40423a'], shadow: '#100e18', light: '#d8d8c8' },
   dirt: { top: ['#5a3c2a', '#6e4a32', '#80583a', '#946a44', '#a87e52'], side: ['#4a3022', '#3a2418', '#5a3a28'], shadow: '#1c1428', light: '#ffe2b0' },
   snow: { top: ['#9aa8c8', '#c6d0e4', '#d8e0ee', '#e8eef6', '#ffffff'], side: ['#6a7088', '#525870', '#7c829a'], shadow: '#3a3c6a', light: '#ffffff' },
   dire: { top: ['#2a2420', '#3a302a', '#4a3a30', '#5c4636', '#7a3a24'], side: ['#2c201c', '#201614', '#3a2a22'], shadow: '#100c18', light: '#ff9a5a' },

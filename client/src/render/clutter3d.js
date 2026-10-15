@@ -131,7 +131,7 @@ function weightsFor(w, c) {
 }
 
 /** palettes of the voxel tufts (the side field of an instance): ground presets as terrain.js picks them; [top[4], top[4] toward the preset light] per palette */
-const VOX_PAL = [TERRAINS.grass, TERRAINS.dire, TERRAINS.grass, TERRAINS.dire, TERRAINS.dirt].map((T, i) => [0, VOX_LITE].map((l) => { const c = mix(hex(T.top[4]), hex(T.light), l); return i === 2 || i === 3 ? mix(c, hex(T.shadow), VOX_FOREST_DIM) : c; }));
+const VOX_PAL = [TERRAINS.grass, TERRAINS.dire, TERRAINS.grass, TERRAINS.dire, TERRAINS.laneR, TERRAINS.laneD].map((T, i) => [0, VOX_LITE].map((l) => { const c = mix(hex(T.top[4]), hex(T.light), l); return i === 2 || i === 3 ? mix(c, hex(T.shadow), VOX_FOREST_DIM) : c; }));
 const NB8 = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];   // tile neighbours (dx, dy), dy + = south
 const VOX_REACH = 26.5, VOX_SIDE = 13.5, VOX_LIP = 22, VOX_WET = 12;   // world units: terrain shader blend reach (4.4 art px), side swap (half), cliff lip / AO, wet edge
 const tprio = (t) => (t === TT.WATER ? 0 : t === TT.ROAD ? 1 : t === TT.GRASS ? 2 : t === TT.TREE ? 3 : 4);   // terrain.js prio(): water < road < grass < forest < rock
@@ -156,7 +156,7 @@ function scatterVoxTufts(map, ctx, blocked, push) {
         else if (elev[nj] !== elev[j]) hz[i] = VOX_LIP;
         else { const np = tprio(nt); hz[i] = np > myP ? VOX_REACH : np === 0 ? VOX_WET : np === myP && t !== TT.ROAD && tileSide(map, nx, ny) !== side ? VOX_SIDE : 0; }
       });
-      r = { tx, ty, t, hz, any: hz.some((v) => v > 0), pal: t === TT.ROAD ? 4 : (t === TT.TREE ? 2 : 0) + side, j };
+      r = { tx, ty, t, hz, any: hz.some((v) => v > 0), pal: t === TT.ROAD ? 4 + side : (t === TT.TREE ? 2 : 0) + side, j };
     }
     return info[j] = r;
   };

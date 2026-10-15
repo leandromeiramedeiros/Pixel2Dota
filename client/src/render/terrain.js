@@ -24,9 +24,9 @@ export const VOX_MACRO = 0.6;        // share of the old cool<->warm macro tint 
 const VOX_DIRE_STONE = 0.35;  // Dire rock = stone blended this far toward the dire top
 const glv = (c) => 'vec3(' + c.map((v) => (v / 255).toFixed(4)).join(',') + ')';
 const dimT = (T) => T.top.map((c) => mix(hex(c), hex(T.shadow), VOX_FOREST_DIM));
-const toneSets = [   // top presets, 5 tones each, index = preset * 5 + tone: 0 grass 1 dire 2 forest 3 forest dire 4 stone 5 stone dire 6 dirt (road)
+const toneSets = [   // top presets, 5 tones each, index = preset * 5 + tone: 0 grass 1 dire 2 forest 3 forest dire 4 stone 5 stone dire 6 lane radiant 7 lane dire
   TERRAINS.grass.top.map(hex), TERRAINS.dire.top.map(hex), dimT(TERRAINS.grass), dimT(TERRAINS.dire), STONE.top.map(hex),
-  STONE.top.map((c, i) => mix(hex(c), hex(TERRAINS.dire.top[i]), VOX_DIRE_STONE)), TERRAINS.dirt.top.map(hex),
+  STONE.top.map((c, i) => mix(hex(c), hex(TERRAINS.dire.top[i]), VOX_DIRE_STONE)), TERRAINS.laneR.top.map(hex), TERRAINS.laneD.top.map(hex),
 ];
 const wallSets = [TERRAINS.grass.side.map(hex), TERRAINS.dire.side.map(hex), STONE.side.map(hex), STONE.side.map((c, i) => mix(hex(c), hex(TERRAINS.dire.side[i]), VOX_DIRE_STONE))];   // cliff strata: earth r / d, rock r / d
 const VOX_GLSL = /* glsl */ `
@@ -125,7 +125,7 @@ void main(){
       vec2 qd = vec2(lp.x < 4. ? -1. : 1., lp.y < 4. ? -1. : 1.);
       vec2 qw = abs(lp - 4.) / 8.;
       float dX = 0., dY = 0., dXY = 0.;
-      float lip = 99., ao = 0., dLand = 99., dWater = 99., bestP = myP - .5, bestD = 99.;
+      float lip = 99., ao = 0., dLand = 99., dWater = 99., dGrass = 99., bestP = myP - .5, bestD = 99.;
       Tl best = me;
       Tl sb = me; float sbD = 99.; bool sHit = false;         // stairs: nearest dithered-in neighbour ground
       for (int i = 0; i < 8; i++) {
@@ -150,6 +150,7 @@ void main(){
         if (de < -.5) { if (i < 4) lip = min(lip, d); continue; }
         if (de > .5) { ao = max(ao, clamp(1. - d / 3.6, 0., 1.) * (i < 4 ? 1. : .75)); continue; }
         if (nb.type == me.type && nb.side == me.side) continue;
+        if (me.type > 3.5 && me.type < 4.5 && nb.type < 1.5) dGrass = min(dGrass, d);   // lane next to grass / forest: the soil lip below
         if (me.type > 4.5) { if (nb.type < 4.5) dLand = min(dLand, d); } else if (nb.type > 4.5) dWater = min(dWater, d);
         float reach = np > myP ? R : (np == myP ? R * .5 : 0.);
         float w = clamp(1.3 * (1. - d / max(reach, .01)), 0., 1.);
@@ -205,10 +206,47 @@ void main(){
           float vn = vhash(vc);
           int tn = vtone(vn);
           if (mod(vc.x + vc.y, 2.) < .5 && vn > .3 && vn < .5) tn = 2;   // checker lift, as the offline slab
-          int pre = ft < .5 ? int(fs + .5) : ft < 1.5 ? 2 + int(fs + .5) : ft < 3.5 ? 4 + int(fs + .5) : 6;   // grass / dire, forest floor, rock top, road = dirt
+          int pre = ft < .5 ? int(fs + .5) : ft < 1.5 ? 2 + int(fs + .5) : ft < 3.5 ? 4 + int(fs + .5) : 6 + int(fs + .5);   // grass / dire, forest floor, rock top, lane (Radiant / Dire)
           alb = VT[pre * 5 + tn]; em = 0.;
           float vm = vnoise(dqw * .009 + 3.) * .6 + vnoise(dqw * .034 + 9.) * .4;
           float vq = floor(vm * 5. + th) / 5.;
+          if (ft > 3.5 && ft < 4.5) {
+            // lanes (after the Dota 2 lane blends): stone patches in the worn path, a dark soil lip with grass tufts where the grass meets it
+            bool dl = fs > .5;
+            float pm = vnoise(dqw * .012 + (dl ? 41. : 17.)) * .7 + vnoise(dqw * .05 + 5.) * .3;
+            if (dl && pm <= .6) {   // Dire cracked dirt between the slab patches: sparse dark crack lines on a 5-cell jittered net
+              vec2 g = floor(vc / 5.); float d1 = 99., d2 = 99.;
+              for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+                vec2 q = g + vec2(float(i), float(j));
+                float sd = length(vc + .5 - (q + .15 + .7 * vec2(hash12(q * 3.1 + 1.), hash12(q * 1.9 + 4.))) * 5.);
+                if (sd < d1) { d2 = d1; d1 = sd; } else if (sd < d2) d2 = sd;
+              }
+              if (d2 - d1 < .6 && h2 < .7) alb *= .62;
+            }
+            if (pm > (dl ? .6 : .57)) {
+              if (!dl) {   // Radiant: mossy grey-olive flagstones, 3 x 3 cells, running bond, a few missing
+                float off = mod(floor(vc.y / 3.), 2.) * 1.;
+                vec2 bid = vec2(floor((vc.x + off) / 3.), floor(vc.y / 3.)), inb = vec2(mod(vc.x + off, 3.), mod(vc.y, 3.));
+                float sh = hash12(bid * 1.7 + 5.);
+                if (sh < .88) { alb = mix(vec3(.38, .4, .31), vec3(.5, .51, .4), fract(sh * 7.31)); if (inb.x > 1.5 || inb.y < .5) alb *= .66; }
+              } else {     // Dire: cracked slate slabs, jittered cells 4 wide, dark cracks between them
+                vec2 g = floor(vc / 4.); float d1 = 99., d2 = 99., hid = 0.;
+                for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+                  vec2 q = g + vec2(float(i), float(j));
+                  vec2 sp = (q + .2 + .6 * vec2(hash12(q * 1.3 + 2.), hash12(q * 2.1 + 7.))) * 4.;
+                  float sd = length(vc + .5 - sp);
+                  if (sd < d1) { d2 = d1; d1 = sd; hid = hash12(q + 13.); } else if (sd < d2) d2 = sd;
+                }
+                alb = mix(vec3(.35, .36, .33), vec3(.45, .45, .41), hid);
+                if (d2 - d1 < .85) alb *= .5;
+              }
+            }
+            if (!swapped && dGrass < 2.6) {
+              float e = 1. - dGrass / 2.6;
+              if (th < e * 1.1) alb = mix(alb, dl ? vec3(.17, .17, .15) : vec3(.22, .2, .11), .6);
+              else if (!dl && h1 < e * .5) alb = VT[2];
+            }
+          }
           alb *= mix(vec3(1.), mix(vec3(.84, .93, .98), vec3(1.07, 1.04, .92), clamp(vq * 1.25, 0., 1.)), VOX_MACRO * (ft < 1.5 ? 1. : ft < 2.5 ? .55 : .8));
         } else {
 #endif
