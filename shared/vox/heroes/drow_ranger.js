@@ -19,14 +19,14 @@ export const PROP = {
 const HZ = PROP.headZ, SKULL = [5.4, 5.1, 6];
 // hair fringe bottom per column dx -6..6: parted in the middle, sweeping down past the temples
 const FRINGE = [26, 28, 31.6, 33, 33.8, 34.6, 34.6, 33.8, 33, 31.6, 28, 26, 25].map(z => z + (HZ - 30.4));
-const HOLD_L = [-2.6, -5, -7.2];   // left hand low in front of the hip, gripping the bow (reach from the left shoulder, torso frame)
+const HOLD_L = [-4.4, -5, -7.2];   // left hand low in front of the hip, gripping the bow (reach from the left shoulder, torso frame)
 const HOLD_R = [2.8, -3.6, -7.6];  // right hand near the string
 
 /** Bow pose [tilt, yaw, len]: tilt 0 = limbs across the front (her right tip slightly down), 90 = upright; yaw turns the bow face (degrees). */
 const bowAxes = (tilt, yaw) => {
   const t = tilt * Math.PI / 180, w = yaw * Math.PI / 180;
   const d = norm3([-Math.cos(t) * Math.cos(w), -Math.cos(t) * Math.sin(w), Math.sin(t)]);   // from the grip toward her right / up
-  const n = norm3([-Math.sin(w) * 0.6, Math.cos(w) * 0.6, 0.8 * Math.cos(t)]);                       // string side: toward her and up (limbs curve up)
+  const n = norm3([-Math.sin(w) * 0.4, Math.cos(w) * 0.4, 0.92 * Math.cos(t)]);                       // string side: toward her and up (limbs curve up)
   return [d, n];
 };
 
@@ -86,7 +86,7 @@ export function build(p = {}) {
   }
 
   // ---- bodice: dark navy leather, pinched waist, a steel belt; short tassets over the hips; a pale skin V at the neckline
-  torso(v, T.torso, { c: [cx, cy], z0: 9.6 + U, z1: 20.8 + U, r: 6 }, (dx, dy, z) => {
+  torso(v, T.torso, { c: [cx, cy], z0: 9.6 + U, z1: 19.8 + U, r: 6 }, (dx, dy, z) => {
     const rx = 3 - Math.max(0, 3.6 - z) * 0.05 + Math.max(0, z - 5) * 0.16, ry = 2.3 + (dy < 0 && z > 6 && z < 9.4 ? 0.5 : 0);
     if ((dx / rx) ** 2 + (dy / ry) ** 2 > 1) return;
     if (z > 1.6 && z < 2.6) return M.steel;
@@ -96,8 +96,8 @@ export function build(p = {}) {
   skirt(v, T.torso, { c: [cx, cy + 0.2], z0: 7.4 + U, z1: 10.6 + U, zr: 10.6 + U, h: 3.6, r0: 3.6, dr: 1, sy: 0.82, shell: 1, open: 40, hemH: 0.8, floor: () => 7.4 + U }, M.navy, M.steel);
 
   // ---- shoulders: navy mantle, layered steel-blue pauldrons (two tiers)
-  ell(v, T.torso, [cx, cy + 0.6, 19.6 + U], [5.6, 3.8, 2.2], M.navy, (px, py, pz) => pz > 19 + U && (Math.abs(px - cx) > 2.6 || py > cy + 0.4));
-  cap(v, T.torso, [cx, cy + 0.3, 20 + U], [cx, cy + 0.3, 22 + U], 1.5, M.skin);   // neck
+  ell(v, T.torso, [cx, cy + 0.6, 18.6 + U], [5.6, 3.8, 2.2], M.navy, (px, py, pz) => pz > 18 + U && (Math.abs(px - cx) > 2.6 || py > cy + 0.4));
+  cap(v, T.torso, [cx, cy + 0.3, 20 + U], [cx, cy + 0.3, 22.4 + U], 1.8, M.skin);   // neck
 
   for (const k of ['R', 'L']) {
     const sh = J['shoulder' + k];
@@ -121,12 +121,13 @@ export function build(p = {}) {
   const hair = (px, pz) => (pz > hz + 4 ? M.hair : stripes(M.hair, M.hairD, 3, hz + 4)(px, pz));
   hairShell(v, Th, {
     c: [hx, hy + 0.5, hz + 0.5], r: [SKULL[0] + 0.9, SKULL[1] + 0.9, SKULL[2] + 0.8], win, face: { c: [hx, hy, hz], r: SKULL, m: M.skin }, head: [cx, cy],
-    curtains: { inner: 4.2, outer: 6, outerK: -0.04, zRef: hz, front: -5.6, frontK: -0.08, back: -0.6, tip: hz - 10.6, tipStep: 0.8, tipX: 4.4, tipK: 1.2, box: [-9, -8, hz - 13, 9, 4, hz + 4] },
+    curtains: { inner: 4.2, outer: 5.8, outerK: 0.07, zRef: hz, front: -5.6, frontK: -0.08, back: -0.6, tip: hz - 10.6, tipStep: 0.8, tipX: 4.4, tipK: 1.2, box: [-9, -8, hz - 13, 9, 4, hz + 4] },
   }, hair);
   // hood: dark indigo shell with a dark lining at the rim, open in front of the face, a tall point leaning back off the crown
-  const hoodWin = (px, py, pz) => (Math.abs(px - cx) < 6.4 && pz < hz + 5.4 && py < hy - 2.4 + Math.max(0, hz - 1 - pz) * 1.4) || (pz < hz - 2.6 && py < hy + 3.4);
+  const hoodWin = (px, py, pz) => (Math.abs(px - cx) < 6.4 - Math.max(0, pz - hz + 1) * 0.7 && pz < hz + 5.4 && py < hy - 2.4 + Math.max(0, hz - 1 - pz) * 1.4) || (pz < hz - 2.6 && py < hy + 3.4);
   ell(v, Th, [hx, hy + 1.2, hz + 1], [7.1, 7, 7.4], (px, py, pz) => (py < hy - 3.6 || (py < hy - 1.8 && pz > hz + 4.4) ? M.lining : M.hood), (px, py, pz) => !hoodWin(px, py, pz));
   cap(v, Th, [hx, hy + 2.2, hz + 6], [hx, hy + 5.4, hz + 11.6], 3.2, M.hood, 0.5);
+  ell(v, Th, [hx, hy - 1.6, hz - 5.2], [2.8, 2.6, 1.8], M.skin);   // chin: skin over the hair shell's bottom cap
 
   // ---- face, painted on the front-most voxels (follows the posed head)
   const ez0 = Math.round(hz - 3.6), ec = xfApply(Th, [cx, hy - SKULL[1], ez0 + 2]), ox = Math.round(ec[0] - cx), ez = ez0 + Math.round(ec[2] - (ez0 + 2));
@@ -143,8 +144,8 @@ export function build(p = {}) {
   decal(v, [[cx - 1 + ox, ez - 2], [cx + ox, ez - 2]], M.mouth);
 
   // ---- bow in the left hand (after the face so it never takes the eye paint): dark limbs, glowing cyan recurve tips, pale string
-  const [tilt, yaw, len] = p.bow || [-8, 6, 13], [d, n] = bowAxes(tilt, yaw);
-  bow(v, J.handL, d, n, { len, bend: 4.8, recurve: 1.3, r: 0.85 }, { limb: M.wood, tip: (px, py, pz) => (Math.floor(px + py + pz) % 3 === 0 ? M.tipL : M.tip), grip: M.navy, string: M.string });
+  const [tilt, yaw, len] = p.bow || [0, 6, 12], [d, n] = bowAxes(tilt, yaw);
+  bow(v, J.handL, d, n, { len, bend: 5.6, recurve: 2.6, r: 0.9 }, { limb: M.wood, tip: (px, py, pz) => (Math.floor(px + py + pz) % 3 === 0 ? M.tipL : M.tip), grip: M.navy, string: M.string });
   return v;
 }
 
@@ -154,7 +155,7 @@ const range = n => [...Array(n).keys()];
 export const ANIMS = {
   idle: range(4).map(i => {
     const b = [0, 1, 2, 1][i];
-    return { bob: -b * 0.2, head: [b * 1.2, 0, 0], reachL: [-2.6, -5, -7.2 + b * 0.2], bow: [-8 + b, 6, 13] };
+    return { bob: -b * 0.2, head: [b * 1.2, 0, 0], reachL: [-4.4, -5, -7.2 + b * 0.2], bow: [b * 0.6, 6, 12] };
   }),
   walk: range(4).map(i => {
     const st = [1, 0, -1, 0][i];
