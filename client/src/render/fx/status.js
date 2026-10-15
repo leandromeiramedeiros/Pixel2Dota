@@ -9,43 +9,60 @@ export function register(c, R) {
   const P = c.P, Q = c.Q;
   const fStar = c.frame('p_star');
   const fDecalFrost = c.frame('decal_frost');
-  const fOrb = { Q: c.frame('invoker_orb_q'), W: c.frame('invoker_orb_w'), E: c.frame('invoker_orb_e') };
   const orbBuf = [0, 0, 0];
 
+  // Orbs = real 3D geometry (fx/geo3d.js G.orb, GLOW): a small HDR core inside a fresnel shell (+ a faint halo shell on medium and up).
+  // Everything is a depth-tested solid, so an orb passing behind Invoker is hidden per pixel by his body, glow included: no billboard
+  // halo (the old 'glow' particles bled over his face) and no sprite quad (it was cut into a hard-edged square).
+  // [file: particles/units/heroes/hero_invoker/invoker_{quas,wex,exort}_orb.vpcf_c] sphere r 16, light r 130, beam_jagged rope trail.
+  // Ring: shoulder height, R0 38 (true to Dota: small orbs circling the upper body), tilted so the half NEAR THE CAMERA rides low over the
+  // chest and the far half rises behind the head (never across the face, from the 60 deg game camera or the low showcase orbit).
+  const ORB_LOOK = {   // shells stay < 1.4 (no bloom), cores HDR (soft bloom); colours from the orb vpcfs, tuned to the Invoker palette
+    Q: { shell: [0.16, 0.42, 0.8], core: [0.95, 1.6, 2.1], lump: 0, fill: 0.55 },
+    W: { shell: [0.5, 0.2, 0.62], core: [1.75, 0.95, 2.05], lump: 0.18, fill: 0.45 },
+    E: { shell: [0.85, 0.36, 0.07], core: [2.1, 1.2, 0.42], lump: 0.24, fill: 0.5 },
+  };
+  const R0 = 38, ORB_R = 6.5, CORE_R = 3.2, HALO_R = 11, TILT = 12;
+  const oShell = { lump: 0, seed: 0, p2: 0.5, yaw: 0, roll: 0 }, oCore = { p2: 1 }, oHalo = { p2: 0, lump: 0, seed: 0 };
+  const hcol = [0, 0, 0];
   function orbs(u, dt) {
     const s = u.orbs; if (!s) return;
     const n = Math.min(3, s.length); if (!n) return;
     const alive = !(u.status & ST.DEAD) && u.hp > 0; if (!alive) return;
-    // orbit AROUND the body (Dota): a wide ring at chest height, tilted so the back of the ring rides higher than the front;
-    // the near half passes in front of the sprite, the far half behind it (depth-tested against the billboard)
-    const zc = c.head(u) - 22 + Math.sin(c.T * 2) * 3;   // chest/head height (the director: never at the feet)
+    const G = c.G, lod = G.lod;
+    // camera direction in the ground plane (three: X = x, Z = -y): the ring tilts toward the eye, whatever the showcase orbit yaw
+    const cp = c.uniforms && c.uniforms.uCamPos ? c.uniforms.uCamPos.value : null;
+    let vx = 0, vy = -1;
+    if (cp) { const dx = cp.x - u.x, dy = -cp.z - u.y, l = Math.hypot(dx, dy); if (l > 1) { vx = dx / l; vy = dy / l; } }
+    const zc = c.head(u) - 48 + Math.sin(c.T * 2) * 2;   // shoulder height
     const ph = c.T * 1.8;
     for (let i = 0; i < n; i++) {
       const ch = s[i] === 'q' || s[i] === 'w' || s[i] === 'e' ? s[i].toUpperCase() : s[i];
-      const o = ORB[ch]; if (!o) continue;
-      const a = ph + i * (TAU / 3), R0 = 58;
-      const back = Math.sin(a), dk = 1 - 0.35 * Math.max(0, back);   // far half of the ring: dimmer and smaller (reads as depth in a still frame)
-      const ox = u.x + Math.cos(a) * R0, oy = u.y + Math.sin(a) * R0, oz = zc + Math.sin(a) * 10;
+      const o = ORB[ch], L = ORB_LOOK[ch]; if (!o || !L) continue;
+      const a = ph + i * (TAU / 3), ca = Math.cos(a), sa = Math.sin(a);
+      const ox = u.x + ca * R0, oy = u.y + sa * R0, near = ca * vx + sa * vy;   // near: +1 = toward the camera
+      const oz = zc - near * TILT;
       const mul = elemMul(ch, c.T, i * 7.3 + u.id.length);
-      // body: sprite quad + two halo glows (soft wide + tight hot)
-      const f = fOrb[ch];
-      if (f) Q.put(ox, oy, oz, f, 1.5 * (0.85 + 0.15 * dk), o.lt[0] * 1.05 * dk, o.lt[1] * 1.05 * dk, o.lt[2] * 1.05 * dk, 1, 0.75 * (0.8 + 0.2 * mul), 0, 0, 0, 0, false, 1.1);
-      P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 18 + (ch === 'W' ? 5 * mul : 0), size1: 16, col0: o.pal.mid, col1: o.pal.mid, a0: 0.13 * (0.7 + 0.3 * mul), a1: 0.12, mode: 'glow', speed: 0, noScale: true });
-      P.spawn({ x: ox, y: oy, z: oz, life: 0.07, size0: 6, size1: 5, col0: o.pal.hot, col1: o.pal.hot, a0: 0.6, a1: 0.6, mode: 'glow', speed: 0, noScale: true });
-      // per-orb light (trainer behaviour: E flickers, W strobes, Q steady and a bit tighter)
-      // stronger than the orb looks: it lights Invoker (faint coloured rim + fill) and the ground, and casts a soft shadow (spell light, cube shadow when in budget)
-      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 150 : 140, 0.6 * mul, 0);   // tight radius: each orb tints its own side of him and the ground (wide ones summed to white)
-      // element-specific wisps
-      const nn = c.n((ch === 'E' ? 60 : ch === 'W' ? 40 : 45) * dt);
-      for (let k = 0; k < nn; k++) {
-        if (ch === 'E') P.spawn(c.pix(o.pal, { x: ox + rnd(-4, 4), y: oy + rnd(-3, 3), z: oz + 4, life: [0.35, 0.7], px: [0.8, 1.6], speed: [0, 10], up: [40, 90], settle: false }));
-        else if (ch === 'W') { if (mul > 1) P.spawn(c.pix(o.pal, { x: ox, y: oy, z: oz, life: [0.15, 0.4], px: [0.8, 1.6], col0: [5, 4.2, 6.5], speed: [60, 180], shape: 'sphere', gravity: -200, drag: 1.2 })); }
-        else P.spawn(c.pix(o.pal, { x: ox - Math.sin(a) * 10 + rnd(-3, 3), y: oy + Math.cos(a) * 8 + rnd(-3, 3), z: oz + rnd(-4, 4), life: [0.4, 0.8], px: [0.8, 1.6], speed: [0, 6], up: [-10, 14], settle: false }));
+      // body: core + shell (+ halo); W re-seeds its lumps on every strobe, E boils at ~12 Hz, Q stays a smooth sphere
+      const seed = ch === 'E' ? ((c.T * 12) | 0) + i * 17 : ch === 'W' ? (mul > 1 ? ((c.T * 30) | 0) : 3) + i * 17 : i;
+      oShell.lump = L.lump; oShell.seed = seed; oShell.p2 = L.fill; oShell.yaw = c.T * 2 + i; oShell.roll = c.T * 1.3;
+      const k = ch === 'W' ? (mul > 1 ? 1.15 : 0.8) : mul;
+      G.orb(ox, oy, oz, CORE_R, L.core, 0.85 + 0.15 * k, G.GLOW, oCore);
+      G.orb(ox, oy, oz, ORB_R, L.shell, k, G.GLOW, oShell);
+      if (lod) { for (let j = 0; j < 3; j++) hcol[j] = L.shell[j] * 0.35; oHalo.seed = seed; G.orb(ox, oy, oz, HALO_R + (ch === 'W' ? 2 * (mul > 1) : 0), hcol, 1, G.GLOW, oHalo); }
+      // per-orb light (trainer behaviour: E flickers, W strobes, Q steady): tints its own side of him and the ground
+      c.lightNow(ox, oy, oz, o.lt, ch === 'E' ? 130 : 120, 0.5 * mul, 0);
+      // element-specific wisps: crisp single pixels (depth-tested squares, no soft billboards)
+      const nn = c.n((ch === 'E' ? 36 : ch === 'W' ? 24 : 26) * dt);
+      for (let k2 = 0; k2 < nn; k2++) {
+        if (ch === 'E') P.spawn(c.pix(o.pal, { x: ox + rnd(-3, 3), y: oy + rnd(-3, 3), z: oz + 3, life: [0.3, 0.6], px: [0.8, 1.2], speed: [0, 8], up: [30, 70], settle: false }));
+        else if (ch === 'W') { if (mul > 1) P.spawn(c.pix(o.pal, { x: ox, y: oy, z: oz, life: [0.12, 0.3], px: [0.8, 1.2], speed: [50, 140], shape: 'sphere', gravity: -200, drag: 1.2, settle: false })); }
+        else P.spawn(c.pix(o.pal, { x: ox - sa * 7 + rnd(-2, 2), y: oy + ca * 6 + rnd(-2, 2), z: oz + rnd(-3, 3), life: [0.35, 0.7], px: [0.8, 1.2], speed: [0, 5], up: [-8, 10], settle: false }));
       }
-      // orbit trail: comet tail laid along the ring behind the orb (fading pixels), so the circling reads even in a still frame
-      for (let k = 1; k <= 5; k++) {
-        const b = a - k * 0.13;
-        P.spawn(c.pix(o.pal, { x: u.x + Math.cos(b) * R0, y: u.y + Math.sin(b) * R0, z: zc + Math.sin(b) * 10, life: 0.05, px: k < 3 ? 1.6 : 1, a0: 1 - k * 0.16, a1: 0, speed: 0, settle: false, keep: true }));
+      // orbit trail: short comet tail of single pixels along the ring, so the circling reads in a still frame
+      for (let t = 1; t <= 4; t++) {
+        const b = a - t * 0.16, cb = Math.cos(b), sb = Math.sin(b);
+        P.spawn(c.pix(o.pal, { x: u.x + cb * R0, y: u.y + sb * R0, z: zc - (cb * vx + sb * vy) * TILT, life: 0.05, px: 1, a0: 0.8 - t * 0.17, a1: 0, speed: 0, settle: false, keep: true }));
       }
     }
   }
