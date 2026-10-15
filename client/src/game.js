@@ -8,7 +8,7 @@ import { createTouch } from './ui/touch.js';
 import { createPerf } from './ui/perf.js';
 import { createMenu } from './ui/menu.js';
 import { createLoop, measureRefreshHz } from './loop.js';
-import { LEVELS, LABEL, RES_LABEL, fpsLabel, applyQuality, applyOptions, levelOptions, normalizeOptions, loadLevel, saveLevel, loadOptions, saveOption, clearOptions, clearStored, detectDefaults, gatherHardwareInfo, createFpsGovernor } from './render/quality.js';
+import { LABEL, RES_LABEL, fpsLabel, applyQuality, applyOptions, levelOptions, normalizeOptions, loadLevel, saveLevel, loadOptions, saveOption, clearOptions, clearStored, detectDefaults, gatherHardwareInfo } from './render/quality.js';
 import { MSG, TEAM } from '@p2d/shared/protocol.js';
 import { POV } from '@p2d/shared/pov.js';
 import { createSpectate } from './ui/spectate.js';
@@ -35,14 +35,13 @@ export async function startGame({ root, net }) {
   const perf = createPerf(hudRoot, net);
 
   // graphics: hardware detection picks the level; a level (Low..Ultra) = preset (fidelity) + its option bundle (resolution / fps cap / bloom / dof / vsync),
-  // and whatever the user changed by hand on top (stored overrides) wins per key. The governor only ever lowers the preset, never the options.
+  // and whatever the user changed by hand on top (stored overrides) wins per key. Decided at load only: nothing lowers it during a match.
   let hw = gatherHardwareInfo({ gl: renderer.gl.getContext() });
   let det = detectDefaults(hw);
   const storedLevel = loadLevel(null);
   let level = storedLevel || det.level, opts = { ...(storedLevel ? levelOptions(storedLevel) : normalizeOptions(det)), ...loadOptions() };
-  let autoDropped = false, userPicked = false;
   const apply = () => { applyQuality(renderer, level); applyOptions(renderer, opts); };
-  const applyLoop = () => { loop.setFps(opts.fps); loop.setVsync(opts.vsync); gov.setCap(opts.fps); gov.reset(); };
+  const applyLoop = () => { loop.setFps(opts.fps); loop.setVsync(opts.vsync); };
   apply();
   const detText = () => 'Detected: ' + LABEL[det.level] + ', ' + RES_LABEL[det.resolution] + ', ' + fpsLabel(det.fps) + ' fps' + (det.bloom ? '' : ', no bloom') + (det.dof ? ', DoF' : '');
   const perfKey = 'p2d.perf';
@@ -52,18 +51,16 @@ export async function startGame({ root, net }) {
     level, options: opts, perfOn,
     onLevel(l) {   // preset + the level's option bundle; manual option overrides are forgotten
       level = l; saveLevel(l); clearOptions(); opts = levelOptions(l); apply(); applyLoop(); menu.setOptions(opts);
-      if (autoDropped) userPicked = true;
     },
     onOption(k, v) {
       opts = { ...opts, [k]: v }; saveOption(k, v); applyOptions(renderer, opts);
-      if (k === 'fps') { loop.setFps(v); gov.setCap(v); gov.reset(); }
+      if (k === 'fps') loop.setFps(v);
       if (k === 'vsync') loop.setVsync(v);
-      if (k === 'resolution') gov.reset();
     },
     onDefaults() {
       clearStored(); det = detectDefaults({ ...hw, refreshHz: hz });
       level = det.level; opts = normalizeOptions(det);
-      autoDropped = userPicked = false; apply(); applyLoop();
+      apply(); applyLoop();
       menu.setLevel(level); menu.setOptions(opts); menu.setDetected(detText());
     },
     onPerf(on) { perf.setVisible(on); try { localStorage.setItem(perfKey, on ? '1' : '0'); } catch { /* storage off */ } },
@@ -71,15 +68,6 @@ export async function startGame({ root, net }) {
   });
   menu.setDetected(detText());
   hud.toggleMenu = menu.toggle; hud.isMenuOpen = menu.isOpen;
-  const gov = createFpsGovernor({
-    onDrop() {
-      const i = LEVELS.indexOf(level);
-      if (i <= 0 || userPicked) return;
-      level = LEVELS[i - 1]; autoDropped = true; saveLevel(level); applyQuality(renderer, level); menu.setLevel(level);
-      menu.toast('Graphics lowered to ' + LABEL[level] + ' for smoother play - change in menu (' + (touch.isActive() ? '☰' : 'Esc') + ')');
-    },
-  });
-  gov.setCap(opts.fps);
 
   const touch = createTouch({ root: hudRoot, canvas, renderer, hud, input, sheets, getState, mySid: () => net.mySid, send });
 
@@ -102,7 +90,7 @@ export async function startGame({ root, net }) {
   let myTeam = -1, spec = false, centred = false, hz = 0;
 
   const frame = (now, dtMs) => {
-    perf.frame(now); gov.feed(dtMs, now);
+    perf.frame(now);
     const dt = Math.min(0.1, dtMs / 1000);
     const st = net.state; if (!st) return;
     const p = me();

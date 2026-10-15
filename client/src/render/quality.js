@@ -1,4 +1,4 @@
-// Graphics quality: presets (fidelity), user options (resolution / fps / bloom / dof / vsync), per-level option bundles, hardware detection, frame-cap helper, FPS governor.
+// Graphics quality: presets (fidelity), user options (resolution / fps / bloom / dof / vsync), per-level option bundles, hardware detection, frame-cap helper.
 // Pure (no DOM/three at import) so node tests can import it.
 //   Preset = what is drawn (shadows, lights, particles, post passes, clutter, view distance, MSAA ...). ultra = renderer DEFAULTS (render/index.js; client/test/quality.test.js checks it).
 //   Options = user choices the preset never touches: resolution (render-target pixel count), fps cap (0 = MAX), bloom on/off, depth of field on/off, vsync.
@@ -183,34 +183,4 @@ export function createFrameCap(fps = 60) {
     /** forget timing (tab was hidden, loop restarted) */
     reset() { acc = 0; last = lastRender = -1; },
   };
-}
-
-/**
- * Rolling-median FPS watchdog. feed(dtMs, nowMs) once per frame; onDrop() fires when the median fps over `windowMs` stays below `minFps`,
- * then the window restarts (so it can fire again 10 s later). The first `warmupMs` and any gap > `gapMs` (hidden tab, long stall) are ignored.
- * setMinFps(): a user fps cap below the threshold (30) would otherwise read as "slow".
- */
-export function createFpsGovernor({ onDrop, minFps = 40, windowMs = 10000, warmupMs = 5000, gapMs = 1000 } = {}) {
-  let t0 = -1, ws = [], from = -1;   // ws: dt samples of the current window; from: window start time
-  const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
-  const api = {
-    feed(dtMs, nowMs) {
-      if (t0 < 0) t0 = nowMs;
-      if (nowMs - t0 < warmupMs) return;
-      if (!(dtMs > 0) || dtMs > gapMs) { ws = []; from = -1; return; }
-      if (from < 0) from = nowMs - dtMs;
-      ws.push(dtMs);
-      if (nowMs - from >= windowMs) {
-        const fps = 1000 / median(ws);
-        ws = []; from = nowMs;
-        if (fps < minFps && onDrop) onDrop(fps);
-      }
-    },
-    /** restart warm-up (level changed by hand: old samples don't apply) */
-    reset(nowMs) { t0 = nowMs == null ? -1 : nowMs; ws = []; from = -1; },
-    /** threshold for a user fps cap: 70% of the cap, never above the default 40 (cap 0 = MAX counts as 60) */
-    setCap(cap) { minFps = Math.min(40, (cap > 0 ? cap : 60) * 0.7); },
-    get minFps() { return minFps; },
-  };
-  return api;
 }

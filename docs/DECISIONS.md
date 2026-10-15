@@ -43,4 +43,4 @@ belt_of_strength boots_of_elves robe magic_stick`; built `magic_wand bracer wrai
 - Ring telegraphs are geo3d discs + a ground light (`c.ringDecal`), never the stretched `decal_ring_target` sprite (read as a blocky staircase).
 - No ordered dither on geo3d fx / beams (read as a fine white grid): stepped bands. Bayer quantise stays on terrain/sprite lighting (Trainer look).
 - Only spells and items cast big lights; attacks/towers/creeps under the bloom threshold. Fight whiteouts solved by exposure + hue-preserving roll-off, not by dimmer spells.
-- Graphics levels Low/Medium/High/Ultra (detected from hardware, FPS governor auto-drops), each a fidelity preset plus an option bundle; only resolution / FPS / bloom / DoF / vsync are individual toggles.
+- Graphics levels Low/Medium/High/Ultra (detected from hardware at load, never auto-lowered mid-match), each a fidelity preset plus an option bundle; only resolution / FPS / bloom / DoF / vsync are individual toggles.

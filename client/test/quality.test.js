@@ -1,8 +1,8 @@
-// Graphics presets + FPS governor (pure; no DOM/three).
+// Graphics presets, options, detection, frame cap (pure; no DOM/three).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { PRESETS, LEVELS, presetSettings, applyQuality, createFpsGovernor, isMobileUA, RESOLUTIONS, RES_SCALE, OPTION_DEFAULTS, OPTIONS_KEY, FPS_CAPS, LEVEL_OPTIONS, levelOptions, clearOptions, resolutionScale, optionSettings, applyOptions, normalizeOptions, loadOptions, saveOption, loadLevel, saveLevel, clearStored, classifyGpu, detectDefaults, createFrameCap } from '../src/render/quality.js';
+import { PRESETS, LEVELS, presetSettings, applyQuality, isMobileUA, RESOLUTIONS, RES_SCALE, OPTION_DEFAULTS, OPTIONS_KEY, FPS_CAPS, LEVEL_OPTIONS, levelOptions, clearOptions, resolutionScale, optionSettings, applyOptions, normalizeOptions, loadOptions, saveOption, loadLevel, saveLevel, clearStored, classifyGpu, detectDefaults, createFrameCap } from '../src/render/quality.js';
 import { createLoop } from '../src/loop.js';
 
 // DEFAULTS is private to render/index.js (importing it would pull in three + the DOM): read the literal instead
@@ -208,47 +208,4 @@ test('loop: vsync on = rAF capped by the accumulator; vsync off = timer/channel 
   assert.ok(dts.length >= 55 && dts.length <= 65, 'after toggling, still one chain -> ' + dts.length);
   loop.stop(); dts.length = 0; env.run(500); assert.equal(dts.length, 0);
   loop.destroy();
-});
-
-// run `frames` at a fixed dt (or a per-frame function) from `t`; returns the next t
-function run(g, t, ms, dt) { const end = t + ms; while (t < end) { const d = dt(t); t += d; g.feed(d, t); } return t; }
-
-test('governor: sustained 30 fps drops once after the window, then waits another window', () => {
-  let drops = 0; const g = createFpsGovernor({ onDrop: () => drops++ });
-  let t = run(g, 1000, 5000, () => 1000 / 30);
-  assert.equal(drops, 0, 'warm-up (first 5 s) ignored');
-  t = run(g, t, 9000, () => 1000 / 30); assert.equal(drops, 0, '9 s of data is not a full window');
-  t = run(g, t, 3000, () => 1000 / 30); assert.equal(drops, 1);
-  t = run(g, t, 6000, () => 1000 / 30); assert.equal(drops, 1, 'window restarted');
-  run(g, t, 6000, () => 1000 / 30); assert.equal(drops, 2);
-});
-
-test('governor: 60 fps never drops', () => {
-  let drops = 0; const g = createFpsGovernor({ onDrop: () => drops++ });
-  run(g, 0, 120000, () => 1000 / 60); assert.equal(drops, 0);
-});
-
-test('governor: brief stalls do not drop (median); hidden-tab gaps are ignored', () => {
-  let drops = 0; const g = createFpsGovernor({ onDrop: () => drops++ });
-  let n = 0;
-  const t = run(g, 0, 60000, () => (++n % 40 === 0 ? 250 : 1000 / 60));   // a 250 ms hitch every 40 frames
-  assert.equal(drops, 0);
-  g.feed(30000, t + 30000);   // tab was hidden for 30 s: neither counted nor a drop
-  run(g, t + 30000, 20000, () => 1000 / 60); assert.equal(drops, 0);
-});
-
-test('governor: a slow window right after a long gap restarts the measurement', () => {
-  let drops = 0; const g = createFpsGovernor({ onDrop: () => drops++ });
-  let t = run(g, 0, 6000, () => 1000 / 30);
-  t = run(g, t, 8000, () => 1000 / 30);
-  g.feed(5000, t + 5000); t += 5000;   // gap resets the window
-  t = run(g, t, 9000, () => 1000 / 30); assert.equal(drops, 0);
-  run(g, t, 2000, () => 1000 / 30); assert.equal(drops, 1);
-});
-
-test('governor: reset() restarts warm-up', () => {
-  let drops = 0; const g = createFpsGovernor({ onDrop: () => drops++ });
-  let t = run(g, 0, 5500, () => 33); t = run(g, t, 8000, () => 33);
-  g.reset(t); t = run(g, t, 14000, () => 33); assert.equal(drops, 0, 'warm-up 5 s + window 10 s not done');
-  run(g, t, 2000, () => 33); assert.equal(drops, 1);
 });
