@@ -57,7 +57,7 @@ export function createRenderer({ canvas, sheets }) {
   const lights = createLights(uniforms, scene);
   const terrain = createTerrain({ scene, uniforms, tiles: sheets && sheets.tiles });
   const sprites = createSprites({ scene, uniforms, atlas });
-  const fog = createFog(uniforms);
+  const fog = createFog(uniforms, scene);
   const particles = createParticles({ scene, uniforms, atlas, heightAt });
   const ambient = createAmbient(particles, heightAt);
   const post = createPost(gl, uniforms);

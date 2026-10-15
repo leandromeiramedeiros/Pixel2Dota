@@ -15,6 +15,8 @@ export function setSpellGain(g) { SPELL_GAIN = g; }
 export function createSharedUniforms() {
   const fogTex = new THREE.DataTexture(new Uint8Array([255, 255, 0, 0]), 1, 1, THREE.RGFormat, THREE.UnsignedByteType);
   fogTex.needsUpdate = true;
+  const voidTex = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  voidTex.needsUpdate = true;
   return {
     uTime: { value: 0 },
     uAmb: { value: new THREE.Vector3(1, 1, 1) },
@@ -29,6 +31,7 @@ export function createSharedUniforms() {
     uLevels: { value: LIGHT_LEVELS },
     uFog: { value: fogTex },
     uFogMap: { value: new THREE.Vector4(-8832, 8832, 17664, 0) },           // x0, y1, size (world), enabled
+    uVoid: { value: voidTex },                                              // static mist over the dead ground behind the fountains + map rim (fog.js voidMask)
     uFogLv: { value: new THREE.Vector3(0.5, 0.41, 0.6) },                   // fogged (explored) brightness, never-seen brightness, fogged desaturation; fog.js sets these from FOG_LEVEL / FOG_UNSEEN_DARKEN / FOG_DESAT
     uCamRight: { value: new THREE.Vector3(1, 0, 0) },
     uCamUp: { value: new THREE.Vector3(0, 1, 0) },
@@ -66,7 +69,7 @@ uniform float uNight, uLevels;
 uniform int uLN;
 uniform vec4 uLP[${MAX_LIGHTS}];
 uniform vec4 uLC[${MAX_LIGHTS}];
-uniform sampler2D uFog;
+uniform sampler2D uFog, uVoid;
 uniform vec4 uFogMap;
 uniform vec3 uFogLv;
 uniform vec3 uCamRight, uCamUp, uCamPos;
@@ -87,7 +90,7 @@ vec3 quantL(vec3 l, vec2 dp){ float bay = bayer4(dp); return min(floor(l * uLeve
 
 // fog brightness at world point p (three coords): 1 visible, uFogLv.x fogged (explored), uFogLv.y never seen (<= x). Fog texture: R = visible
 // (eased + blurred CPU side = soft, animated edge), G = explored. Visibility is quantised to uLevels Bayer-dithered steps (soft pixel-art edge).
-float fogBright(vec3 p, vec2 dp){
+float fogVis(vec3 p, vec2 dp){
   if (uFogMap.w < .5) return 1.;
   vec2 uv = vec2((p.x - uFogMap.x) / uFogMap.z, (p.z + uFogMap.y) / uFogMap.z);
   vec2 f = texture2D(uFog, uv).rg;
@@ -96,16 +99,34 @@ float fogBright(vec3 p, vec2 dp){
   float v = clamp(floor(f.r * uLevels + b) / uLevels, 0., 1.);
   return mix(mix(uFogLv.y, uFogLv.x, seen), 1., v);
 }
+// void mist (scenery, independent of fog of war): dense dark cloud over the dead ground far from any walkable tile (behind the fountains,
+// the map rim). 0 = clear .. 1 = buried. Slow two-octave drift, quantised to 4 Bayer-dithered steps; dark and cool, never a whiteout.
+float voidAmt(vec3 p, vec2 dp){
+  float v = texture2D(uVoid, vec2((p.x - uFogMap.x) / uFogMap.z, (p.z + uFogMap.y) / uFogMap.z)).r;
+  if (v <= 0.) return 0.;
+  float n = sin(p.x * .0021 + uTime * .07) * sin(p.z * .0017 - uTime * .05) + .5 * sin((p.x - p.z) * .0047 + uTime * .09);
+  return clamp(floor(clamp(v * (1. + .22 * n), 0., 1.) * 4. + bayer4(dp + 5.)) / 4., 0., 1.);
+}
+vec3 voidCol(vec3 p, vec2 dp){                                          // billowing cloud: two drifting octaves, 3 dithered shades
+  float n = .5 + .3 * sin(p.x * .0026 - uTime * .05) * sin(p.z * .0031 + uTime * .04) + .2 * sin(p.x * .0071 + p.z * .0053 + uTime * .08);
+  n = floor(n * 3. + bayer4(dp + 9.)) / 3.;
+  return mix(vec3(.11, .12, .145), vec3(.04, .045, .07), uNight) * (.75 + .5 * n);
+}
+float fogBright(vec3 p, vec2 dp){ return fogVis(p, dp) * (1. - .85 * voidAmt(p, dp)); }
 // graded fog colour (Dota look): visible = untouched; fogged = darkened, desaturated (uFogLv.z), cool blue, with a faint slow drifting cloud.
 vec3 fogGrade(vec3 col, vec3 p, vec2 dp){
-  float fb = fogBright(p, dp);
+  float fb = fogVis(p, dp);
   float amt = 1. - smoothstep(uFogLv.x, 1., fb);
-  if (amt <= 0.) return col * fb;
-  float l = dot(col, vec3(.299, .587, .114));
-  col = mix(col, vec3(l) * vec3(.78, .92, 1.14), amt * uFogLv.z);
-  float n = .5 + .25 * sin(p.x * .0034 + uTime * .11) * sin(p.z * .0029 - uTime * .08) + .25 * sin((p.x + p.z) * .0061 - uTime * .05);
-  float cl = (floor(n * 3. + bayer4(dp + 3.)) / 3. - .5) * .12;
-  return col * fb * (1. + amt * cl);
+  if (amt > 0.) {
+    float l = dot(col, vec3(.299, .587, .114));
+    col = mix(col, vec3(l) * vec3(.78, .92, 1.14), amt * uFogLv.z);
+    float n = .5 + .25 * sin(p.x * .0034 + uTime * .11) * sin(p.z * .0029 - uTime * .08) + .25 * sin((p.x + p.z) * .0061 - uTime * .05);
+    float cl = (floor(n * 3. + bayer4(dp + 3.)) / 3. - .5) * .12;
+    col *= 1. + amt * cl;
+  }
+  col *= fb;
+  float vm = voidAmt(p, dp);
+  return vm > 0. ? mix(col, voidCol(p, dp), vm) : col;
 }
 
 // key-light visibility at world point p (1 lit .. 1-strength shadowed). Normal offset + 4 Bayer-jittered taps give a dithered,

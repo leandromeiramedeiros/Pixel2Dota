@@ -3,6 +3,7 @@
 // Sources inside game/dota/maps/dota.vpk (read with tools/vpk.mjs):
 //   maps/dota.gnv                            gridnav: 64u cells, 1 byte each (bit0 walkable; 16 = cliff wall, 20 = outside)
 //   maps/dota/entities/default_ents.vents_c  entity lump -> trees (128x128 blockers), towers, shops, camps...   (decompiled by Source2Viewer-CLI)
+//   maps/dota/entities/world_layer_{radiant,dire}_base.vents_c  default-on layers: the base trees, appended after the lump's (stable indices)
 //   maps/dota/world_physics.vmdl_c           collision mesh -> ground height + water surface                      (decompiled to glb)
 // Decompiled intermediates are cached in tools/.cache/world/ (gitignored). Same input -> byte-identical output (LF).
 // Source2Viewer-CLI (ValveResourceFormat release 20.0, cli-windows-x64.zip) lives in tools/.cache/s2v/bin/ (gitignored, never committed).
@@ -22,6 +23,7 @@ const LANES = {   // lane roads through the real tower line (world coords), dirt
   bot: [[-5920, -5352], [-3952, -6112], [-360, -6256], [4860, -6379], [5900, -6200], [6280, -5600], [6269, -2240], [6400, 384], [6336, 3032], [5528, 5000]],
 };
 const ROAD_HW = 190;
+const BASE_LAYERS = ['world_layer_radiant_base', 'world_layer_dire_base'];   // the *_destruction layers are off by default
 const KEEP = {
   tower: 'npc_dota_tower', barracks: 'npc_dota_barracks', fort: 'npc_dota_fort', filler: 'npc_dota_building',
   fountain: 'ent_dota_fountain', shop: 'ent_dota_shop', camp: 'npc_dota_neutral_spawner', outpost: 'npc_dota_watch_tower',
@@ -122,6 +124,11 @@ export function extract({ s2v, dota = DOTA_DIR, work }) {
   if (!fs.existsSync(entsFile)) run('maps/dota/entities/default_ents.vents_c');
   if (!fs.existsSync(glb)) run('maps/dota/world_physics.vmdl_c', '--gltf_export_format', 'glb');
   const E = entities(fs.readFileSync(entsFile, 'utf8'));
+  for (const layer of BASE_LAYERS) {   // default-on world layers (info_world_layer spawnflags 1): their trees append after the lump's
+    const f = path.join(work, `maps/dota/entities/${layer}.vents`);
+    if (!fs.existsSync(f)) run(`maps/dota/entities/${layer}.vents_c`);
+    (E.ent_dota_tree ||= []).push(...(entities(fs.readFileSync(f, 'utf8')).ent_dota_tree || []));
+  }
 
   const gnv = vpk.read('maps/dota.gnv');
   const edge = gnv.readFloatLE(4), gw = gnv.readUInt32LE(16), gh = gnv.readUInt32LE(20), gx0 = gnv.readInt32LE(24), gy0 = gnv.readInt32LE(28);

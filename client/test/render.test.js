@@ -5,7 +5,7 @@ import { shelfPack, nextPow2, resolveKey, indexSheet } from '../src/art/atlas.js
 import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig, cameraPose, rayToGround, stepYaw, viewFacing, wrapPi } from '../src/render/camera.js';
 import { ORBIT, dragToOrbit, pinchZoomFactor, inJoyZone } from '../src/ui/orbit.js';
 import { selectLights } from '../src/render/lights.js';
-import { castVision, visionRadius, VISION_FALLBACK } from '../src/render/fog.js';
+import { castVision, visionRadius, VISION_FALLBACK, voidMask } from '../src/render/fog.js';
 import { buildChunk, hash2, CHUNK } from '../src/render/terrainGeo.js';
 import { dirOf, dir8Of } from '../src/render/actors.js';
 import { getMap, TT } from '../../shared/map.js';
@@ -117,10 +117,10 @@ test('castVision: radius bound, symmetric-ish, walls block', () => {
   const map = getMap();
   // find an open flat tile with open neighbourhood
   let sx = 0, sy = 0, ok = false;
-  for (let ty = 40; ty < map.h - 40 && !ok; ty += 5) for (let tx = 40; tx < map.w - 40 && !ok; tx += 5) {
+  for (let ty = 40; ty < map.h - 40 && !ok; ty++) for (let tx = 40; tx < map.w - 40 && !ok; tx++) {
     let clean = true;
     const j0 = ty * map.w + tx;
-    for (let dy = -12; dy <= 12 && clean; dy++) for (let dx = -12; dx <= 12; dx++) { const j = (ty + dy) * map.w + tx + dx; if (map.type[j] !== map.type[j0] || Math.abs(map.hC[j] - map.hC[j0]) > 4) { clean = false; break; } }
+    for (let dy = -11; dy <= 11 && clean; dy++) for (let dx = -11; dx <= 11; dx++) { const j = (ty + dy) * map.w + tx + dx; if (map.type[j] !== map.type[j0] || Math.abs(map.hC[j] - map.hC[j0]) > 4) { clean = false; break; } }
     if (clean && map.type[j0] !== TT.WALL && map.type[j0] !== TT.OUT) { ok = true; sx = map.x0 + (tx + 0.5) * map.tile; sy = map.y1 - (ty + 0.5) * map.tile; }
   }
   assert.ok(ok, "open flat patch exists");
@@ -140,6 +140,13 @@ test('castVision: radius bound, symmetric-ish, walls block', () => {
   const vis2 = new Uint8Array(map.w * map.h);
   const n2 = castVision(map, vis2, sx, sy, 400, () => true);
   assert.ok(n2 < n * 0.25);
+});
+
+test('voidMask: dense mist behind both fountains, never on walkable ground or structures', () => {
+  const map = getMap(), v = voidMask(map), at = (x, y) => v[Math.floor((map.y1 - y) / map.tile) * map.w + Math.floor((x - map.x0) / map.tile)];
+  for (let j = 0; j < v.length; j++) if (v[j]) assert.ok(map.type[j] === TT.WALL || map.type[j] === TT.OUT, 'only dead ground');
+  for (const k of ['fountain', 'shop', 'tower', 'barracks', 'fort']) for (const e of map.ents[k]) assert.equal(at(e.x, e.y), 0, k + ' clear');
+  for (const f of map.ents.fountain) { const s = Math.sign(f.x); assert.equal(at(f.x + s * 800, f.y + s * 800), 255, 'solid behind ' + f.name); }
 });
 
 test('visionRadius: heroes day/night, fallback constants', () => {

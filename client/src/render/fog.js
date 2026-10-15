@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { getMap, TT, treeTiles } from '../../../shared/map.js';
 import { DATA } from '../../../shared/data.js';
 import { ST } from '../../../shared/protocol.js';
+import { COMMON_GLSL } from './shaderlib.js';
 
 export const VISION_FALLBACK = { day: 1800, night: 800 };
 export const FOG_LEVEL = 0.5;             // brightness multiplier of fogged (explored) ground; the visible edge blends up to 1
@@ -99,6 +100,29 @@ export function castVision(map, vis, sx, sy, radius, blockTree, flying = false) 
   return marked;
 }
 
+export const VOID_NEAR = 2, VOID_FAR = 7;   // mist starts this many tiles from walkable ground and is solid by VOID_FAR
+const VOID_CLEAR = { fountain: 420, shop: 320 };   // fountain + base shop sit in walled pockets: ground this close to one counts as walkable
+/** Pure: static void-mist mask (Uint8Array w*h, 0..255): for every WALL / OUT tile its chamfer distance to the nearest walkable tile, eased
+ *  VOID_NEAR -> VOID_FAR. Thin cliff bands stay clear; the dead ground behind the fountains and the map rim go dense. Grid-edge dead tiles = 255
+ *  (the clamped texture then covers anything drawn past the grid). Render only: the sim never reads it. */
+export function voidMask(map) {
+  const { w, h, type } = map, N = w * h, INF = 1e9, d = new Float32Array(N);
+  for (let j = 0; j < N; j++) d[j] = type[j] === TT.WALL || type[j] === TT.OUT ? INF : 0;
+  for (const k in VOID_CLEAR) for (const f of (map.ents && map.ents[k]) || []) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (Math.hypot(map.x0 + (x + 0.5) * map.tile - f.x, map.y1 - (y + 0.5) * map.tile - f.y) < VOID_CLEAR[k]) d[y * w + x] = 0;
+  }
+  const pass = (x, y, dx, dy, c) => { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) return; const j = y * w + x, q = Y * w + X; if (d[q] + c < d[j]) d[j] = d[q] + c; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { pass(x, y, -1, 0, 1); pass(x, y, 0, -1, 1); pass(x, y, -1, -1, 1.4142); pass(x, y, 1, -1, 1.4142); }
+  for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) { pass(x, y, 1, 0, 1); pass(x, y, 0, 1, 1); pass(x, y, 1, 1, 1.4142); pass(x, y, -1, 1, 1.4142); }
+  const out = new Uint8Array(N);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const j = y * w + x; if (!d[j]) continue;
+    const t = Math.min(1, Math.max(0, (d[j] - VOID_NEAR) / (VOID_FAR - VOID_NEAR)));
+    out[j] = x === 0 || y === 0 || x === w - 1 || y === h - 1 ? 255 : Math.round(t * t * (3 - 2 * t) * 255);
+  }
+  return out;
+}
+
 /** Pure: separable [1 2 1]/4 blur of a Float32 w*h field into out (Uint8Array, channel `o` of `stride`, scaled to 255). tmp = Float32 w*h scratch. */
 export function blurToBytes(src, tmp, w, h, out, o, stride) {
   for (let y = 0; y < h; y++) {
@@ -111,7 +135,20 @@ export function blurToBytes(src, tmp, w, h, out, o, stride) {
   }
 }
 
-export function createFog(uniforms) {
+// mist floor under the whole map: fills the holes with no terrain (OUT pits) and everything past the grid with the void cloud
+const VOID_FLOOR_Y = -24, VOID_FLOOR_R = 16000;
+const VOID_VERT = /* glsl */ `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
+const VOID_FRAG = /* glsl */ `
+precision highp float;
+${COMMON_GLSL}
+varying vec3 vW;
+void main(){
+  vec2 dp = floor(vW.xz / 6.);
+  float v = texture2D(uVoid, vec2((vW.x - uFogMap.x) / uFogMap.z, (vW.z + uFogMap.y) / uFogMap.z)).r;
+  gl_FragColor = vec4(voidCol(vW, dp) * mix(.45, 1., v), 1.);
+}`;
+
+export function createFog(uniforms, scene = null) {
   const map = getMap();
   const W = map.w, H = map.h, N = W * H;
   const vis = new Uint8Array(N), explored = new Uint8Array(N), ease = new Float32Array(N), easeX = new Float32Array(N), tmp = new Float32Array(N);
@@ -122,6 +159,17 @@ export function createFog(uniforms) {
   uniforms.uFog.value = tex;
   uniforms.uFogMap.value.set(map.x0, map.y1, W * map.tile, 1);
   uniforms.uFogLv.value.set(...fogLevels());
+  const voidTex = new THREE.DataTexture(voidMask(map), W, H, THREE.RedFormat, THREE.UnsignedByteType);
+  voidTex.magFilter = THREE.LinearFilter; voidTex.minFilter = THREE.LinearFilter; voidTex.generateMipmaps = false;
+  voidTex.wrapS = voidTex.wrapT = THREE.ClampToEdgeWrapping; voidTex.colorSpace = THREE.NoColorSpace; voidTex.flipY = false; voidTex.unpackAlignment = 1; voidTex.needsUpdate = true;
+  uniforms.uVoid.value = voidTex;
+  let floor = null;
+  if (scene) {
+    const geo = new THREE.PlaneGeometry(VOID_FLOOR_R * 2, VOID_FLOOR_R * 2); geo.rotateX(-Math.PI / 2);
+    floor = new THREE.Mesh(geo, new THREE.ShaderMaterial({ vertexShader: VOID_VERT, fragmentShader: VOID_FRAG, uniforms }));
+    floor.position.y = VOID_FLOOR_Y; floor.frustumCulled = false; floor.renderOrder = -1; floor.name = 'voidFloor'; floor.updateMatrix(); floor.matrixAutoUpdate = false;
+    scene.add(floor);
+  }
   // live tree coverage per tile (reference counted so overlapping trees stay correct)
   const treeCount = new Uint8Array(N);
   const tilesOf = [];
@@ -205,6 +253,6 @@ export function createFog(uniforms) {
     /** last-seen state {hp, maxHp, dead} of an enemy structure (pristine until first seen); draw this instead of the live unit while it is fogged */
     ghost(u) { return ghosts.get(u.id) || { hp: u.maxHp, maxHp: u.maxHp, dead: false }; },
     vis, explored,
-    dispose() { tex.dispose(); },
+    dispose() { tex.dispose(); voidTex.dispose(); if (floor) { floor.geometry.dispose(); floor.material.dispose(); floor.removeFromParent(); } },
   };
 }

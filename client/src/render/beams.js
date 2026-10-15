@@ -87,7 +87,7 @@ export function createBeams(scene, shared) {
   geo.instanceCount = 0;
   const mat = new THREE.ShaderMaterial({
     vertexShader: VERT, fragmentShader: FRAG,
-    uniforms: { uTime: shared.uTime, uCamPos: shared.uCamPos, uFog: shared.uFog, uFogMap: shared.uFogMap, uFogLv: shared.uFogLv, uBeamK: { value: 1 } },
+    uniforms: { uTime: shared.uTime, uCamPos: shared.uCamPos, uFog: shared.uFog, uVoid: shared.uVoid, uFogMap: shared.uFogMap, uFogLv: shared.uFogLv, uBeamK: { value: 1 } },
     transparent: true, depthTest: true, depthWrite: false, side: THREE.FrontSide,
     blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
     blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
