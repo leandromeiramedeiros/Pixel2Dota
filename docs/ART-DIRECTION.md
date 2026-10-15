@@ -10,7 +10,7 @@ The user is the creative director: every visual change gets a screenshot and a v
 - **Lighting and particles: The Last Night + Noita.** Vivid, bright frame (full exposure, saturated unit colours), cool teal only in the deepest shadows, warm practical lights (towers, fountain, ancient, lanterns,
   spells) with volumetric beams and a faint wide scatter. Bloom is a tight, high-threshold halo on emissive pixels only; **no whiteouts** (adaptive
   exposure + hue-preserving roll-off, see ARCHITECTURE "Pipeline"). Particles are crisp 1-art-pixel squares that fly on arcs, land and cool white -> yellow
-  -> orange -> red -> dark; soft blobs only for small cores and haze. Saturated colour is reserved for emissive things.
+  -> orange -> red -> dark; soft blobs only for small cores and haze. The most saturated colour is reserved for emissive things.
 - **Voxel densities:** characters 4.2 world units per voxel, world (terrain, buildings, trees, clutter) 8.4. Proportions follow Dota (creep < hero < Roshan).
 - **FX are not voxel:** spell fx keep 3D geometry (tubes, discs, ribbon bolts) plus particles; projectiles unchanged; ground telegraphs are shader discs
   (`c.ringDecal`), stepped bands, no dither.
