@@ -1,8 +1,8 @@
 // Voxel Lion, a chibi of his Dota 2 model (hand-authored): a hunched lavender-grey demon; big head pushed forward with long pointed bat ears,
-// a wide toothy grin, small yellow eyes and an orange gem on the brow; a tall red-orange hood flaring up behind the head; glowing orange orb
+// a wide toothy grin, small yellow eyes and an orange gem on the brow; a wide red-orange flame-like fan crest swept up and back behind the head; glowing orange orb
 // pauldrons; a dark plum cape down the back; a red loincloth on a dark belt; digitigrade-ish bare legs. Right (-x) hand: a short dark staff
 // with a glowing orange orb head. Left (+x) arm: the huge black demon claw with orange glowing cracks and talons.
-// Signature reads: red hood fan behind the pointed-eared head; the oversized black-and-orange claw at his left; the orange orb staff at his
+// Signature reads: red fan crest behind the pointed-eared head; the oversized black-and-orange claw at his left; the orange orb staff at his
 // right. Grid 52 x 50 x 48, ~44 voxels tall, faces -y.
 import { Vox } from '../vox.js';
 import { useMat } from '../mats.js';
@@ -122,24 +122,20 @@ export function build(p = {}) {
   ell(v, Th, [hx, hy, hz], [5, 4.6, 5], M.skin);
   ell(v, Th, [hx, hy - 1, hz - 3], [5.2, 4.2, 2.8], M.skin);
   ell(v, Th, [hx, hy - 3.4, hz + 1.2], [4.4, 1.4, 1.2], M.skinD);   // heavy brow
-  for (const s of [-1, 1]) {   // pointed bat ears, swept out and back below the horns
+  for (const s of [-1, 1]) {   // pointed bat ears, swept out and back in front of the crest
     cap(v, Th, [hx + s * 4, hy + 0.8, hz + 0.4], [hx + s * 7.2, hy + 2.4, hz + 2], 1.4, M.skin, 0.8);
     cap(v, Th, [hx + s * 7.2, hy + 2.4, hz + 2], [hx + s * 8.8, hy + 3.6, hz + 3.6], 0.8, M.skin, 0.3);
   }
-  // the mane: red-orange locks swept up and back from the brow over the crown, tips flaring high behind the head, then falling to the nape
+  // the crest, then a short fall down the nape onto the cape collar
   const lock = (px, py, pz) => (pz > hz + 8 ? M.hood : py > hy + 4 ? M.hoodD : M.hood);
-  for (const s of [-3, -1, 1, 3]) {
-    const a = [hx + s * 1.1, hy - 0.4, hz + 4.2], m = [hx + s * 1.5, hy + 3.2, hz + 7 - Math.abs(s) * 0.4], b = [hx + s * 2, hy + 7.6, hz + 9.6 - Math.abs(s) * 0.7];
-    cap(v, Th, a, m, 1.7, lock, 1.4);
-    cap(v, Th, m, b, 1.4, lock, 0.4);
+  // one wide flame-like fan: locks radiating from the crown over a half circle (up and out to both sides), tilted back; darker toward the root
+  const fan = (px, py, pz) => (py > hy + 4.6 ? M.hoodD : M.hood);
+  for (let i = 0; i <= 8; i++) {
+    const th = (-80 + i * 20) * Math.PI / 180, L = 8.6 - Math.abs(Math.sin(th)) * 1.4;
+    const a = [hx + Math.sin(th) * 1.6, hy + 1.6, hz + 3.6], b = [hx + Math.sin(th) * (L + 1.6), hy + 6 + Math.abs(Math.sin(th)) * 0.6, hz + 3.6 + Math.cos(th) * L];
+    cap(v, Th, a, b, 1.9, fan, 0.5);
   }
   for (const s of [-2, 0, 2]) cap(v, Th, [hx + s, hy + 3, hz + 4], [hx + s * 1.3, hy + 6.4, hz - 3.4], 1.8, M.hoodD, 0.6);   // fall down the nape
-  // horns: two dark curved horns from the temples, out and up, hooking back at the tips
-  for (const s of [-1, 1]) {
-    const P = [[hx + s * 3.2, hy - 1.2, hz + 3.4], [hx + s * 5.6, hy - 1, hz + 5.6], [hx + s * 7.2, hy, hz + 8.2], [hx + s * 7.4, hy + 2, hz + 10.4], [hx + s * 6.6, hy + 4, hz + 11.4]];
-    const R = [1.4, 1.15, 0.9, 0.6, 0.35];
-    for (let i = 0; i + 1 < P.length; i++) cap(v, Th, P[i], P[i + 1], R[i], i < 2 ? M.claw : M.wood, R[i + 1]);
-  }
 
   // ---- face, painted on the front-most head voxels only (never on the claw or staff in front): brow gem, small yellow eyes under the brow,
   // a wide grin with a row of teeth. Integer rows from the posed head (paintFront indexes cells).
@@ -182,4 +178,4 @@ export const ANIMS = {
 };
 
 /** HUD portrait framing (tools/vox/portrait.mjs): idle, the grinning head in the upper third with the red hood fanned behind it. */
-export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, HY, 32.5], scale: 1.2, fov: 24, sig: '#d64607', ambient: 0.42, levels: [0.6, 0.85, 1], falloff: 0.1, face: [4, 11, 24, 24] };
+export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, HY, 33], scale: 1.1, fov: 24, sig: '#d64607', ambient: 0.6, levels: [0.72, 0.92, 1], falloff: 0.08, face: [4, 11, 24, 24] };
