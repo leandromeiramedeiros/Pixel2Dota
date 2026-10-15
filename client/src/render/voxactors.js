@@ -30,6 +30,7 @@ import * as SPIRIT from '../../../shared/vox/creeps/invoker_forged_spirit.js';
 import * as JUGGERNAUT from '../../../shared/vox/heroes/juggernaut.js';
 import * as HEALING_WARD from '../../../shared/vox/creeps/juggernaut_healing_ward.js';
 import * as LINA from '../../../shared/vox/lina.js';
+import * as LION from '../../../shared/vox/heroes/lion.js';
 import * as MELEE_D from '../../../shared/vox/creeps/melee_dire.js';
 import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
 import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
@@ -47,6 +48,7 @@ export const VOX_UNITS = {   // heroes + their summons, then creeps; alphabetica
   juggernaut: voxEntry(JUGGERNAUT, { unit: CHAR_UNIT, max: 10 }),
   juggernaut_healing_ward: voxEntry(HEALING_WARD, { unit: CHAR_UNIT, max: 10, keys: ['npc_dota_juggernaut_healing_ward'] }),   // summon (sim key juggernaut_healing_ward); static, lean off
   lina: voxEntry(LINA, { unit: CHAR_UNIT, max: 10 }),
+  lion: voxEntry(LION, { unit: CHAR_UNIT, max: 10 }),
   pudge: voxEntry(PUDGE, { unit: CHAR_UNIT, max: 10 }),
   // lane creeps: Radiant and Dire are separate models (Dota 2), no team tint
   melee_dire: voxEntry(MELEE_D, { unit: CHAR_UNIT, max: 64, keys: ['npc_dota_creep_badguys_melee'] }),
