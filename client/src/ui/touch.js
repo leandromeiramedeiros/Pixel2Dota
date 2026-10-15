@@ -575,9 +575,9 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const p = heroPos(u);
     if (renderer.snapTarget) renderer.snapTarget(p.x, p.y); else renderer.setTarget(p.x, p.y);
   }
-  const longAim = (info) => { const r = rig(), w = (r && r.visibleWidth) || 2100; return !(info.range > 0 && info.range < 2500) || info.range > w * T.EDGE_RANGE; };
+  const longAim = (rr) => { const r = rig(), w = (r && r.visibleWidth) || 2100; return !(rr > 0) || rr > w * T.EDGE_RANGE; };   // rr = realRange (0 = global)
   function edgePan(dt) {
-    if (!aim || !aim.moved || !longAim(aim.info) || !renderer.getTarget) return;
+    if (!aim || !aim.moved || !longAim(aim.rr) || !renderer.getTarget) return;
     const cr = canvas.getBoundingClientRect(), d = edgePanDir(aim.ex - cr.left, aim.ey - cr.top, cr.width, cr.height, T.EDGE_M * K);
     if (!d.x && !d.y) return;
     freeAim = true;
@@ -804,7 +804,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const r = b.el.getBoundingClientRect();
     const range = info.range > 0 ? info.range : info.mode === 'point' ? 1600 : 600;
     b.ptr = e.pointerId;
-    aim = { b, cls, info: Object.assign({}, info, { range }), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, inCancel: false, overX: false, maxD: 0, point: null, unitId: '' };
+    aim = { b, cls, info: Object.assign({}, info, { range }), rr: realRange(info), key, name: prettyName(key), dx: 0, dy: 0, moved: false, ptr: e.pointerId, down: t, cx: r.left + r.width / 2, cy: r.top + r.height / 2, ex: e.clientX, ey: e.clientY, inCancel: false, overX: false, maxD: 0, point: null, unitId: '' };
     pointers.set(e.pointerId, { id: e.pointerId, role: 'btn', b });
     try { b.el.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = pad.parentNode.getBoundingClientRect();
