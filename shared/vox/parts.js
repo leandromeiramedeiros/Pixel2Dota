@@ -343,6 +343,7 @@ export function bow(v, g, d, n0, o, M) {
   return [a, b];
 }
 
+/**
  * Bow in hand k, rig-posed, optional drawn string (`bow` is the free-axis variant). o: { up, fwd } body-frame vectors (posed by the torso): bow axis and the side its belly faces (toward the target);
  * len = half length; bend = limb curve back toward the archer at the tips; recurve = tips flicking forward; r = limb radius at the grip
  * (>= 0.9: thinner capsules leave gaps on diagonals); sr = string radius; draw = posed point the string is pulled to (null = straight string). M: { limb, grip, string, tip? }. Returns [top, bottom] tips.
