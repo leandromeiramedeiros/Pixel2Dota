@@ -2,6 +2,7 @@
 // is one model file + one line here (the game registers it separately: VOX_UNITS in client/src/render/voxactors.js, after the director gate).
 //   VOX[short] = { kind: 'hero' | 'creep' | 'neutral' | 'boss' | 'building', unit: npc_dota key (the game unit it depicts), mod: model module }
 // A model module exports META { rig, grid, cx, cy }, build(pose) -> Vox, ANIMS (docs/VOXEL.md). Optional: PORTRAIT { pose, center, scale, fov, sig, face }.
+import * as axe from './heroes/axe.js';
 import * as crystal_maiden from './heroes/crystal_maiden.js';
 import * as invoker from './heroes/invoker.js';
 import * as invoker_forged_spirit from './creeps/invoker_forged_spirit.js';
@@ -13,6 +14,7 @@ import * as melee_radiant from './creeps/melee_radiant.js';
 import * as pudge from './heroes/pudge.js';
 
 export const VOX = {   // alphabetical (parallel branches merge clean)
+  axe: { kind: 'hero', unit: 'npc_dota_hero_axe', mod: axe },
   crystal_maiden: { kind: 'hero', unit: 'npc_dota_hero_crystal_maiden', mod: crystal_maiden },
   invoker: { kind: 'hero', unit: 'npc_dota_hero_invoker', mod: invoker },
   invoker_forged_spirit: { kind: 'creep', unit: 'npc_dota_invoker_forged_spirit', mod: invoker_forged_spirit },

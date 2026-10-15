@@ -24,6 +24,7 @@ import { ID_BIAS } from './post.js';
 import { instancedGeo, flushInstances, DEPTH_GLSL } from './mesh3d.js';
 import { buildVoxFrames } from './voxmesh.js';
 import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
+import * as AXE from '../../../shared/vox/heroes/axe.js';
 import * as CRYSTAL_MAIDEN from '../../../shared/vox/heroes/crystal_maiden.js';
 import * as INVOKER from '../../../shared/vox/heroes/invoker.js';
 import * as SPIRIT from '../../../shared/vox/creeps/invoker_forged_spirit.js';
@@ -41,6 +42,7 @@ export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: char
  *   lean (characters true, buildings false), rig (class, informational: META.rig, e.g. 'biped' | 'quadruped' | 'flyer' | 'big' | 'static'), keys?: [extra unit keys] }
  */
 export const VOX_UNITS = {   // heroes + their summons, then creeps; alphabetical within each group (parallel branches merge clean)
+  axe: voxEntry(AXE, { unit: CHAR_UNIT, max: 10 }),
   crystal_maiden: voxEntry(CRYSTAL_MAIDEN, { unit: CHAR_UNIT, max: 10 }),
   invoker: voxEntry(INVOKER, { unit: CHAR_UNIT, max: 10 }),
   invoker_forged_spirit: voxEntry(SPIRIT, { unit: CHAR_UNIT, max: 24, night: 0.25 }),   // summon: up to 2 per Invoker (+ Sun Strike shard spirits); lava glows +25% at night
