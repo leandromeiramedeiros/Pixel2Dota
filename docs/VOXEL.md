@@ -133,6 +133,6 @@ One director gate per batch, with in-game shots.
 | 2. Buildings | Tower, barracks, fort, fountain, shop, lantern, filler; `lean: false`; rubble on destroy | |
 | 3. Heroes | The 12 after Lina | |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |
-| 5. Trees + clutter | Trees, 15 clutter variants | |
+| 5. Trees + clutter | Trees, 15 clutter variants | Trees drafted, awaiting the director gate: `shared/vox/world/trees.js` (side = `tileSide`, Dota name = silhouette family); `trees3d.js` greedy instanced, LOD1 + coarse shadow casters, cut = voxel dissolve onto the stump |
 | 6. Portraits | `npm run vox:portrait` for every hero | Lina done |
 | 7. Sprite removal | Delete `?vox=0` / `?voxt=0`, the sprite unit path (`actors.js` / `sprites.js`), body / world sheets and generators, painted portraits, the tile atlas terrain path; switch to real depth | |

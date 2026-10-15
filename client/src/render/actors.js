@@ -3,12 +3,14 @@
 // for sim buildings, static map entities, trees (+ stumps); ground decals (blob shadows, selection rings), hit flash, animation selection,
 // per-unit lights and walking dust.
 import * as THREE from 'three';
-import { getMap, heightAt, sideOf } from '../../../shared/map.js';
+import { getMap, heightAt } from '../../../shared/map.js';
 import { ST } from '../../../shared/protocol.js';
 import { tintFor } from './placeholders.js';
 import { hash01 } from './mesh3d.js';
 import { INFO as BINFO } from './buildings3d.js';
-import { STUMP } from './trees3d.js';
+import { TREE_INDEX, STUMP_OF } from './trees3d.js';
+import { tileSide } from './terrainGeo.js';
+import { treeModel } from '../../../shared/vox/world/trees.js';
 import { viewFacing } from './camera.js';
 
 const TEAM_COL = [[0.35, 0.95, 0.4], [0.98, 0.32, 0.26]];
@@ -85,18 +87,21 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
   const gx0 = map.x0, gy1 = map.y1;
   const GW = Math.ceil((map.w * map.tile) / TREE_CELL), GH = Math.ceil((map.h * map.tile) / TREE_CELL);
   const grid = Array.from({ length: GW * GH }, () => []);
+  // art side = the terrain side under the tree (terrainGeo tileSide: Radiant leafy, Dire dead); the Dota model name picks the silhouette family
   const treeVar = new Uint8Array(map.trees.length), treeSide = new Uint8Array(map.trees.length);
   const treeYaw = new Float32Array(map.trees.length), treeJit = new Float32Array(map.trees.length);
   map.trees.forEach((t, i) => {
     const gx = Math.floor((t[0] - gx0) / TREE_CELL), gy = Math.floor((gy1 - t[1]) / TREE_CELL);
     if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) grid[gy * GW + gx].push(i);
-    let h = i * 2654435761 >>> 0; h ^= h >>> 13;
-    const nm = t[3] || '';
-    const family = /pine|cine|bamboo/.test(nm) ? 0 : 1;
-    treeVar[i] = family * 2 + (h & 1);
+    treeSide[i] = tileSide(map, Math.floor((t[0] - map.x0) / map.tile), Math.floor((map.y1 - t[1]) / map.tile));
+    treeVar[i] = TREE_INDEX[treeModel(t[3] || '', treeSide[i], hash01(i * 7 + 3))];
     treeYaw[i] = hash01(i * 3 + 1) * Math.PI * 2; treeJit[i] = 0.92 + 0.16 * hash01(i * 5 + 2);
-    treeSide[i] = /dire/.test(nm) ? 1 : /pine|oak|cine|bamboo/.test(nm) ? 0 : sideOf(t[0], t[1]);
   });
+  // cut trees: time first seen down (dissolve clock)
+  const DISS_T = 1.1, cutT = new Float64Array(map.trees.length), cutList = [];
+  let cutSeen = -1;   // time of the first tree frame: trees down within 2 s of it (joining a match, the sandbox) are old stumps, no dissolve; so is a
+  const CUT_BULK = 16; // frame with more new stumps than this (a late state sync: reconnect, spectate), never a real cut
+  const cellLod = new Uint8Array(GW * GH);   // per 512u cell: 0 near (full voxels) / 1 far (2x downsample), with hysteresis
   const cellBoxes = grid.map((_, ci) => {
     const gx = ci % GW, gy = (ci / GW) | 0;
     const x0 = gx0 + gx * TREE_CELL, zN = -(gy1 - gy * TREE_CELL);
@@ -159,10 +164,16 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
       const down = view.treesDown || null;
       let nTrees = 0;
+      if (cutSeen < 0) cutSeen = time;
+      if (down) { let nNew = 0; for (const i of down) if (!cutT[i]) nNew++;
+        const old = time - cutSeen <= 2 || nNew > CUT_BULK;
+        if (nNew) for (const i of down) if (!cutT[i]) { cutT[i] = old ? -1e9 : Math.max(time, 1e-6); cutList.push(i); } }
+      for (let k = cutList.length - 1; k >= 0; k--) { const i = cutList[k]; if (!down || !down.has(i)) { cutT[i] = 0; cutList[k] = cutList[cutList.length - 1]; cutList.pop(); } }
       const trees = map.trees;
       trees3d.begin(); buildings.begin(); if (vox) { vox.begin(); vox.ragStep(dt); }
       // near cells first, nothing past the draw distance: when the instance cap is hit, the far trees go (inside the mist), never near ones
       const reach = (opts && opts.drawDist) || 5500, r2 = (reach + TREE_CELL) * (reach + TREE_CELL), cp = cam.position;
+      const lodK = (opts && opts.treeLod) || 1.5, lod0R = Math.min(lodK * Math.max(200, cp.y), 1900);   // near-LOD radius: zoom-relative, capped (dev zoom-out stays far)
       order.length = 0;
       for (let ci = 0; ci < grid.length; ci++) {
         if (!grid[ci].length || !frustum.intersectsBox(cellBoxes[ci])) continue;
@@ -172,15 +183,23 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       order.sort((a, b) => ordD[a] - ordD[b]);
       for (let oi = 0; oi < order.length; oi++) {
         const ci = order[oi], cell = grid[ci];
+        // LOD by 3D distance from the camera (lod0R above): +-6% hysteresis so cells do not flicker
+        const dy = cp.y, dd = Math.sqrt(ordD[ci] + dy * dy), lod = cellLod[ci] = dd < lod0R * (cellLod[ci] ? 0.94 : 1.06) ? 0 : 1;
         for (let k = 0; k < cell.length; k++) {
           const i = cell[k], t = trees[i];
-          const cut = down && down.has(i);
-          const v = cut ? STUMP : treeVar[i];
-          const z = heightAt(t[0], t[1]);
+          const cut = cutT[i] !== 0, ph = (i * 0.618) % 6.2832, z = heightAt(t[0], t[1]);
           // trainer draws trees ~1.35x our sheet size; keep the real model scale so canopies close up like Dota's
-          const sc = (cut ? 1 : TREE_SCALE * Math.max(0.8, t[2] || 1)) * treeJit[i];
-          if (!trees3d.add(v, t[0], t[1], z, treeSide[i], sc, treeYaw[i], (i * 0.618) % 6.2832)) continue;
-          addPick(null, t[0], t[1], z, trees3d.frame(v), sc, i);
+          const sc = TREE_SCALE * Math.max(0.8, t[2] || 1) * treeJit[i];
+          if (cut) {
+            const st = treeJit[i];
+            if (!trees3d.add(STUMP_OF[treeSide[i]], t[0], t[1], z, st, treeYaw[i], ph, lod)) continue;
+            const a = (time - cutT[i]) / DISS_T;
+            if (a < 1) trees3d.add(treeVar[i], t[0], t[1], z, sc, treeYaw[i], ph, lod, Math.max(0.001, a));   // dissolving: not pickable
+            else addPick(null, t[0], t[1], z, trees3d.frame(STUMP_OF[treeSide[i]]), st, i);
+          } else {
+            if (!trees3d.add(treeVar[i], t[0], t[1], z, sc, treeYaw[i], ph, lod)) continue;
+            addPick(null, t[0], t[1], z, trees3d.frame(treeVar[i]), sc, i);
+          }
           nTrees++;
         }
       }
