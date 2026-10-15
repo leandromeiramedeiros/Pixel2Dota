@@ -117,6 +117,7 @@ export function resolveAttack(w, a, t) {
     for (const ab of a.abilities) if (ab.level > 0) { const h = getHandler(ab.key); if (h.onAttack) h.onAttack(w, a, ab, t, info); }
     items.onAttack(w, a, t, info);
   } else if (a._onAttack) a._onAttack(w, a, t, info);
+  if (a._cp) info.dmg *= creepOut(a._cp, t);
   info.final = info.dmg * info.crit;
   const dealt = damage(w, a, t, info.final, info.type, { attack: true, crit: info.crit > 1, pierce: info.pierce });
   if (hero) {
@@ -128,6 +129,17 @@ export function resolveAttack(w, a, t) {
     items.onAttacked(w, t, a, info, dealt);
   }
   return dealt;
+}
+
+/** Lane creep passive multiplier on its attack vs t (CREEP_PASSIVES). */
+function creepOut(p, t) {
+  const pct = t._building ? p.outBuilding : t.kind === KIND.HERO ? p.outHero : t._cp && t._cp.inHero ? (p.outHeavy ?? p.outCreep) : t.kind === KIND.CREEP ? p.outCreep : 0;
+  return 1 + (pct || 0) / 100;
+}
+/** Siege creep damage taken from src: heroes, units they control, everything else. */
+function creepIn(w, p, src) {
+  const pct = src.kind === KIND.HERO ? p.inHero : heroOf(w, src) ? p.inControlled : p.inBasic;
+  return 1 + (pct || 0) / 100;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- damage
@@ -143,6 +155,7 @@ export function damage(w, src, tgt, amount, type, info) {
   if (tgt._st & ST.INVULN) return 0;
   if ((tgt._st & ST.MAGIC_IMMUNE) && !info.pierce && !info.attack && type !== 'phys') return 0;
   let d = amount;
+  if (tgt._cp && tgt._cp.inHero && src) d *= creepIn(w, tgt._cp, src);
   if (src && src._spellAmp && info.ability && type !== 'phys') d *= 1 + src._spellAmp / 100;   // Rubick Arcane Supremacy
   if (type === 'phys') d *= armorMult(tgt.armor);
   else if (type === 'mag') d *= 1 - tgt._mr;

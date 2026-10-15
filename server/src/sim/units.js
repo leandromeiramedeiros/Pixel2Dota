@@ -9,6 +9,7 @@
 //   _channel     active channel {key,left,...}   _kb knockback state   _lastPlayerDmg time of last damage taken from a hero
 import { KIND, TEAM, ST, ABF, INV_SLOTS } from '../../../shared/protocol.js';
 import { HEROES } from '../../../shared/heroes.js';
+import { CREEP_PASSIVES } from '../../../shared/constants.js';
 
 const has = (arr, f) => !!arr && arr.indexOf(f) >= 0;
 
@@ -54,7 +55,7 @@ export function makeCreep(w, team, type, x, y, lane, grade) {
   const k0 = creepKeys(team)[type], d = w.data.units[grade ? k0 + '_' + grade : k0] || w.data.units[k0];
   const base = { hp: d.hp, mana: d.mana, hpRegen: d.hpRegen, armor: d.armor, mr: (d.mr || 0) / 100, dmgMin: d.dmgMin, dmgMax: d.dmgMax, bat: d.bat, atkPoint: d.atkPoint, atkRange: d.atkRange, projSpeed: d.projSpeed, ms: d.ms, hull: d.hull, baseAS: 100, xp: d.xp, goldMin: d.goldMin, goldMax: d.goldMax, turnRate: d.turnRate || 0.5 };
   const u = common(w, { kind: KIND.CREEP, key: w.data.units[k0].key, team, x, y, base, lane, radius: d.hull || 16, projKey: type === 'siege' ? 'siege' : type === 'ranged' ? 'creep_ranged' : '', visDay: d.vision, visNight: d.vision });
-  u._type = type; u._grade = grade || ''; u._acq = d.acq || 500;
+  u._type = type; u._grade = grade || ''; u._acq = d.acq || 500; u._cp = CREEP_PASSIVES[type] || null;
   return u;
 }
 

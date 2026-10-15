@@ -41,5 +41,13 @@ export const TREE_REGROW = 300;
 // misc
 export const SHOP_RANGE = 1200, FOUNTAIN_RADIUS = 1200, FOUNTAIN_HP_PCT = 0.04, FOUNTAIN_MANA_PCT = 0.04;
 export const AGGRO_RANGE_CREEP = 500, TOWER_RANGE = 700, CREEP_CALL_HELP = 500;
+// Lane creep passives (npc_abilities.txt creep_irresolute / creep_piercing / creep_siege, %): melee, ranged, siege (+ upgraded / mega).
+// out*: the creep's attack damage vs that target class; in*: damage the siege creep takes from heroes / their summons / anything else.
+// 'heavy' = siege creeps. Buildings also carry creep_siege in the files; that part is not applied (semantics unclear).
+export const CREEP_PASSIVES = {
+  melee: { outHero: -25 },
+  ranged: { outCreep: 50, outHero: -50, outHeavy: -50 },
+  siege: { outBuilding: 150, inHero: -50, inControlled: -40, inBasic: -30 },
+};
 export const ATTACK_RANGE_BUFFER = 250; // Dota keeps attacking within range + buffer once started
 export const MAGIC_RESIST_BASE = 0.25;

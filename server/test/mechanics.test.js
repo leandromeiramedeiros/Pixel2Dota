@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { World } from '../src/sim/world.js';
 import { makeCreep } from '../src/sim/units.js';
 import { spawnWave } from '../src/sim/creeps.js';
+import { resolveAttack } from '../src/sim/combat.js';
 import { KIND, TEAM } from '../../shared/protocol.js';
 import { WAVE_MELEE, WAVE_RANGED, SIEGE_EVERY, WAVE_GROW } from '../../shared/constants.js';
 import { DATA } from '../../shared/data.js';
@@ -113,6 +114,25 @@ test('waves grow with the game clock', () => {
   assert.equal(count(b, 'melee'), WAVE_MELEE + 1);
   assert.equal(count(c, 'melee'), WAVE_MELEE + 2); assert.equal(count(c, 'ranged'), WAVE_RANGED + WAVE_GROW.ranged.filter((m) => m <= 30).length);
   assert.equal(count(e, 'melee'), WAVE_MELEE + 3); assert.equal(count(e, 'siege'), 1 + WAVE_GROW.siege.filter((m) => m <= 45).length);
+});
+
+test('lane creep passives from the game files: irresolute, piercing, siege', () => {
+  const w = new World({ seed: 1, pregame: 0 });
+  const h = w.addHero({ pid: 'a', team: TEAM.RADIANT, heroKey: SVEN });
+  const mk = (team, type) => { const c = makeCreep(w, team, type, X0, Y0, 'mid'); w.addUnit(c); c.dmgMin = c.dmgMax = 100; c.dmgBonus = 0; return c; };
+  const hit = (a, t) => { const hp = t.hp; t.armor = 0; t._mr = 0; resolveAttack(w, a, t); const d = hp - t.hp; t.hp = t.maxHp; return d; };
+  const mel = mk(TEAM.DIRE, 'melee'), rng = mk(TEAM.DIRE, 'ranged'), sg = mk(TEAM.DIRE, 'siege');
+  const foeC = mk(TEAM.RADIANT, 'melee'), foeS = mk(TEAM.RADIANT, 'siege');
+  const tw = w.towers.find((b) => b.team === TEAM.RADIANT && b._tier === 1 && b._lane === 'top');
+  tw._st = 0; tw.hp = tw.maxHp;
+  assert.ok(Math.abs(hit(mel, h) - 75) < 1e-6, 'melee vs hero -25%');
+  assert.ok(Math.abs(hit(mel, foeC) - 100) < 1e-6, 'melee vs creep');
+  assert.ok(Math.abs(hit(rng, h) - 50) < 1e-6, 'ranged vs hero -50%');
+  assert.ok(Math.abs(hit(rng, foeC) - 150) < 1e-6, 'ranged vs creep +50%');
+  assert.ok(Math.abs(hit(rng, foeS) - 50 * 0.7) < 1e-6, 'ranged vs siege -50% (heavy), siege takes -30% from creeps');
+  assert.ok(Math.abs(hit(sg, tw) - 250) < 1e-6, 'siege vs building +150%');
+  h.dmgMin = h.dmgMax = 100; h.dmgBonus = 0;
+  assert.ok(Math.abs(w.damage(h, foeS, 100, 'pure') - 50) < 1e-6, 'siege takes -50% from heroes');
 });
 
 // ---------------------------------------------------------------------------------------------------------------- melee arc
