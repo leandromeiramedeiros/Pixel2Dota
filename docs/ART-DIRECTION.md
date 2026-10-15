@@ -14,8 +14,8 @@ The user is the creative director: every visual change gets a screenshot and a v
 - **Voxel densities:** characters 4.2 world units per voxel, world (terrain, buildings, trees, clutter) 8.4. Proportions follow Dota (creep < hero < Roshan).
 - **FX are not voxel:** spell fx keep 3D geometry (tubes, discs, ribbon bolts) plus particles; projectiles unchanged; ground telegraphs are shader discs
   (`c.ringDecal`), stepped bands, no dither.
-- **Readability first:** units, HP bars and telegraphs stay readable over the dark grade; the gameplay band stays crisp (tilt-shift DoF is minimal at play
-  distance and only ramps up toward the showcase close-up).
+- **Readability first:** units, HP bars and telegraphs stay readable over the dark grade; the gameplay band stays crisp (DoF is faint: a light tilt-shift band at play
+  distance, a gentle bokeh in the showcase; the hero stays sharp).
 
 ## Rules for new art (director, 2026-10-14)
 1. **Bodies:** every unit is a voxel model built with the shared kit (`shared/vox/`), Dota silhouette, chibi proportions for characters. Lina is the

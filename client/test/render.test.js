@@ -2,14 +2,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { shelfPack, nextPow2, resolveKey, indexSheet } from '../src/art/atlas.js';
-import { camParams, visibleHeight, dofForDistance, DOF_MIN, CameraRig, cameraPose, rayToGround, stepYaw, viewFacing, wrapPi } from '../src/render/camera.js';
+import { timeOfDay, skyPalette, goldenLight } from '../src/render/sky.js';
+import { camParams, visibleHeight, CameraRig, cameraPose, rayToGround, stepYaw, viewFacing, wrapPi } from '../src/render/camera.js';
 import { ORBIT, dragToOrbit, pinchZoomFactor, inJoyZone } from '../src/ui/orbit.js';
 import { selectLights } from '../src/render/lights.js';
 import { castVision, visionRadius, VISION_FALLBACK, voidMask } from '../src/render/fog.js';
 import { buildChunk, hash2, CHUNK } from '../src/render/terrainGeo.js';
 import { dirOf, dir8Of } from '../src/render/actors.js';
 import { getMap, TT } from '../../shared/map.js';
-import { CAMERA } from '../../shared/constants.js';
+import { CAMERA, DAY_LEN } from '../../shared/constants.js';
 
 test('shelfPack: no overlap, inside width', () => {
   const items = Array.from({ length: 60 }, (_, i) => ({ w: 5 + (i * 7) % 23, h: 4 + (i * 11) % 29 }));
@@ -163,15 +164,32 @@ test('visionRadius: observer ward 1600 day and night, sentry ward small', () => 
   assert.ok(visionRadius({ kind: 'ward', key: 'sentry_ward' }, false) < 400);
 });
 
-test('dofForDistance: ~12% at gameplay distance, monotonic ramp from closeDistance to full strength at the showcase', () => {
-  assert.equal(dofForDistance(CAMERA.distance), DOF_MIN);
-  assert.equal(dofForDistance(CAMERA.closeDistance), DOF_MIN);
-  assert.equal(dofForDistance(CAMERA.distanceTouch), DOF_MIN);
-  assert.equal(dofForDistance(CAMERA.showcaseDistance), 1);
-  assert.equal(dofForDistance(CAMERA.showcaseDistance - 100), 1);
-  let prev = DOF_MIN;
-  for (let d = CAMERA.closeDistance; d >= CAMERA.showcaseDistance; d -= 10) { const v = dofForDistance(d); assert.ok(v >= prev - 1e-9 && v <= 1); prev = v; }
-  assert.ok(DOF_MIN >= 0.1 && DOF_MIN <= 0.15);
+test('timeOfDay: plain day / night pregame and in the first half day; golden before sunset, twilight across it, night after', () => {
+  assert.deepEqual(timeOfDay(-30, false), { s: -1e3, n: 0, golden: 0, twi: 0, morning: false });
+  assert.equal(timeOfDay(10, false).n, 0);            // 0:10 is no sunrise
+  assert.equal(timeOfDay(DAY_LEN / 2 - 1, false).golden, 0);
+  const g = timeOfDay(DAY_LEN - 22, false), d = timeOfDay(DAY_LEN + 10, true), n = timeOfDay(DAY_LEN * 1.5, true);
+  assert.ok(g.golden > 0.9 && g.n < 0.2 && !g.morning);
+  assert.ok(d.twi > 0.8 && d.n > 0.5 && d.n < 1 && !d.morning);
+  assert.ok(n.n === 1 && n.golden === 0 && n.twi === 0);
+  const m = timeOfDay(2 * DAY_LEN + 22, false);       // night -> day flip at 2 * DAY_LEN: morning golden hour
+  assert.ok(m.morning && m.golden > 0.9 && m.n < 0.2);
+  let prev = -1;                                      // sky night rises monotonically through the evening flip
+  for (let t = DAY_LEN - 60; t <= DAY_LEN + 60; t += 2) { const k = timeOfDay(t, t >= DAY_LEN).n; assert.ok(k >= prev - 1e-9); prev = k; }
+});
+
+test('skyPalette: day / night ends match the fixed palettes, golden hour warm, Low / Medium warmth reduced; goldenLight neutral off-hour', () => {
+  const day = skyPalette(timeOfDay(DAY_LEN * 0.75, false)), night = skyPalette(timeOfDay(DAY_LEN * 1.5, true));
+  assert.ok(day.hor[2] > day.hor[0] && night.hor[2] < 0.2 && day.bodyK === 1 && night.sunN === 1);
+  const tod = timeOfDay(DAY_LEN - 22, false), full = skyPalette(tod, 1), low = skyPalette(tod, 0.4);
+  assert.ok(full.hor[0] > full.hor[2] && full.hor[0] > low.hor[0] && low.hor[0] > day.hor[0]);
+  assert.ok(full.body[2] < day.body[2] && full.elev < day.elev && full.bodyK > 0);
+  const dusk = skyPalette(timeOfDay(DAY_LEN + 25, true));
+  assert.ok(dusk.sunN === 1 && dusk.elev < 0.13);
+  for (const p of [day, night, full, low, dusk]) for (const k of ['hor', 'zen', 'body', 'cloud', 'glow', 'haze', 'water']) for (const v of p[k]) assert.ok(v >= 0 && v <= 1);
+  assert.deepEqual(goldenLight(timeOfDay(DAY_LEN * 0.75, false), true), { key: [1, 1, 1], rim: [1, 1, 1], amb: [1, 1, 1], keyY: 1, rimY: 1 });
+  const hi = goldenLight(tod, true), lo = goldenLight(tod, false);
+  assert.ok(hi.key[2] < lo.key[2] && lo.key[2] < 1 && hi.rimY < 1 && lo.rimY === 1 && hi.keyY < 1 && lo.keyY === 1);
 });
 
 test('CameraRig.setViewInset: target lands mid free playfield; 0,0 is the plain camera; picking stays consistent', () => {

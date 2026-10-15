@@ -53,13 +53,8 @@ export function stepYaw(yaw, goal, showcase, dt, rate = 14, backRate = 7) {
 /** Facing (rad, 0 = east, CCW) as seen from a camera at `yaw`: the sheet direction to pick is dirOf / dir8Of(viewFacing(facing, yaw)). */
 export const viewFacing = (facing, yaw) => facing - yaw;
 
-/** Tilt-shift DoF strength factor from the camera distance: barely there (DOF_MIN) at normal gameplay distance so the lane stays readable,
- *  ramping smoothly from closeDistance down to the showcase close-up where it is today's full strength (1). Zoomed out / devZoom stay at the floor. */
-export const DOF_MIN = 0.12;
-export function dofForDistance(d, cfg = CAMERA) {
-  return DOF_MIN + (1 - DOF_MIN) * showcaseK(d, cfg);
-}
-/** 0 at normal play (>= closeDistance) .. 1 at the showcase close-up, smoothstepped: drives DoF, sky and distance fog. */
+/** 0 at normal play (>= closeDistance) .. 1 at the showcase close-up, smoothstepped: drives the far horizon mist / sky (and the hand-over
+ *  from the screen-band tilt-shift to the depth bokeh, both at the same strength). */
 export function showcaseK(d, cfg = CAMERA) {
   if (cfg.showcaseDistance == null) return 0;
   const s = clamp((cfg.closeDistance - d) / (cfg.closeDistance - cfg.showcaseDistance), 0, 1);
