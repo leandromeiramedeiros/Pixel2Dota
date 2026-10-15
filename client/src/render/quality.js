@@ -1,23 +1,27 @@
-// Graphics quality: presets (fidelity), user options (resolution / fps / bloom / vsync), hardware detection, frame-cap helper, FPS governor.
+// Graphics quality: presets (fidelity), user options (resolution / fps / bloom / dof / vsync), per-level option bundles, hardware detection, frame-cap helper, FPS governor.
 // Pure (no DOM/three at import) so node tests can import it.
-//   Preset = what is drawn (shadows, lights, particles, post passes, clutter ...). high = renderer DEFAULTS (render/index.js; client/test/quality.test.js checks it).
-//   Options = user choices the preset never touches: resolution (render-target pixel count), fps cap, bloom on/off, vsync.
-//   detectDefaults(info) picks the first-run preset + options from the hardware; the menu DEFAULTS button restores them.
-export const LEVELS = ['low', 'medium', 'high'];
+//   Preset = what is drawn (shadows, lights, particles, post passes, clutter, view distance, MSAA ...). ultra = renderer DEFAULTS (render/index.js; client/test/quality.test.js checks it).
+//   Options = user choices the preset never touches: resolution (render-target pixel count), fps cap (0 = MAX), bloom on/off, depth of field on/off, vsync.
+//   Picking a level applies its preset AND its LEVEL_OPTIONS bundle; single options may then be changed on top (stored as overrides).
+//   detectDefaults(info) picks the first-run level (and so its bundle) from the hardware; the menu DEFAULTS button restores it.
+export const LEVELS = ['low', 'medium', 'high', 'ultra'];
 // Every key is a renderer setting. Numbers are multipliers / counts, booleans switch a pass.
-//   atmos: showcase sky tier (0 flat distance fog + sun / stars, 1 volumetric mist + clouds, 2 denser mist, scattering, more cloud steps)
+//   atmos: showcase sky tier (0 flat distance fog + sun / stars, 1 volumetric mist + clouds, 2 denser mist, scattering, more cloud steps, 3 densest / most steps)
 //   shadows: key-light map + marched height-field for the spell lights (false = no shadows at all)   shadowPoints: spell lights with a real cube shadow (5 depth renders each)
 //   maxLights: dynamic light pool   particles / ambient / clutter: density multipliers (0 = off)   wind: 1 full / .5 half / 0 static   bloomLevels: bloom mips (5 = full)
-// medium = one notch down everywhere it costs (3 cube shadows, 16 lights, no water SSR, 60% particles, half clutter / ambient, half wind);
-// low = potato: no shadows / rim / DoF / SSR / light scatter / ambient / clutter / wind, 8 lights, 30% particles, 3 bloom mips. Outlines stay on.
+//   drawDist: world units trees / clutter / terrain / far plane reach   msaa: scene target samples (0 = off)
+// medium = one notch down everywhere it costs (2 cube shadows, 16 lights, no water SSR, 60% particles, half clutter / ambient, half wind, shorter view);
+// low = potato: no shadows / rim / SSR / light scatter / ambient / clutter / wind, 8 lights, 30% particles, 3 bloom mips, short view. Outlines stay on.
+// high = full look at 4 cube shadows; ultra = 10 cube shadows, densest atmosphere, longest view, 2x MSAA.
 export const PRESETS = {
-  low: { bloomStrength: 0.9, bloomLevels: 3, shadows: false, shadowPoints: 0, maxLights: 8, particles: 0.3, ambient: 0, clutter: 0, outlines: true, rim: false, wind: 0, dof: false, ssr: false, rays: false, atmos: 0 },
-  medium: { bloomStrength: 0.9, bloomLevels: 4, shadows: true, shadowPoints: 3, maxLights: 16, particles: 0.6, ambient: 0.5, clutter: 0.5, outlines: true, rim: true, wind: 0.5, dof: true, ssr: false, rays: true, atmos: 1 },
-  high: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 10, maxLights: 32, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, dof: true, ssr: true, rays: true, atmos: 2 },
+  low: { bloomStrength: 0.9, bloomLevels: 3, shadows: false, shadowPoints: 0, maxLights: 8, particles: 0.3, ambient: 0, clutter: 0, outlines: true, rim: false, wind: 0, ssr: false, rays: false, atmos: 0, drawDist: 2400, msaa: 0 },
+  medium: { bloomStrength: 0.9, bloomLevels: 4, shadows: true, shadowPoints: 2, maxLights: 16, particles: 0.6, ambient: 0.5, clutter: 0.5, outlines: true, rim: true, wind: 0.5, ssr: false, rays: true, atmos: 1, drawDist: 3600, msaa: 0 },
+  high: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 4, maxLights: 24, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, ssr: true, rays: true, atmos: 2, drawDist: 5500, msaa: 0 },
+  ultra: { bloomStrength: 0.9, bloomLevels: 5, shadows: true, shadowPoints: 10, maxLights: 32, particles: 1, ambient: 1, clutter: 1, outlines: true, rim: true, wind: 1, ssr: true, rays: true, atmos: 3, drawDist: 9000, msaa: 2 },
 };
-export const LABEL = { low: 'Low', medium: 'Medium', high: 'High' };
+export const LABEL = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra' };
 export const STORE_KEY = 'p2d.gfx';          // preset level
-export const OPTIONS_KEY = 'p2d.gfx.opts';   // JSON of the options the user changed by hand (absent key = follow detection)
+export const OPTIONS_KEY = 'p2d.gfx.opts';   // JSON of the options the user changed by hand on top of the level's bundle
 
 export const presetSettings = (level) => ({ ...(PRESETS[level] || PRESETS.high) });
 export function applyQuality(renderer, level) {
@@ -31,9 +35,18 @@ export function applyQuality(renderer, level) {
 export const RESOLUTIONS = ['quarter', 'half', 'native'];
 export const RES_LABEL = { quarter: '1/4', half: '1/2', native: 'NATIVE' };
 export const RES_SCALE = { quarter: 1, half: Math.SQRT2, native: 2 };
-export const FPS_CAPS = [30, 60, 120];
-export const OPTION_KEYS = ['resolution', 'fps', 'bloom', 'vsync'];
-export const OPTION_DEFAULTS = { resolution: 'native', fps: 60, bloom: true, vsync: true };
+export const FPS_CAPS = [30, 60, 120, 144, 165, 0];   // 0 = MAX: display refresh (vsync on: every rAF callback; vsync off: paced at the measured refresh, else 240)
+export const fpsLabel = (f) => (f ? String(f) : 'MAX');
+export const OPTION_KEYS = ['resolution', 'fps', 'bloom', 'dof', 'vsync'];
+export const OPTION_DEFAULTS = { resolution: 'native', fps: 60, bloom: true, dof: false, vsync: true };
+// What choosing a level sets besides the preset (the user may still change single options afterwards).
+export const LEVEL_OPTIONS = {
+  low: { resolution: 'quarter', fps: 30, bloom: false, dof: false, vsync: true },    // potato PC / phone, integrated graphics
+  medium: { resolution: 'half', fps: 60, bloom: false, dof: false, vsync: true },    // potato with a better GPU
+  high: { resolution: 'native', fps: 60, bloom: true, dof: false, vsync: true },     // good PC, last-gen phone
+  ultra: { resolution: 'native', fps: 0, bloom: true, dof: true, vsync: true },      // high-end PC, latest phone: display refresh
+};
+export const levelOptions = (level) => ({ ...(LEVEL_OPTIONS[level] || LEVEL_OPTIONS.high) });
 
 export const resolutionScale = (res) => RES_SCALE[res] || RES_SCALE.native;
 /** keep only valid option values (anything else falls back to `base`) */
@@ -43,11 +56,12 @@ export function normalizeOptions(o, base = OPTION_DEFAULTS) {
     resolution: RESOLUTIONS.includes(o.resolution) ? o.resolution : base.resolution,
     fps: FPS_CAPS.includes(o.fps) ? o.fps : base.fps,
     bloom: typeof o.bloom === 'boolean' ? o.bloom : base.bloom,
+    dof: typeof o.dof === 'boolean' ? o.dof : base.dof,
     vsync: typeof o.vsync === 'boolean' ? o.vsync : base.vsync,
   };
 }
 /** renderer settings behind the options (fps / vsync live in the frame loop, not the renderer) */
-export const optionSettings = (opts) => ({ pixelScale: resolutionScale(opts.resolution), bloom: !!opts.bloom });
+export const optionSettings = (opts) => ({ pixelScale: resolutionScale(opts.resolution), bloom: !!opts.bloom, dof: !!opts.dof });
 export function applyOptions(renderer, opts) {
   const s = optionSettings(opts);
   for (const k of Object.keys(s)) renderer.setSetting(k, s[k]);
@@ -71,6 +85,8 @@ export function loadOptions() {
 export function saveOption(key, value) {
   try { localStorage.setItem(OPTIONS_KEY, JSON.stringify({ ...loadOptions(), [key]: value })); } catch { /* storage off */ }
 }
+/** a level was picked: its bundle replaces whatever options were overridden before */
+export function clearOptions() { try { localStorage.removeItem(OPTIONS_KEY); } catch { /* storage off */ } }
 /** DEFAULTS button: forget every manual choice (preset + options) so detection decides again */
 export function clearStored() { try { localStorage.removeItem(STORE_KEY); localStorage.removeItem(OPTIONS_KEY); } catch { /* storage off */ } }
 
@@ -104,16 +120,16 @@ export function classifyGpu(str, mobile = false) {
   return 'unknown';
 }
 
-const TIER_SETUP = {
-  potato: { level: 'low', resolution: 'quarter', fps: 30, bloom: false, vsync: true },
-  lowmid: { level: 'low', resolution: 'half', fps: 60, bloom: true, vsync: true },
-  good: { level: 'high', resolution: 'native', fps: 60, bloom: true, vsync: true },
-};
+// tier -> level (the level's LEVEL_OPTIONS bundle supplies resolution / fps / bloom / dof / vsync). lowmid at the Low level keeps half resolution at 60 fps.
+const TIER_LEVEL = { potato: 'low', lowmid: 'low', good: 'high', ultra: 'ultra' };
+const ULTRA_GPU = /RTX\s*[345]0[6-9]0|Radeon.*\bRX\s*(6[789]\d\d|[79]\d{3})\b|Apple M\d+\s*(Pro|Max|Ultra)|Arc\W.*\bB\d{3}\b/i;   // high-end desktop GPUs
+const FLAGSHIP_PHONE_GPU = /Adreno\D{0,8}(7[4-9]\d|8\d\d)\b|Immortalis|Mali-?G[79]\d\d\b/i;
 /**
- * Pure: hardware facts -> { tier: 'potato' | 'lowmid' | 'good', score, level, resolution, fps, bloom, vsync }.
- *   info: { mobile, cores, memory (GB, navigator.deviceMemory, may be undefined), screenW, screenH, dpr, gpu (unmasked renderer string), refreshHz (measured, optional) }
- * Score = GPU class + cores + memory (- phone, - huge screen on a weak GPU). Software / weak GPUs, or 2 cores / 2 GB, are potato; phones and mid GPUs never go past
- * lowmid (Medium needs a decent score, else Low); only a strong desktop GPU gets High + native. A measured refresh above 100 Hz lifts the good tier to a 120 fps cap.
+ * Pure: hardware facts -> { tier: 'potato' | 'lowmid' | 'good' | 'ultra', score, gpu, level, ...LEVEL_OPTIONS[level] }.
+ *   info: { mobile, cores, memory (GB, navigator.deviceMemory, may be undefined), screenW, screenH, dpr, gpu (unmasked renderer string), refreshHz (measured, optional, informational) }
+ * Score = GPU class + cores + memory (- phone, - huge screen on a weak GPU). Software / weak GPUs, or 2 cores / 2 GB, are potato (Low); mid GPUs and ordinary phones are
+ * lowmid (Medium needs a decent score, else Low at half resolution, 60 fps); a strong desktop GPU is good (High); flagship phone GPUs may reach High too;
+ * ultra = desktop + strong GPU matching a high-end model (RTX 3060+, RX 6700+, Apple M Pro/Max/Ultra, Arc B-series) + at least 8 cores.
  */
 export function detectDefaults(info = {}) {
   const mobile = !!info.mobile, cores = info.cores > 0 ? info.cores : 4, mem = info.memory > 0 ? info.memory : 0;
@@ -125,10 +141,12 @@ export function detectDefaults(info = {}) {
   const score = gpuPts + cpuPts + memPts - (mobile ? 2 : 0) - (pixels > 6e6 && gpu !== 'strong' ? 1 : 0);
   let tier = score <= 3 ? 'potato' : score <= 7 ? 'lowmid' : 'good';
   if (gpu === 'software' || gpu === 'weak' || cores <= 2 || (mem && mem <= 2)) tier = 'potato';
-  else if (tier === 'good' && (mobile || gpu !== 'strong')) tier = 'lowmid';
-  const out = { ...TIER_SETUP[tier], tier, score, gpu };
-  if (tier === 'lowmid' && score >= 7) out.level = 'medium';
-  if (tier === 'good' && info.refreshHz > 100) out.fps = 120;
+  else if (tier === 'good' && (gpu !== 'strong' || (mobile && !FLAGSHIP_PHONE_GPU.test(String(info.gpu || ''))))) tier = 'lowmid';
+  if (tier === 'good' && !mobile && cores >= 8 && ULTRA_GPU.test(String(info.gpu || ''))) tier = 'ultra';
+  let level = TIER_LEVEL[tier];
+  if (tier === 'lowmid' && score >= 7) level = 'medium';
+  const out = { tier, score, gpu, level, ...levelOptions(level) };
+  if (tier === 'lowmid' && level === 'low') { out.resolution = 'half'; out.fps = 60; }
   return out;
 }
 
@@ -146,15 +164,16 @@ export function gatherHardwareInfo({ nav = typeof navigator !== 'undefined' ? na
 /**
  * Frame limiter for a rAF loop: tick(nowMs) returns the real milliseconds since the previous rendered frame when this callback should render, else 0.
  * An accumulator (not a timer) decides, so a 60 fps cap on a 60 Hz display renders every callback (the 10% tolerance absorbs rAF jitter) and a 30 cap
- * on 60 Hz renders every second one; 120 on a 60 Hz display simply renders every callback. The accumulator is clamped so a stall cannot cause a burst.
+ * on 60 Hz renders every second one; 120 on a 60 Hz display simply renders every callback; fps 0 (MAX) renders every callback. The accumulator is clamped so a stall cannot cause a burst.
  */
 export function createFrameCap(fps = 60) {
-  let interval = 1000 / fps, acc = 0, last = -1, lastRender = -1;
+  const ivOf = (f) => (f > 0 ? 1000 / f : 0);   // fps 0 = uncapped: every callback renders
+  let interval = ivOf(fps), acc = 0, last = -1, lastRender = -1;
   return {
-    setFps(f) { interval = 1000 / f; acc = Math.min(acc, interval); },
+    setFps(f) { interval = ivOf(f); acc = Math.min(acc, interval); },
     get interval() { return interval; },
     tick(now) {
-      if (last < 0) { last = lastRender = now; return interval; }
+      if (last < 0) { last = lastRender = now; return interval || 1000 / 60; }
       acc += now - last; last = now;
       if (acc < interval * 0.9) return 0;
       acc = Math.min(acc - interval, interval * 0.5);
@@ -189,8 +208,8 @@ export function createFpsGovernor({ onDrop, minFps = 40, windowMs = 10000, warmu
     },
     /** restart warm-up (level changed by hand: old samples don't apply) */
     reset(nowMs) { t0 = nowMs == null ? -1 : nowMs; ws = []; from = -1; },
-    /** threshold for a user fps cap: 70% of the cap, never above the default 40 */
-    setCap(cap) { minFps = Math.min(40, cap * 0.7); },
+    /** threshold for a user fps cap: 70% of the cap, never above the default 40 (cap 0 = MAX counts as 60) */
+    setCap(cap) { minFps = Math.min(40, (cap > 0 ? cap : 60) * 0.7); },
     get minFps() { return minFps; },
   };
   return api;

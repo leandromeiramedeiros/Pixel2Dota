@@ -53,9 +53,9 @@ any spell without a server) or a real match with cheats. Never self-certify visu
 - Register under the same ability key (`R.spell`); `sub` events (`ev.sub`) carry per-hit positions from the sim.
 
 ## Add a quality setting
-1. Renderer: a new key in `render/index.js DEFAULTS` (= the high preset) and a `setSetting` branch that pushes it to the consumer (post state, uniform, module flag).
-2. `render/quality.js PRESETS`: set it in all three levels (`client/test/quality.test.js` checks `high` == DEFAULTS, low is a potato, cost monotonic low <= medium <= high).
-3. Presets never touch the user options (resolution, FPS cap, bloom, vsync: `quality.js` options, stored separately, defaults from `detectDefaults`). A user-facing toggle is an option, not a preset key; the menu (`ui/menu.js`) lists both.
+1. Renderer: a new key in `render/index.js DEFAULTS` (= the ultra preset) and a `setSetting` branch that pushes it to the consumer (post state, uniform, module flag).
+2. `render/quality.js PRESETS`: set it in all four levels (`client/test/quality.test.js` checks `ultra` == DEFAULTS, low is a potato, cost monotonic low <= medium <= high <= ultra).
+3. A user-facing toggle (resolution, FPS cap, bloom, DoF, vsync) is an option, not a preset key: add it to `OPTION_KEYS` / `OPTION_DEFAULTS`, every `LEVEL_OPTIONS` bundle, `optionSettings`, and the menu (`ui/menu.js`).
 
 ## Add a synced field or event
 - Field: `server/src/room/schema.js` + its `*_FIELDS` list + the sim object; the client reads it on the interpolated view (`net/index.js LIVE` for non-interpolated fields).

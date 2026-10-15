@@ -8,7 +8,7 @@ import { createTouch } from './ui/touch.js';
 import { createPerf } from './ui/perf.js';
 import { createMenu } from './ui/menu.js';
 import { createLoop, measureRefreshHz } from './loop.js';
-import { LEVELS, LABEL, RES_LABEL, applyQuality, applyOptions, loadLevel, saveLevel, loadOptions, saveOption, clearStored, detectDefaults, gatherHardwareInfo, createFpsGovernor } from './render/quality.js';
+import { LEVELS, LABEL, RES_LABEL, fpsLabel, applyQuality, applyOptions, levelOptions, normalizeOptions, loadLevel, saveLevel, loadOptions, saveOption, clearOptions, clearStored, detectDefaults, gatherHardwareInfo, createFpsGovernor } from './render/quality.js';
 import { MSG, TEAM } from '@p2d/shared/protocol.js';
 import { POV } from '@p2d/shared/pov.js';
 import { createSpectate } from './ui/spectate.js';
@@ -32,21 +32,26 @@ export async function startGame({ root, net }) {
 
   const perf = createPerf(hudRoot, net);
 
-  // graphics: hardware detection picks the preset + options; whatever the user changed by hand (stored overrides) wins per key.
-  // The preset (Low/Medium/High) only sets fidelity; resolution / fps cap / bloom / vsync are separate options. The governor only ever lowers the preset.
+  // graphics: hardware detection picks the level; a level (Low..Ultra) = preset (fidelity) + its option bundle (resolution / fps cap / bloom / dof / vsync),
+  // and whatever the user changed by hand on top (stored overrides) wins per key. The governor only ever lowers the preset, never the options.
   let hw = gatherHardwareInfo({ gl: renderer.gl.getContext() });
   let det = detectDefaults(hw);
-  let level = loadLevel(det.level), opts = { resolution: det.resolution, fps: det.fps, bloom: det.bloom, vsync: det.vsync, ...loadOptions() };
+  const storedLevel = loadLevel(null);
+  let level = storedLevel || det.level, opts = { ...(storedLevel ? levelOptions(storedLevel) : normalizeOptions(det)), ...loadOptions() };
   let autoDropped = false, userPicked = false;
   const apply = () => { applyQuality(renderer, level); applyOptions(renderer, opts); };
+  const applyLoop = () => { loop.setFps(opts.fps); loop.setVsync(opts.vsync); gov.setCap(opts.fps); gov.reset(); };
   apply();
-  const detText = () => 'Detected: ' + LABEL[det.level] + ', ' + RES_LABEL[det.resolution] + ', ' + det.fps + ' fps' + (det.bloom ? '' : ', no bloom');
+  const detText = () => 'Detected: ' + LABEL[det.level] + ', ' + RES_LABEL[det.resolution] + ', ' + fpsLabel(det.fps) + ' fps' + (det.bloom ? '' : ', no bloom') + (det.dof ? ', DoF' : '');
   const perfKey = 'p2d.perf';
   const perfOn = (() => { try { return localStorage.getItem(perfKey) !== '0'; } catch { return true; } })();
   perf.setVisible(perfOn);
   const menu = createMenu(hudRoot, {
     level, options: opts, perfOn,
-    onLevel(l) { level = l; saveLevel(l); applyQuality(renderer, l); if (autoDropped) userPicked = true; gov.reset(); },
+    onLevel(l) {   // preset + the level's option bundle; manual option overrides are forgotten
+      level = l; saveLevel(l); clearOptions(); opts = levelOptions(l); apply(); applyLoop(); menu.setOptions(opts);
+      if (autoDropped) userPicked = true;
+    },
     onOption(k, v) {
       opts = { ...opts, [k]: v }; saveOption(k, v); applyOptions(renderer, opts);
       if (k === 'fps') { loop.setFps(v); gov.setCap(v); gov.reset(); }
@@ -55,8 +60,8 @@ export async function startGame({ root, net }) {
     },
     onDefaults() {
       clearStored(); det = detectDefaults({ ...hw, refreshHz: hz });
-      level = det.level; opts = { resolution: det.resolution, fps: det.fps, bloom: det.bloom, vsync: det.vsync };
-      autoDropped = userPicked = false; apply(); loop.setFps(opts.fps); loop.setVsync(opts.vsync); gov.setCap(opts.fps); gov.reset();
+      level = det.level; opts = normalizeOptions(det);
+      autoDropped = userPicked = false; apply(); applyLoop();
       menu.setLevel(level); menu.setOptions(opts); menu.setDetected(detText());
     },
     onPerf(on) { perf.setVisible(on); try { localStorage.setItem(perfKey, on ? '1' : '0'); } catch { /* storage off */ } },
@@ -149,16 +154,10 @@ export async function startGame({ root, net }) {
     renderer.update(view, dt);
     hud.update(st, hero, net.mySid, view);
   };
-  const loop = createLoop({ frame, fps: opts.fps, vsync: opts.vsync });
+  const loop = createLoop({ frame, fps: opts.fps, vsync: opts.vsync, refreshHz: hz });
   loop.start();
-  // high-refresh display on a capable machine: default the cap to 120 (unless the user already chose one)
-  measureRefreshHz().then((h) => {
-    hz = h; if (!h || det.tier !== 'good') return;
-    const d2 = detectDefaults({ ...hw, refreshHz: h });
-    if (d2.fps === det.fps) return;
-    det = d2; menu.setDetected(detText());
-    if (loadOptions().fps === undefined) { opts = { ...opts, fps: det.fps }; loop.setFps(det.fps); gov.setCap(det.fps); menu.setOptions({ fps: det.fps }); }
-  });
+  // MAX fps without vsync paces at the display refresh: measure it once the loop runs
+  measureRefreshHz().then((h) => { hz = h; loop.setRefresh(h); });
 
   return {
     renderer, hud, input,

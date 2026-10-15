@@ -260,7 +260,9 @@ export function createTerrain({ scene, uniforms, tiles }) {
   }
 
   /** Build chunks that intersect the camera frustum (max `budget` per call; the first call is unlimited). */
-  function update(camera, budget = 6) {
+  let bgCursor = 0;
+  /** + `bg` off-screen chunks a call (round-robin): the map finishes building in the background, so a camera swing / showcase horizon never waits on it */
+  function update(camera, budget = 6, bg = 0) {
     pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
     let built = 0, drawn = 0;
     for (let i = 0; i < chunks.length; i++) {
@@ -268,6 +270,7 @@ export function createTerrain({ scene, uniforms, tiles }) {
       if (chunks[i] === null && built < budget) { build(i); built++; }
       if (chunks[i]) drawn++;
     }
+    for (let n = 0; bg > 0 && n < chunks.length && bgCursor < chunks.length; n++, bgCursor++) if (chunks[bgCursor] === null) { build(bgCursor); built++; bg--; }
     stats.drawn = drawn;
     return built;
   }

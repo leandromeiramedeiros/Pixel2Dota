@@ -101,6 +101,8 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
     return new THREE.Box3(new THREE.Vector3(x0 - 260, -40, zN - 260), new THREE.Vector3(x0 + TREE_CELL + 260, 1150, zN + TREE_CELL + 260));
   });
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), _sph = new THREE.Sphere();
+  const cellCx = grid.map((_, ci) => gx0 + (ci % GW + 0.5) * TREE_CELL), cellCz = grid.map((_, ci) => -(gy1 - (((ci / GW) | 0) + 0.5) * TREE_CELL));
+  const order = [], ordD = new Float32Array(grid.length);
   const inView = (x, y, z, R) => { _sph.center.set(x, z + R, -y); _sph.radius = R * 3; return frustum.intersectsSphere(_sph); };
 
   const ents = [];
@@ -157,8 +159,17 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       let nTrees = 0;
       const trees = map.trees;
       trees3d.begin(); buildings.begin();
+      // near cells first, nothing past the draw distance: when the instance cap is hit, the far trees go (inside the mist), never near ones
+      const reach = (opts && opts.drawDist) || 5500, r2 = (reach + TREE_CELL) * (reach + TREE_CELL), cp = cam.position;
+      order.length = 0;
       for (let ci = 0; ci < grid.length; ci++) {
-        const cell = grid[ci]; if (!cell.length || !frustum.intersectsBox(cellBoxes[ci])) continue;
+        if (!grid[ci].length || !frustum.intersectsBox(cellBoxes[ci])) continue;
+        const dx = cellCx[ci] - cp.x, dz = cellCz[ci] - cp.z, d = dx * dx + dz * dz; if (d > r2) continue;
+        ordD[ci] = d; order.push(ci);
+      }
+      order.sort((a, b) => ordD[a] - ordD[b]);
+      for (let oi = 0; oi < order.length; oi++) {
+        const ci = order[oi], cell = grid[ci];
         for (let k = 0; k < cell.length; k++) {
           const i = cell[k], t = trees[i];
           const cut = down && down.has(i);

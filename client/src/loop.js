@@ -1,5 +1,6 @@
 // Frame scheduler for the game loop: fps cap + vsync option.
-//   createLoop({ frame(now, dtMs), fps, vsync, env? }) -> { start, stop, setFps, setVsync, destroy }
+//   createLoop({ frame(now, dtMs), fps, vsync, refreshHz?, env? }) -> { start, stop, setFps, setVsync, setRefresh, destroy }
+//   fps 0 = MAX (display refresh): vsync on renders every rAF callback; vsync off paces at the measured display refresh (setRefresh), else 240.
 //   frame(now, dtMs) runs once per rendered frame; dtMs = real time since the previous rendered frame (skipped frames included).
 // VSync ON  : requestAnimationFrame (display-synced). Frames beyond the cap are skipped by the accumulator (render/quality.js createFrameCap),
 //             so 60 on a 60 Hz display renders every callback and 30 renders every second one.
@@ -9,14 +10,15 @@
 // Hidden tab: rAF pauses by itself; the timer/channel scheduler would not, so it is stopped on visibilitychange and restarted when visible.
 import { createFrameCap } from './render/quality.js';
 
-export function createLoop({ frame, fps = 60, vsync = true, env = globalThis } = {}) {
+export function createLoop({ frame, fps = 60, vsync = true, refreshHz = 0, env = globalThis } = {}) {
   const now = () => env.performance.now();
   const cap = createFrameCap(fps);
-  let running = false, sync = vsync, target = fps, raf = 0, timer = 0, port = null, channel = null, due = 0, last = -1, gen = 0;
+  let running = false, sync = vsync, target = fps, refresh = refreshHz, raf = 0, timer = 0, port = null, channel = null, due = 0, last = -1, gen = 0;
 
   const doc = env.document;
   const hidden = () => !!(doc && doc.hidden);
 
+  const rate = () => (target > 0 ? target : refresh > 0 ? refresh : 240);   // vsync-off pacing in fps
   function render(t, dt) { try { frame(t, dt); } catch (e) { console.error('[loop] frame error:', e); } }
 
   // ---- vsync on ----
@@ -32,8 +34,8 @@ export function createLoop({ frame, fps = 60, vsync = true, env = globalThis } =
     if (!running || sync || hidden() || (e && e.data !== gen)) return;   // stale message from before a restart: dropped, or two chains would run
     const t = now();
     if (t < due - 0.3) { wait(due - t); return; }
-    const dt = last < 0 ? 1000 / target : t - last; last = t;
-    due = Math.max(due + 1000 / target, t + 1000 / target * 0.5);   // keep the cadence, but never queue up a burst after a stall
+    const hz = rate(), dt = last < 0 ? 1000 / hz : t - last; last = t;
+    due = Math.max(due + 1000 / hz, t + 1000 / hz * 0.5);   // keep the cadence, but never queue up a burst after a stall
     render(t, dt);
     if (running && !sync) wait(due - now());
   }
@@ -65,6 +67,7 @@ export function createLoop({ frame, fps = 60, vsync = true, env = globalThis } =
     start() { if (running) return; running = true; arm(); },
     stop() { running = false; cancel(); },
     setFps(f) { target = f; cap.setFps(f); },
+    setRefresh(hz) { refresh = hz > 0 ? hz : 0; },
     setVsync(v) { v = !!v; if (v === sync) return; sync = v; if (running) arm(); },
     get vsync() { return sync; },
     destroy() {

@@ -30,8 +30,9 @@ try { fxMods = import.meta.glob('./fx/index.js'); } catch { /* not under vite */
 const DEFAULTS = {
   pixelScale: 2, bloom: true, bloomStrength: 0.9, vignette: 0.5, spritePersp: 1, fog: true, devZoom: false, particles: 1, lights: true, rim: true,
   shadows: true, outlines: true, hpBars: true, damageNumbers: true, ambient: 1, clutter: 1,   // ambient / clutter: density 0..1 (0 = off)
-  wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5, atmos: 2,   // atmos: showcase sky/mist/cloud tier 0|1|2; wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
+  wind: 1, dof: true, ssr: true, rays: true, bloomLevels: 5, atmos: 3,   // atmos: showcase sky/mist/cloud tier 0|1|2|3; wind: 1 full / 0.5 medium / 0 none (static); the rest are post.js passes
   maxLights: 32, shadowPoints: 10,   // light pool size (lights.js) / spell lights with a cube shadow (shadow.js)
+  drawDist: 9000, msaa: 2,   // drawDist: world units from the camera that trees / clutter / terrain / far plane reach (showcase mist closes before it); msaa: scene target samples (0 = off)
 };
 
 const DMG_COL = { phys: '#ff6a55', mag: '#6aa8ff', pure: '#ffb347' };
@@ -201,9 +202,24 @@ export function createRenderer({ canvas, sheets }) {
 
   // ---- HP bars -------------------------------------------------------------------------------------------------------------------------
   const BAR_W = { hero: 17, creep: 6, tower: 10, rax: 10, ancient: 14, fountain: 0, building: 8 };
+  /** 0..1 visibility of world-anchored UI (bars, combat text): 1 in normal play; in the showcase it fades out where the mist starts and behind the camera. k = perspective size factor vs the target. */
+  const _e = new THREE.Vector3(), uiVis = { a: 1, k: 1 };
+  function uiFade(x, y, z) {
+    uiVis.a = 1; uiVis.k = 1;
+    const sky = post.state.sky; if (sky <= 0.002) return uiVis;
+    const cam = rig.camera; _e.set(x, z == null ? heightAt(x, y) : z, -y);
+    const d = _e.distanceTo(cam.position);
+    _e.applyMatrix4(cam.matrixWorldInverse); if (_e.z > -50) { uiVis.a = 1 - sky; return uiVis; }   // behind / at the camera
+    const f = post.fogRange(), s0 = f[0] * 0.55, s1 = f[0] * 1.05;
+    const t = Math.min(1, Math.max(0, (d - s0) / (s1 - s0)));
+    uiVis.a = 1 - sky * t * t * (3 - 2 * t);
+    uiVis.k = 1 + (Math.min(1.15, Math.max(0.35, rig.distance / Math.max(d, 1))) - 1) * sky;
+    return uiVis;
+  }
+  overlay.fade = (x, y, z) => uiFade(x, y, z).a;
   function drawBars(view) {
     if (!settings.hpBars) return;
-    const cssPerArt = cssH / (rig.visibleHeight / ART_UNITS_PER_PX);
+    const cssPerArt = Math.min(cssH / (rig.visibleHeight / ART_UNITS_PER_PX), cssH / (visibleHeight(CAMERA.closeDistance, camParams(CAMERA.closeDistance).vfov) / ART_UNITS_PER_PX));   // showcase: no bigger than at the close camera
     for (const p of actors.picks) {
       if (!p.id) continue;
       const u = unitMap.get(p.id); if (!u || u.visible === false || !(u.maxHp > 0)) continue;
@@ -214,11 +230,13 @@ export function createRenderer({ canvas, sheets }) {
       if (!hero && !hurt && p.id !== actors.state.selected && p.id !== actors.state.hover) continue;
       const aw = BAR_W[u.kind] != null ? BAR_W[u.kind] : 6;
       if (!aw) continue;
-      const w = hero ? Math.max(46, Math.round(aw * cssPerArt * 0.95)) : Math.round(aw * cssPerArt * 0.95);
-      const hh = hero ? Math.max(8, Math.min(14, Math.round(cssPerArt * 3))) : 3;   // hero bar: big enough to read on a phone
-      const s = worldToScreen(u.x, u.y, p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92);
+      const bz = p.z + p.f.ay / (p.f.dens || 1) * ART_UNITS_PER_PX * 0.92, vis = uiFade(u.x, u.y, bz);
+      if (vis.a <= 0.02) continue;
+      const w = Math.round(Math.min(hero ? 150 : 90, (hero ? Math.max(46, aw * cssPerArt * 0.95) : aw * cssPerArt * 0.95) * vis.k));   // capped: the showcase close-up never draws giant bars
+      const hh = hero ? Math.max(5, Math.round(Math.max(8, Math.min(14, cssPerArt * 3)) * vis.k)) : 3;   // hero bar: big enough to read on a phone
+      const s = worldToScreen(u.x, u.y, bz);
       const mine = u.team === myTeam;
-      overlay.bar({ sx: s.x, sy: s.y - 6 - (hero ? Math.round(hh * 1.8) : 0), w, h: hh, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', maxHp: hero ? u.maxHp : 0, level: hero ? u.level : null });
+      overlay.bar({ sx: s.x, sy: s.y - 6 - (hero ? Math.round(hh * 1.8) : 0), w, h: hh, hp: u.hp / u.maxHp, mana: hero && u.maxMana > 0 ? u.mana / u.maxMana : null, color: mine ? undefined : '#e04a3c', maxHp: hero ? u.maxHp : 0, level: hero ? u.level : null, a: vis.a });
     }
   }
 
@@ -231,6 +249,7 @@ export function createRenderer({ canvas, sheets }) {
     if (view.myTeam != null) myTeam = view.myTeam;
     uniforms.uTime.value = time;
     rig.update(dt);
+    { const far = post.state.sky > 0.002 ? Math.max(3000, settings.drawDist + rig.distance) : 5500; if (rig.camera.far !== far) { rig.camera.far = far; rig.camera.updateProjectionMatrix(); } }   // showcase: the view reaches the horizon, the draw distance cuts it (inside the mist)
     post.state.dofStrength = dofForDistance(rig.distance); post.state.sky = showcaseK(rig.distance); post.state.focus = rig.distance;   // sky + rolling distance fog fade in with the same factor   // tilt-shift: minimal at gameplay distance, full at the showcase close-up
     fitRT(false);
     setNight(view.night, dt);
@@ -264,9 +283,9 @@ export function createRenderer({ canvas, sheets }) {
     lights.finalize(time);
     sprites.end(); particles.flush();
     sprites.setRim(settings.rim);
-    clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight, rig.showcase || rig.yaw !== 0);
+    clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight, rig.showcase || rig.yaw !== 0, post.state.sky > 0.002 ? Math.min(settings.drawDist * 0.5, 3000) : 0);
 
-    terrain.update(cam, rig.snap ? 999 : 6);
+    terrain.update(cam, rig.snap ? 999 : 6, 2);   // + 2 off-screen chunks a frame: the whole map is built before the first showcase looks at the horizon
     shadow.setEnabled(settings.shadows);
     shadow.renderPoints(scene, lights.shadowLights);
     shadow.render(scene, tg.x, heightAt(tg.x, tg.y), -tg.y, Math.max(rig.visibleWidth * 0.75, rig.visibleHeight * 1.15));
@@ -335,6 +354,8 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'bloomLevels') post.state.bloomLevels = value | 0;
       if (name === 'maxLights') lights.setMax(value);
       if (name === 'shadowPoints') lights.setMaxShadow(value);
+      if (name === 'msaa') post.setSamples(value | 0);
+      if (name === 'drawDist') post.state.drawDist = +value || 5500;
     },
     minimapCanvas: () => terrain.minimapCanvas(),
     /** explored/visible tile grids for the minimap (row-major, 368x368, row 0 = north) */

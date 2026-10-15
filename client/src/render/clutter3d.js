@@ -372,24 +372,33 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3(), lo = new THREE.Vector3(), hi = new THREE.Vector3();
   const { GW, GH, keyStart, cellMaxH } = data, src = data.data;
   const MARGIN = 150;
+  const order = [], ordD = new Float32Array(GW * GH);
   const api = {
     group, stats, data, enabled: true, density: 1,   // density < 1 thins every cell evenly (quality)
     /** cull to the camera view and fill the instance buffers. (tx, ty) = camera target, visW / visH = visible size at the target; round = orbiting camera (yaw != 0): symmetric search radius instead of the north-up box */
-    update(camera, tx, ty, visW, visH, round = false) {
+    update(camera, tx, ty, visW, visH, round = false, reach = 0) {   // reach > 0 (showcase): a circle of that radius around the target, filled near-first
       const t0 = performance.now();
       for (const t of vars) t.n = 0;
       let cells = 0;
       if (api.enabled) {
         pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
         const x0 = map.x0, y1 = map.y1;
-        const rx = round ? Math.max(visW * 0.95, visH * 1.7) : visW * 0.95, rN = round ? rx : visH * 1.7, rS = round ? rx : visH * 0.9;
+        const rx = round ? Math.max(visW * 0.95, visH * 1.7, reach) : visW * 0.95, rN = round ? rx : visH * 1.7, rS = round ? rx : visH * 0.9;
         const cx0 = Math.max(0, Math.floor((tx - rx - x0) / CELL)), cx1 = Math.min(GW - 1, Math.floor((tx + rx - x0) / CELL));
         const cy0 = Math.max(0, Math.floor((y1 - (ty + rN)) / CELL)), cy1 = Math.min(GH - 1, Math.floor((y1 - (ty - rS)) / CELL));
+        order.length = 0;
+        const cpx = camera.position.x, cpz = camera.position.z, rr = (rx + CELL) * (rx + CELL);
         for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
           const ci = cy * GW + cx, a = keyStart[ci * NV], b = keyStart[ci * NV + NV]; if (a === b) continue;
           const wx = x0 + cx * CELL, zn = -(y1 - cy * CELL);
+          if (reach > 0) { const ex = wx + CELL / 2 - tx, ey = (y1 - cy * CELL - CELL / 2) - ty; if (ex * ex + ey * ey > rr) continue; }
           lo.set(wx - MARGIN, -20, zn - MARGIN); hi.set(wx + CELL + MARGIN, cellMaxH[ci] + 130, zn + CELL + MARGIN); box.set(lo, hi);
           if (!frustum.intersectsBox(box)) continue;
+          const dx = wx + CELL / 2 - cpx, dz = zn + CELL / 2 - cpz; ordD[ci] = dx * dx + dz * dz; order.push(ci);
+        }
+        if (reach > 0) order.sort((p, q) => ordD[p] - ordD[q]);
+        for (let oi = 0; oi < order.length; oi++) {
+          const ci = order[oi];
           cells++;
           for (let v = 0; v < NV; v++) {
             const s = keyStart[ci * NV + v], e = keyStart[ci * NV + v + 1]; if (s === e) continue;

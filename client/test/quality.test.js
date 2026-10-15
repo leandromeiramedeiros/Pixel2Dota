@@ -2,49 +2,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { PRESETS, LEVELS, presetSettings, applyQuality, createFpsGovernor, isMobileUA, RESOLUTIONS, RES_SCALE, OPTION_DEFAULTS, OPTIONS_KEY, resolutionScale, optionSettings, applyOptions, normalizeOptions, loadOptions, saveOption, loadLevel, saveLevel, clearStored, classifyGpu, detectDefaults, createFrameCap } from '../src/render/quality.js';
+import { PRESETS, LEVELS, presetSettings, applyQuality, createFpsGovernor, isMobileUA, RESOLUTIONS, RES_SCALE, OPTION_DEFAULTS, OPTIONS_KEY, FPS_CAPS, LEVEL_OPTIONS, levelOptions, clearOptions, resolutionScale, optionSettings, applyOptions, normalizeOptions, loadOptions, saveOption, loadLevel, saveLevel, clearStored, classifyGpu, detectDefaults, createFrameCap } from '../src/render/quality.js';
 import { createLoop } from '../src/loop.js';
 
 // DEFAULTS is private to render/index.js (importing it would pull in three + the DOM): read the literal instead
 const src = fs.readFileSync(new URL('../src/render/index.js', import.meta.url), 'utf8');
 const DEFAULTS = Function('return ' + /const DEFAULTS = (\{[\s\S]*?\n\});/.exec(src)[1])();
 
-test('presets: high equals the renderer DEFAULTS for every shared key', () => {
-  const s = presetSettings('high');
+test('presets: ultra equals the renderer DEFAULTS for every shared key', () => {
+  const s = presetSettings('ultra');
   for (const k of Object.keys(s)) assert.deepEqual(s[k], DEFAULTS[k], k);
 });
 
-test('presets: low is a potato (no shadows/ambient/clutter/dof/ssr/rays/wind, few lights/particles/bloom mips); every level sets the same keys; no option keys', () => {
+test('presets: low is a potato (no shadows/ambient/clutter/ssr/rays/wind, few lights/particles/bloom mips, short view, no MSAA); every level sets the same keys; no option keys, no dof', () => {
   const lo = presetSettings('low');
   assert.equal(lo.shadows, false); assert.equal(lo.shadowPoints, 0); assert.equal(lo.ambient, 0); assert.equal(lo.clutter, 0); assert.ok(lo.particles <= 0.5);
-  assert.equal(lo.dof, false); assert.equal(lo.ssr, false); assert.equal(lo.rays, false); assert.equal(lo.wind, 0); assert.ok(lo.bloomLevels < DEFAULTS.bloomLevels);
-assert.equal(lo.atmos, 0); assert.equal(presetSettings("medium").atmos, 1); assert.equal(presetSettings("high").atmos, 2);
-  assert.ok(lo.maxLights < DEFAULTS.maxLights);
-  const keys = Object.keys(PRESETS.high).sort();
+  assert.equal(lo.ssr, false); assert.equal(lo.rays, false); assert.equal(lo.wind, 0); assert.ok(lo.bloomLevels < DEFAULTS.bloomLevels);
+  assert.equal(lo.atmos, 0); assert.equal(presetSettings('medium').atmos, 1); assert.equal(presetSettings('high').atmos, 2); assert.equal(presetSettings('ultra').atmos, 3);
+  assert.ok(lo.maxLights < DEFAULTS.maxLights); assert.ok(lo.drawDist < presetSettings('high').drawDist);
+  for (const l of LEVELS) assert.equal(PRESETS[l].msaa, l === 'ultra' ? 2 : 0, l + ' msaa');
+  const keys = Object.keys(PRESETS.ultra).sort();
   for (const l of LEVELS) {
     assert.deepEqual(Object.keys(PRESETS[l]).sort(), keys, l);
-    for (const k of ['pixelScale', 'bloom', 'fps', 'vsync', 'resolution']) assert.ok(!(k in PRESETS[l]), l + ' must not set the user option ' + k);
+    for (const k of ['pixelScale', 'bloom', 'dof', 'fps', 'vsync', 'resolution']) assert.ok(!(k in PRESETS[l]), l + ' must not set the user option ' + k);
     assert.equal(PRESETS[l].outlines, true, 'outlines stay');
   }
+  assert.deepEqual(LEVELS, ['low', 'medium', 'high', 'ultra']);
   assert.deepEqual(presetSettings('nope'), presetSettings('high'));
   presetSettings('low').shadows = true; assert.equal(PRESETS.low.shadows, false, 'copies, not references');
 });
 
-test('presets: wind high = 1 (unchanged look), medium = half, low = static; medium keeps shadows, dof and rays', () => {
-  assert.equal(presetSettings('high').wind, 1); assert.equal(presetSettings('medium').wind, 0.5); assert.equal(presetSettings('low').wind, 0);
-  const m = presetSettings('medium'); assert.ok(m.dof && m.rays && m.shadows);
+test('presets: wind ultra/high = 1 (unchanged look), medium = half, low = static; medium keeps shadows and rays', () => {
+  assert.equal(presetSettings('ultra').wind, 1); assert.equal(presetSettings('high').wind, 1); assert.equal(presetSettings('medium').wind, 0.5); assert.equal(presetSettings('low').wind, 0);
+  const m = presetSettings('medium'); assert.ok(m.rays && m.shadows);
   assert.ok(presetSettings('high').ssr);
 });
 
-test('presets: every graded key is monotonic low <= medium <= high; the costly ones are strictly graded', () => {
+test('presets: every graded key is monotonic low <= medium <= high <= ultra; the costly ones are strictly graded up to high', () => {
   const n = (v) => (v === true ? 1 : v === false ? 0 : v);
-  for (const k of Object.keys(PRESETS.high)) {
-    const [lo, me, hi] = LEVELS.map((l) => n(PRESETS[l][k]));
-    if (typeof lo !== 'number') continue;
-    assert.ok(lo <= me && me <= hi, k + ' ' + [lo, me, hi]);
+  for (const k of Object.keys(PRESETS.ultra)) {
+    const v = LEVELS.map((l) => n(PRESETS[l][k]));
+    if (typeof v[0] !== 'number') continue;
+    for (let i = 1; i < v.length; i++) assert.ok(v[i - 1] <= v[i], k + ' ' + v);
   }
-  for (const k of ['bloomLevels', 'shadowPoints', 'maxLights', 'particles', 'ambient', 'clutter', 'wind']) assert.ok(n(PRESETS.low[k]) < n(PRESETS.high[k]), k + ' low < high');
-  for (const k of ['particles', 'maxLights', 'shadowPoints', 'ambient', 'clutter', 'wind']) assert.ok(n(PRESETS.low[k]) < n(PRESETS.medium[k]) && n(PRESETS.medium[k]) < n(PRESETS.high[k]), k + ' medium strictly between');
+  for (const k of ['bloomLevels', 'shadowPoints', 'maxLights', 'particles', 'ambient', 'clutter', 'wind', 'drawDist', 'atmos']) assert.ok(n(PRESETS.low[k]) < n(PRESETS.ultra[k]), k + ' low < ultra');
+  for (const k of ['particles', 'maxLights', 'shadowPoints', 'ambient', 'clutter', 'wind', 'drawDist', 'atmos']) assert.ok(n(PRESETS.low[k]) < n(PRESETS.medium[k]) && n(PRESETS.medium[k]) < n(PRESETS.high[k]), k + ' medium strictly between');
+  for (const k of ['shadowPoints', 'atmos', 'drawDist']) assert.ok(n(PRESETS.high[k]) < n(PRESETS.ultra[k]), k + ' ultra beyond high');
 });
 
 test('applyQuality: setSetting called once per key', () => {
@@ -56,18 +59,19 @@ test('options: resolution -> pixelScale (1/4 = 1, 1/2 = sqrt2, native = 2), bloo
   assert.equal(RES_SCALE.native, 2); assert.equal(RES_SCALE.half, Math.SQRT2); assert.equal(RES_SCALE.quarter, 1);
   assert.ok(Math.abs(resolutionScale('half') ** 2 * 2 - resolutionScale('native') ** 2) < 1e-9, 'half the pixels of native');
   assert.ok(Math.abs(resolutionScale('quarter') ** 2 * 4 - resolutionScale('native') ** 2) < 1e-9, 'a quarter of the pixels');
-  assert.deepEqual(optionSettings({ resolution: 'half', bloom: false }), { pixelScale: Math.SQRT2, bloom: false });
+  assert.deepEqual(optionSettings({ resolution: 'half', bloom: false, dof: true }), { pixelScale: Math.SQRT2, bloom: false, dof: true });
   assert.equal(resolutionScale('junk'), 2);
-  const calls = {}; applyOptions({ setSetting: (k, v) => { calls[k] = v; } }, { resolution: 'quarter', fps: 30, bloom: true, vsync: false });
-  assert.deepEqual(calls, { pixelScale: 1, bloom: true }, 'fps / vsync belong to the loop, not the renderer');
+  const calls = {}; applyOptions({ setSetting: (k, v) => { calls[k] = v; } }, { resolution: 'quarter', fps: 30, bloom: true, dof: false, vsync: false });
+  assert.deepEqual(calls, { pixelScale: 1, bloom: true, dof: false }, 'fps / vsync belong to the loop, not the renderer');
   for (const l of LEVELS) assert.ok(!('pixelScale' in presetSettings(l)));
   assert.equal(DEFAULTS.pixelScale, 2); assert.equal(DEFAULTS.bloom, true);
 });
 
 test('options: normalizeOptions keeps valid values only', () => {
-  assert.deepEqual(normalizeOptions({ resolution: 'half', fps: 120, bloom: false, vsync: false }), { resolution: 'half', fps: 120, bloom: false, vsync: false });
+  assert.deepEqual(normalizeOptions({ resolution: 'half', fps: 120, bloom: false, dof: true, vsync: false }), { resolution: 'half', fps: 120, bloom: false, dof: true, vsync: false });
+  assert.equal(normalizeOptions({ fps: 0 }).fps, 0, 'MAX');
   assert.deepEqual(normalizeOptions({ resolution: 'x', fps: 45, bloom: 'no', vsync: 1 }), OPTION_DEFAULTS);
-  assert.deepEqual(normalizeOptions({ fps: 30 }, {}), { resolution: undefined, fps: 30, bloom: undefined, vsync: undefined });
+  assert.deepEqual(normalizeOptions({ fps: 30 }, {}), { resolution: undefined, fps: 30, bloom: undefined, dof: undefined, vsync: undefined });
   assert.deepEqual(normalizeOptions(null), OPTION_DEFAULTS);
 });
 
@@ -109,35 +113,36 @@ test('isMobileUA', () => {
   assert.equal(isMobileUA({ userAgent: WIN, maxTouchPoints: 0 }), false);
 });
 
-test('detectDefaults: gaming PC = High / native / 60 / bloom / vsync', () => {
-  const d = detectDefaults(PC());
-  assert.deepEqual([d.tier, d.level, d.resolution, d.fps, d.bloom, d.vsync], ['good', 'high', 'native', 60, true, true]);
+test('detectDefaults: high-end desktop (RTX 30xx+ / 8+ cores) = Ultra bundle: native / MAX fps / bloom / DoF; RTX 5070 Ti -> ultra', () => {
+  const d = detectDefaults(PC({ gpu: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 5070 Ti (0x00002C05) Direct3D11 vs_5_0 ps_5_0, D3D11)' }));
+  assert.deepEqual([d.tier, d.level, d.resolution, d.fps, d.bloom, d.dof, d.vsync], ['ultra', 'ultra', 'native', 0, true, true, true]);
+  assert.equal(detectDefaults(PC()).level, 'ultra', 'RTX 3070');
+  assert.equal(detectDefaults(PC({ cores: 6 })).level, 'high', 'strong GPU, 6 cores');
 });
-test('detectDefaults: measured refresh above 100 Hz lifts a good machine to 120 fps, not a weaker one', () => {
-  assert.equal(detectDefaults(PC({ refreshHz: 144 })).fps, 120);
-  assert.equal(detectDefaults(PC({ refreshHz: 60 })).fps, 60);
-  assert.equal(detectDefaults(PC({ refreshHz: 144, gpu: 'ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11)', cores: 4, memory: 8 })).fps, 60);
+test('detectDefaults: good PC = High bundle (native / 60 / bloom, no DoF)', () => {
+  const d = detectDefaults(PC({ gpu: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB Direct3D11)' }));
+  assert.deepEqual([d.tier, d.level, d.resolution, d.fps, d.bloom, d.dof], ['good', 'high', 'native', 60, true, false]);
 });
-test('detectDefaults: integrated laptop = low-mid (half res, 60, bloom on)', () => {
+test('detectDefaults: integrated laptop = low-mid (half res, 60)', () => {
   const d = detectDefaults(PC({ gpu: 'ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11)', cores: 4, memory: 8 }));
-  assert.equal(d.tier, 'lowmid'); assert.equal(d.resolution, 'half'); assert.equal(d.fps, 60); assert.equal(d.bloom, true); assert.ok(d.level === 'low' || d.level === 'medium');
+  assert.equal(d.tier, 'lowmid'); assert.equal(d.resolution, 'half'); assert.equal(d.fps, 60); assert.ok(d.level === 'low' || d.level === 'medium');
 });
 test('detectDefaults: potato = Low / 1/4 / 30 / bloom off (old GPU, 2 cores, 2 GB, software renderer)', () => {
-  const want = { tier: 'potato', level: 'low', resolution: 'quarter', fps: 30, bloom: false, vsync: true };
+  const want = { tier: 'potato', level: 'low', resolution: 'quarter', fps: 30, bloom: false, dof: false, vsync: true };
   for (const info of [PC({ gpu: 'ANGLE (Intel, Intel(R) HD Graphics 4000 Direct3D11)', cores: 4, memory: 4 }), PC({ cores: 2 }), PC({ memory: 2 }), PC({ gpu: 'Google SwiftShader' })]) {
     const d = detectDefaults(info); for (const k of Object.keys(want)) assert.equal(d[k], want[k], k + ' ' + info.gpu);
   }
 });
-test('detectDefaults: phones never reach High (old Android = potato, flagship = low-mid), iPhone/iPad Apple GPU = low-mid', () => {
+test('detectDefaults: phones never reach Ultra (old Android = potato, flagship GPU = High), iPhone/iPad Apple GPU = low-mid', () => {
   const old = detectDefaults({ mobile: true, cores: 8, memory: 3, screenW: 360, screenH: 800, dpr: 2, gpu: 'Mali-G52 MC2' });
   assert.equal(old.tier, 'potato'); assert.equal(old.level, 'low');
   const flag = detectDefaults({ mobile: true, cores: 8, memory: 8, screenW: 412, screenH: 915, dpr: 2.6, gpu: 'Adreno (TM) 740', refreshHz: 120 });
-  assert.equal(flag.tier, 'lowmid'); assert.notEqual(flag.level, 'high'); assert.equal(flag.fps, 60);
+  assert.equal(flag.level, 'high'); assert.equal(flag.fps, 60);
   const ios = detectDefaults({ mobile: true, cores: 6, screenW: 390, screenH: 844, dpr: 3, gpu: 'Apple GPU' });
-  assert.notEqual(ios.tier, 'good'); assert.notEqual(ios.level, 'high');
+  assert.equal(ios.tier, 'lowmid'); assert.notEqual(ios.level, 'ultra');
 });
 test('detectDefaults: missing / empty info degrades safely', () => {
-  for (const info of [undefined, {}, { gpu: '' }]) { const d = detectDefaults(info); assert.ok(LEVELS.includes(d.level)); assert.ok([30, 60, 120].includes(d.fps)); assert.ok(RESOLUTIONS.includes(d.resolution)); }
+  for (const info of [undefined, {}, { gpu: '' }]) { const d = detectDefaults(info); assert.ok(LEVELS.includes(d.level)); assert.ok(FPS_CAPS.includes(d.fps)); assert.ok(RESOLUTIONS.includes(d.resolution)); }
 });
 
 test('frame cap: 60 on a 60 Hz display renders every callback (with jitter)', () => {

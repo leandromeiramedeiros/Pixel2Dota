@@ -1,10 +1,11 @@
-// In-match menu (Esc / touch ☰): Resume, graphics preset (Low/Medium/High), the user options (resolution, fps cap, bloom, vsync; the preset never touches them),
-// DEFAULTS (restore the detected preset + options), FPS+ping readout toggle, Quit to lobby. Side-by-side columns on short screens (phone landscape).
+// In-match menu (Esc / touch ☰): Resume, graphics level (Low/Medium/High/Ultra: the owner applies the preset AND the level's option bundle, then calls setOptions),
+// the user options (resolution, fps cap 30..165 / MAX, bloom, depth of field, vsync; the preset never touches them),
+// DEFAULTS (restore the detected level + options), FPS+ping readout toggle, Quit to lobby. Side-by-side columns on short screens (phone landscape).
 //   createMenu(parent, { level, options, perfOn, onLevel(level), onOption(key, value), onDefaults(), onPerf(on), onOpen() })
 //     -> { el, open, close, toggle, isOpen, setLevel, setOptions(opts), setDetected(text), toast(text), destroy }
 // Open = full-screen backdrop that eats pointer input; a capture-phase keydown trap keeps the game's key handlers (orders, hotkeys) silent.
 import { expandUnits } from './style.js';
-import { LEVELS, LABEL, RESOLUTIONS, RES_LABEL, FPS_CAPS, OPTION_DEFAULTS } from '../render/quality.js';
+import { LEVELS, LABEL, RESOLUTIONS, RES_LABEL, FPS_CAPS, fpsLabel, OPTION_DEFAULTS } from '../render/quality.js';
 
 const CSS = `
 .h-menu { position:absolute; inset:0; z-index:60; display:none; align-items:center; justify-content:center; background:rgba(3,4,8,.7); pointer-events:auto; }
@@ -19,8 +20,10 @@ const CSS = `
 .h-menu button:focus-visible { outline:1u solid var(--gold); outline-offset:1u; }
 .h-menu button.pri { color:#fff; background:linear-gradient(#34406a,#1d2540); box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u var(--gold); }
 .h-menu button.quit:hover { background:linear-gradient(#6a2f2a,#40201c); }
-.h-menu .seg { display:flex; gap:2u; }
-.h-menu .seg button { flex:1; padding-left:2u; padding-right:2u; }
+.h-menu .seg { display:flex; flex-wrap:wrap; gap:2u; }
+.h-menu .seg button { flex:1 1 auto; padding-left:2u; padding-right:2u; }
+.h-menu .seg.gfx button { font-size:8u; }
+.h-menu .seg.fps button { font-size:7u; padding-left:1u; padding-right:1u; }
 .h-menu .seg button.on, .h-menu .tog.on { color:#05070b; background:linear-gradient(#e8bf55,#b88a28); box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u #f4d77c; }
 .h-menu .tog { display:flex; justify-content:space-between; align-items:center; }
 .h-menu .tog .bx { width:9u; height:9u; margin-left:4u; background:#0a0d14; box-shadow:0 0 0 1u var(--ink), inset 0 0 0 1u var(--gold2); position:relative; flex:none; }
@@ -52,17 +55,17 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
     for (const v of items) { const b = el('button', null, labelOf(v)); b.dataset[attr] = String(v); box.append(b); btn[v] = b; }
     return { box, btn };
   };
-  const gfx = mkSeg('level', LEVELS, (l) => LABEL[l].toUpperCase()), seg = gfx.box, segBtn = gfx.btn;
-  const resS = mkSeg('res', RESOLUTIONS, (r) => RES_LABEL[r]), fpsS = mkSeg('fps', FPS_CAPS, (f) => String(f));
+  const gfx = mkSeg('level', LEVELS, (l) => LABEL[l].toUpperCase()), seg = gfx.box, segBtn = gfx.btn; seg.classList.add('gfx');
+  const resS = mkSeg('res', RESOLUTIONS, (r) => RES_LABEL[r]), fpsS = mkSeg('fps', FPS_CAPS, fpsLabel); fpsS.box.classList.add('fps');
   const mkTog = (text, chk) => { const b = el('button', 'tog'), t = el('span', null, text), v = chk ? el('span', 'bx') : el('span'); b.append(t, v); return { b, v }; };
-  const bloomT = mkTog('BLOOM'), vsyncT = mkTog('VSYNC', true);
-  bloomT.b.title = 'Glow around bright lights and spells'; vsyncT.b.title = 'On: draw in step with the display. Off: draw as soon as the fps cap allows (lower input delay, higher cap than the display)';
+  const bloomT = mkTog('BLOOM'), dofT = mkTog('DEPTH OF FIELD'), vsyncT = mkTog('VSYNC', true);
+  bloomT.b.title = 'Glow around bright lights and spells'; dofT.b.title = 'Blur far away scenery (tilt-shift in play, bokeh in the showcase)'; vsyncT.b.title = 'On: draw in step with the display. Off: draw as soon as the fps cap allows (lower input delay, higher cap than the display)';
   const defBtn = el('button', null, 'DEFAULTS'), dtc = el('div', 'dtc');
   const perfBtn = el('button', 'tog'); const perfTxt = el('span', null, 'SHOW FPS / PING'), perfVal = el('span'); perfBtn.append(perfTxt, perfVal);
   const quit = el('button', 'quit', 'QUIT TO LOBBY');
   const colA = el('div', 'col'), colB = el('div', 'col'), cols = el('div', 'cols');
   colA.append(resume, el('div', 'lbl', 'GRAPHICS'), seg, el('div', 'lbl', 'RESOLUTION'), resS.box, el('div', 'lbl', 'FPS CAP'), fpsS.box);
-  colB.append(el('div', 'lbl', 'OPTIONS'), bloomT.b, vsyncT.b, perfBtn, defBtn, dtc, quit);
+  colB.append(el('div', 'lbl', 'OPTIONS'), bloomT.b, dofT.b, vsyncT.b, perfBtn, defBtn, dtc, quit);
   cols.append(colA, colB);
   panel.append(el('h2', null, 'MENU'), cols, el('div', 'hint', 'ESC to close'));
   root.append(panel); parent.append(root);
@@ -73,6 +76,7 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
     for (const r of RESOLUTIONS) resS.btn[r].classList.toggle('on', r === opt.resolution);
     for (const f of FPS_CAPS) fpsS.btn[f].classList.toggle('on', f === opt.fps);
     bloomT.b.classList.toggle('on', !!opt.bloom); bloomT.v.textContent = opt.bloom ? 'ON' : 'OFF';
+    dofT.b.classList.toggle('on', !!opt.dof); dofT.v.textContent = opt.dof ? 'ON' : 'OFF';
     vsyncT.b.classList.toggle('on', !!opt.vsync);
     perfBtn.classList.toggle('on', perf); perfVal.textContent = perf ? 'ON' : 'OFF';
   };
@@ -86,8 +90,9 @@ export function createMenu(parent, { level = 'high', options = OPTION_DEFAULTS, 
   seg.addEventListener('click', (e) => { const l = e.target.dataset && e.target.dataset.level; if (l) { cur = l; paint(); onLevel && onLevel(l); } });
   const setOpt = (k, v) => { opt = { ...opt, [k]: v }; paint(); onOption && onOption(k, v); };
   resS.box.addEventListener('click', (e) => { const r = e.target.dataset && e.target.dataset.res; if (r) setOpt('resolution', r); });
-  fpsS.box.addEventListener('click', (e) => { const f = e.target.dataset && +e.target.dataset.fps; if (f) setOpt('fps', f); });
+  fpsS.box.addEventListener('click', (e) => { const f = e.target.dataset && e.target.dataset.fps; if (f !== undefined) setOpt('fps', +f); });
   bloomT.b.addEventListener('click', () => setOpt('bloom', !opt.bloom));
+  dofT.b.addEventListener('click', () => setOpt('dof', !opt.dof));
   vsyncT.b.addEventListener('click', () => setOpt('vsync', !opt.vsync));
   defBtn.addEventListener('click', () => { onDefaults && onDefaults(); });
   perfBtn.addEventListener('click', () => { perf = !perf; paint(); onPerf && onPerf(perf); });

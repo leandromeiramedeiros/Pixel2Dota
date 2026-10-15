@@ -196,39 +196,13 @@ void main(){
   gl_FragColor = vec4(mix(p, e, e > p ? uUp : uDown), 0., 0., 1.);
 }`;
 
-const FINAL = /* glsl */ `
-precision highp float;
-uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
-uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
-uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky, uAtmos, uFocus, uPxAng;
-uniform vec2 uRT;
-uniform vec3 uSun;   // toward the sun / moon (world)
+const ATM_NOISE = /* glsl */ `
 float vh(float n) { return fract(sin(n) * 43758.5453); }
 float vnoise(vec3 p) {   // value noise for the volumetric mist
   vec3 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
   float n = i.x + i.y * 57. + i.z * 113.;
   return mix(mix(mix(vh(n), vh(n + 1.), f.x), mix(vh(n + 57.), vh(n + 58.), f.x), f.y),
              mix(mix(vh(n + 113.), vh(n + 114.), f.x), mix(vh(n + 170.), vh(n + 171.), f.x), f.y), f.z);
-}
-uniform sampler2D tDepth; uniform mat4 uInvProj, uCamWorld; uniform vec2 uPAB; uniform vec3 uCamPos;
-uniform vec2 uOut, uBt;
-uniform vec4 uGL[8];
-uniform vec3 uGC[8];
-uniform int uGN;
-varying vec2 vUv;
-float bayer4(vec2 p){
-  vec2 b = mod(floor(p), 4.);
-  vec4 r = b.y < .5 ? vec4(0.,8.,2.,10.) : b.y < 1.5 ? vec4(12.,4.,14.,6.) : b.y < 2.5 ? vec4(3.,11.,1.,9.) : vec4(15.,7.,13.,5.);
-  float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
-  return (v + .5) / 16.;
-}
-// hue-preserving roll-off: compress the brightest channel above knee k towards 1 and scale the others with it, so stacked
-// additive colour (fire + frost + arcane) stays coloured instead of clipping channel by channel to white (Noita look)
-vec3 tmHue(vec3 c, float k){
-  float m = max(c.r, max(c.g, c.b));
-  if (m <= k) return c;
-  float t = k + (1. - k) * (1. - exp(-(m - k) / (1. - k)));
-  return mix(c * (t / m), vec3(t), smoothstep(3., 10., m) * .25);   // only extreme cores whiten a little
 }
 float vh2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 // night stars: lat-long cells (square in angle, one candidate star per cell, denser toward the zenith), 1-2 art pixels, stable in world direction; px = art pixel angle
@@ -252,26 +226,165 @@ float cloudDens(vec3 p, vec3 drift, bool hi) {
   if (hi) n += vnoise(q * .0075 + 19.) * .1; else n += .05;
   return smoothstep(.5, .8, n * (.2 + .95 * smoothstep(.48, .78, cov))) * smoothstep(0., .22, h) * smoothstep(1., .45, h);
 }
-vec4 cloudLayer(vec3 ro, vec3 rd, vec3 sd, vec3 sunCol, vec3 amb, float jit, float t, bool hi) {
+vec4 cloudLayer(vec3 ro, vec3 rd, vec3 sd, vec3 sunCol, vec3 amb, float jit, float t, float tier) {   // tier = uAtmos: 16 / 32 / 48 steps
+  bool hi = tier > 1.5;
   if (rd.y < .03) return vec4(0., 0., 0., 1.);
   float t0 = (1500. - ro.y) / rd.y, t1 = min((2300. - ro.y) / rd.y, t0 + 14000.);
-  int ns = hi ? 32 : 16, nl = hi ? 4 : 2;
+  int ns = tier > 2.5 ? 48 : hi ? 32 : 16, nl = tier > 2.5 ? 5 : hi ? 4 : 2;
   float ds = (t1 - t0) / float(ns), T = 1.;
   vec3 acc = vec3(0.), drift = vec3(t * 34., 0., t * 11.);
   float ph = 1. + 2.2 * pow(max(dot(rd, sd), 0.), 6.);   // silver lining toward the sun
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < 48; i++) {
     if (i >= ns || T < .03) break;
     vec3 p = ro + rd * (t0 + (float(i) + jit) * ds);
     float d = cloudDens(p, drift, hi);
     if (d < .01) continue;
     float lt = 0.;
-    for (int k = 1; k <= 4; k++) { if (k > nl) break; lt += cloudDens(p + sd * (float(k) * 260.), drift, hi); }
+    for (int k = 1; k <= 5; k++) { if (k > nl) break; lt += cloudDens(p + sd * (float(k) * 260.), drift, hi); }
     float a = 1. - exp(-d * ds * .0016);
     float lit = exp(-lt * 1.5);
     acc += T * a * (amb + sunCol * lit * ph * .75);
     T *= 1. - a;
   }
   return vec4(acc, T);
+}
+`;
+// ---- showcase atmosphere: two passes at the scene-target resolution (the art-pixel grid), not at the output resolution: the raymarches cost
+// (output / RT) pixels less (~4-9x at native, more on a phone) and the mist / bokeh land on the same pixel blocks as the art.
+// Tier = uAtmos: 1 medium, 2 high, 3 ultra (low = 0 runs neither pass; FINAL keeps the flat distance fog).
+const ATM_LIB = /* glsl */ `
+precision highp float;
+uniform sampler2D tDepth; uniform mat4 uInvProj, uCamWorld; uniform vec2 uPAB, uRT; uniform vec3 uCamPos, uSun;
+uniform float uNight, uTime, uAtmos, uPxAng;
+varying vec2 vUv;
+float bayer4(vec2 p){
+  vec2 b = mod(floor(p), 4.);
+  vec4 r = b.y < .5 ? vec4(0.,8.,2.,10.) : b.y < 1.5 ? vec4(12.,4.,14.,6.) : b.y < 2.5 ? vec4(3.,11.,1.,9.) : vec4(15.,7.,13.,5.);
+  float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
+  return (v + .5) / 16.;
+}
+vec3 horCol(){ return mix(vec3(.62, .68, .68), vec3(.07, .09, .17), uNight); }
+float viewZ(float d){ return uPAB.y / (d * 2. - 1. + uPAB.x); }
+`;
+// rgb = light added, a = what the scene keeps: ground pixels a = transmittance >= 0, sky pixels a = -1 - transmittance (FINAL adds the sky over the raw scene there)
+const ATMOS = ATM_LIB + /* glsl */ `
+uniform vec2 uFog;   // flat distance fog start / end (world units; end sits inside the draw distance)
+${'@LIB@'}
+void main(){
+  float d0 = texture2D(tDepth, vUv).r;
+  bool sky = d0 >= .99999;
+  vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
+  vec3 vd = q.xyz / q.w; vd /= -vd.z;
+  float dist = sky ? 1e5 : viewZ(d0) * length(vd);
+  vec3 hor = horCol(), zen = mix(vec3(.25, .42, .60), vec3(.02, .03, .09), uNight);
+  vec3 wd = normalize(mat3(uCamWorld) * vd);
+  vec3 body = mix(vec3(1., .86, .6), vec3(.74, .82, 1.), uNight);   // sun / moon colour
+  vec3 add; float keep;
+  if (sky) {   // gradient, sun / moon disc + glow, night stars, day clouds
+    float el = clamp(wd.y, 0., 1.);
+    vec3 s = mix(hor, zen, pow(el, .55));
+    s += vec3(.07, .04, -.02) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
+    float ang = acos(clamp(dot(wd, uSun), -1., 1.)), rad = mix(.028, .02, uNight);
+    float glow = exp(-ang / (rad * 3.5)) * .42 + exp(-ang / (rad * 12.)) * .16;
+    s += body * glow * mix(1.3, .55, uNight);
+    s = mix(s, body * mix(1.6, .95, uNight), 1. - step(rad, ang));
+    if (uNight > .02) s += starField(wd, uPxAng, uTime) * smoothstep(.35, 1., uNight) * smoothstep(0., .08, wd.y) * (1. - clamp(glow * 3., 0., 1.));
+    if (uAtmos > .5 && uNight < .98 && wd.y > .03) {
+      float cj = uAtmos > 1.5 ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
+      vec4 cl = cloudLayer(uCamPos, wd, uSun, body, mix(vec3(.5, .56, .68), vec3(.04), uNight), cj, uTime, uAtmos);
+      float fade = smoothstep(.03, .14, wd.y) * (1. - uNight);
+      s = mix(s, s * cl.a + cl.rgb, fade);
+    }
+    add = s; keep = 1.;
+  } else {   // rolling distance fog into the horizon colour
+    vec3 wp = uCamPos + wd * min(dist, 6000.);
+    float roll = sin(wp.x * .0023 + uTime * .06) * sin(wp.z * .0031 - uTime * .045) + .6 * sin((wp.x - wp.z) * .0052 + uTime * .035);
+    float mm = min(uAtmos, 1.);
+    float fg = smoothstep(uFog.x, uFog.y, dist + roll * mix(650., 420., mm)) * (.82 + .18 * roll);
+    float f = clamp(fg, 0., 1.) * .97;
+    add = hor * (1. + .06 * roll) * f; keep = 1. - f;
+  }
+  if (uAtmos > .5) {   // volumetric mist: a short raymarch through a drifting 3D-noise layer hugging the ground (clear around the hero)
+    bool hi = uAtmos > 1.5, ul = uAtmos > 2.5;   // medium 10 steps / 1 octave / Bayer jitter; high 22 / 3 octaves / hash jitter + key-light scatter; ultra 32
+    int ns = ul ? 32 : hi ? 22 : 10;
+    float L = min(dist, uFog.y), ds = L / float(ns), gY = uCamPos.y - 260., T = 1.;
+    float jit = hi ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
+    vec3 acc = vec3(0.), drift = vec3(uTime * 22., 0., uTime * 13.);
+    vec3 scat = hi ? body * pow(max(dot(wd, normalize(vec3(uSun.x, 0., uSun.z))), 0.), 4.) * mix(.8, .25, uNight) : vec3(0.);   // brighter mist toward the key light
+    for (int i = 0; i < 32; i++) {
+      if (i >= ns || T < .02) break;
+      float t = (float(i) + jit) * ds;
+      vec3 p = uCamPos + wd * t;
+      float hy = p.y - gY;
+      if (hy > 700.) continue;
+      vec3 pp = p + drift;
+      float n = vnoise(pp * .0045);
+      if (hi) n = n * .55 + vnoise((p - drift * 1.7) * .012) * .3 + vnoise((pp + 31.) * .03) * .15; else n = n * .8 + .1;
+      float dens = exp(-max(hy, 0.) / 120.) * smoothstep(.38, .8, n) * smoothstep(220., 560., t);
+      float a = 1. - exp(-dens * ds * .0055);
+      acc += T * a * (hor * (.8 + .45 * n) + scat * (.4 + n));
+      T *= 1. - a;
+    }
+    add = add * T + acc; keep *= T;
+  }
+  gl_FragColor = vec4(add, sky ? -1. - keep : keep);
+}`.replace('@LIB@', ATM_NOISE);
+// showcase bokeh: focus plane = camera-to-target distance (the hero); beyond ~1.3x it blurs progressively (disc gather, bright spots bloom into discs,
+// taps that are sharper and nearer than the centre are rejected so the hero keeps a clean edge), the near foreground is a little soft. 8 / 16 / 24 taps.
+const SDOF = ATM_LIB + /* glsl */ `
+uniform sampler2D tScene, tDofA; uniform float uFocus, uSky;
+float vh2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float cocOf(float z){ return clamp(smoothstep(uFocus * 1.3, uFocus * 3.4, z) + .4 * smoothstep(uFocus * .8, uFocus * .3, z), 0., 1.); }
+void main(){
+  vec3 c = texture2D(tScene, vUv).rgb;
+  float d0 = texture2D(tDepth, vUv).r;
+  float zv = d0 < .99999 ? viewZ(d0) : 1e5;
+  float coc = cocOf(zv) * uSky;
+  if (coc > .01 && d0 < .99999) {
+    int nT = uAtmos > 2.5 ? 24 : uAtmos > 1.5 ? 16 : 8;
+    float R = (uAtmos > 2.5 ? 18. : uAtmos > 1.5 ? 15. : 10.) * coc, rot = vh2(floor(vUv * uRT)) * 6.2832;
+    vec3 hor = horCol(), acc = c; float ws = 1.;
+    for (int i = 0; i < 24; i++) {
+      if (i >= nT) break;
+      float a = float(i) * 2.39996 + rot, rr = sqrt((float(i) + .5) / float(nT)) * R;
+      vec2 uv2 = vUv + vec2(cos(a), sin(a)) * rr / uRT;
+      float dd = texture2D(tDepth, uv2).r;
+      bool sk = dd >= .99999;
+      float zs = sk ? 1e5 : viewZ(dd);
+      float w = zs < zv ? clamp(cocOf(zs) * R / max(rr, .5), 0., 1.) : 1.;
+      vec3 sm = sk ? hor : texture2D(tDofA, uv2).rgb;
+      w *= 1. + max(dot(sm, vec3(.3, .59, .11)) - .9, 0.) * 3.;
+      acc += sm * w; ws += w;
+    }
+    c = acc / ws;
+  }
+  gl_FragColor = vec4(c, 1.);
+}`;
+
+const FINAL = /* glsl */ `
+precision highp float;
+uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tDofA; uniform sampler2D tDofB; uniform sampler2D tSsr; uniform sampler2D tAdapt;
+uniform vec3 uExpo;   // x: exposure gain per unit of adapted energy, y: bloom gain, z: on
+uniform float uBloom, uVig, uNight, uTime, uDof, uDofY, uSsr, uRays, uSky;
+uniform sampler2D tAtm, tSdof;   // showcase: ATMOS (rgb add, a keep; a < 0 = sky) and SDOF (bokeh scene), both at the scene-target size
+uniform vec2 uOut, uBt;
+uniform vec4 uGL[8];
+uniform vec3 uGC[8];
+uniform int uGN;
+varying vec2 vUv;
+float bayer4(vec2 p){
+  vec2 b = mod(floor(p), 4.);
+  vec4 r = b.y < .5 ? vec4(0.,8.,2.,10.) : b.y < 1.5 ? vec4(12.,4.,14.,6.) : b.y < 2.5 ? vec4(3.,11.,1.,9.) : vec4(15.,7.,13.,5.);
+  float v = b.x < .5 ? r.x : b.x < 1.5 ? r.y : b.x < 2.5 ? r.z : r.w;
+  return (v + .5) / 16.;
+}
+// hue-preserving roll-off: compress the brightest channel above knee k towards 1 and scale the others with it, so stacked
+// additive colour (fire + frost + arcane) stays coloured instead of clipping channel by channel to white (Noita look)
+vec3 tmHue(vec3 c, float k){
+  float m = max(c.r, max(c.g, c.b));
+  if (m <= k) return c;
+  float t = k + (1. - k) * (1. - exp(-(m - k) / (1. - k)));
+  return mix(c * (t / m), vec3(t), smoothstep(3., 10., m) * .25);   // only extreme cores whiten a little
 }
 void main(){
   // v2 look (docs/ART-DIRECTION.md): tilt-shift DOF, bloom normalised + screen-composited, low-key exposure, teal shadows /
@@ -280,16 +393,6 @@ void main(){
   vec3 c = sc.rgb;
   // tilt-shift: crisp band in the middle, soft bottom ~15% and top ~25%
   float dy = vUv.y - uDofY;   // uDofY: focus band follows the view inset (touch HUD) so the sharp band stays on the framed target
-  float d0 = 1., dist = 1e5, zv = 1e5; vec3 vd = vec3(0.);
-  vec3 hor = mix(vec3(.62, .68, .68), vec3(.07, .09, .17), uNight), zen = mix(vec3(.25, .42, .60), vec3(.02, .03, .09), uNight);
-#ifdef SHOWCASE
-  if (uSky > .002) {   // showcase: view distance from depth (depth = 1 means nothing was drawn)
-    d0 = texture2D(tDepth, vUv).r;
-    vec4 q = uInvProj * vec4(vUv * 2. - 1., 1., 1.);
-    vd = q.xyz / q.w; vd /= -vd.z;
-    if (d0 < .99999) { zv = uPAB.y / (d0 * 2. - 1. + uPAB.x); dist = zv * length(vd); }
-  }
-#endif
   // tilt-shift (normal play, fades out as the showcase comes in): bands from the cheap half / quarter-res blurs
   float dof = max(smoothstep(.17, 0., dy), smoothstep(.74, 1., dy)) * (1. - uSky) * uDof;
   if (dof > .003) {
@@ -300,32 +403,7 @@ void main(){
     c = mix(c, soft, clamp(dof * 1.25, 0., 1.));
   }
 #ifdef SHOWCASE
-  // showcase (medium/high): real depth of field. Focus plane = camera-to-target distance (the hero); beyond ~1.3x it blurs progressively (bokeh disc gather, bright
-  // spots bloom into discs, taps that are sharper and nearer than the centre are rejected so the hero keeps a clean edge), the near foreground is a little soft.
-  if (uSky > .002 && uDof > .01) {
-    float cf = smoothstep(uFocus * 1.3, uFocus * 3.4, zv) + .4 * smoothstep(uFocus * .8, uFocus * .3, zv);
-    float coc = clamp(cf, 0., 1.) * uSky;
-    if (coc > .01 && d0 < .99999) {
-      bool hi = uAtmos > 1.5;
-      int nT = hi ? 16 : 8;
-      float R = (hi ? 15. : 10.) * coc, rot = vh2(floor(vUv * uRT)) * 6.2832;
-      vec3 acc = c; float ws = 1.;
-      for (int i = 0; i < 16; i++) {
-        if (i >= nT) break;
-        float a = float(i) * 2.39996 + rot, rr = sqrt((float(i) + .5) / float(nT)) * R;
-        vec2 uv2 = vUv + vec2(cos(a), sin(a)) * rr / uRT;
-        float dd = texture2D(tDepth, uv2).r;
-        bool sk = dd >= .99999;
-        float zs = sk ? 1e5 : uPAB.y / (dd * 2. - 1. + uPAB.x);
-        float cs = clamp(smoothstep(uFocus * 1.3, uFocus * 3.4, zs) + .4 * smoothstep(uFocus * .8, uFocus * .3, zs), 0., 1.);
-        float w = zs < zv ? clamp(cs * R / max(rr, .5), 0., 1.) : 1.;
-        vec3 sm = sk ? hor : texture2D(tDofA, uv2).rgb;
-        w *= 1. + max(dot(sm, vec3(.3, .59, .11)) - .9, 0.) * 3.;
-        acc += sm * w; ws += w;
-      }
-      c = acc / ws;
-    }
-  }
+  if (uDof > .01) c = mix(c, texture2D(tSdof, vUv).rgb, uSky);   // showcase bokeh (SDOF pass), tilt-shift hands over to it as the showcase comes in
 #endif
   // water: SSR (rgb = reflected radiance, a = water mask)
   vec4 sr = texture2D(tSsr, vUv);
@@ -349,56 +427,9 @@ void main(){
   float hz = smoothstep(.4, 1., vUv.y) * .55 * (1. - uSky);
   c = mix(c, haze + b * .6, hz);
 #ifdef SHOWCASE
-  if (uSky > .002) {   // showcase: sky behind the world + rolling distance fog into the horizon colour (depth = 1 means nothing was drawn)
-    vec3 wd = normalize(mat3(uCamWorld) * vd);
-    float el = clamp(wd.y, 0., 1.);
-    vec3 sky = mix(hor, zen, pow(el, .55));
-    sky += vec3(.07, .04, -.02) * (1. - uNight) * exp(-el * 9.);   // warm glow hugging the horizon
-    vec3 body = mix(vec3(1., .86, .6), vec3(.74, .82, 1.), uNight);   // sun / moon colour
-    if (d0 >= .99999) {   // sky pixels: sun / moon disc + glow, night stars, day clouds. Direction taken at the art-pixel centre so the disc and stars stay crisp pixel blocks
-      vec2 uq = (floor(vUv * uRT) + .5) / uRT;
-      vec4 q4 = uInvProj * vec4(uq * 2. - 1., 1., 1.); vec3 vq = q4.xyz / q4.w; vq /= -vq.z;
-      vec3 wq = normalize(mat3(uCamWorld) * vq);
-      float ang = acos(clamp(dot(wq, uSun), -1., 1.)), rad = mix(.028, .02, uNight);
-      float glow = exp(-ang / (rad * 3.5)) * .42 + exp(-ang / (rad * 12.)) * .16;
-      sky += body * glow * mix(1.3, .55, uNight);
-      sky = mix(sky, body * mix(1.6, .95, uNight), 1. - step(rad, ang));
-      if (uNight > .02) sky += starField(wq, uPxAng, uTime) * smoothstep(.35, 1., uNight) * smoothstep(0., .08, wq.y) * (1. - clamp(glow * 3., 0., 1.));
-      if (uAtmos > .5 && uNight < .98 && wq.y > .03) {
-        float cj = uAtmos > 1.5 ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
-        vec4 cl = cloudLayer(uCamPos, wq, uSun, body, mix(vec3(.5, .56, .68), vec3(.04), uNight), cj, uTime, uAtmos > 1.5);
-        float fade = smoothstep(.03, .14, wq.y) * (1. - uNight);
-        sky = mix(sky, sky * cl.a + cl.rgb, fade);
-      }
-    }
-    vec3 wp = uCamPos + wd * min(dist, 6000.);
-    float roll = sin(wp.x * .0023 + uTime * .06) * sin(wp.z * .0031 - uTime * .045) + .6 * sin((wp.x - wp.z) * .0052 + uTime * .035);
-    float mm = min(uAtmos, 1.);
-    float fg = smoothstep(mix(1500., 1000., mm), mix(4200., 3200., mm), dist + roll * mix(650., 420., mm)) * (.82 + .18 * roll);   // medium/high: denser rolling mist
-    vec3 base = d0 >= .99999 ? sky + max(sc.rgb - vec3(.02, .02, .035), 0.) : mix(c, hor * (1. + .06 * roll), clamp(fg, 0., 1.) * .97);
-    if (uAtmos > .5) {   // medium/high: volumetric mist, a short raymarch through a drifting 3D-noise layer hugging the ground (clear around the hero)
-      bool hi = uAtmos > 1.5;   // high: 22 steps, 3 octaves, hash-jittered, lit by the key light; medium: 10 steps, 1 octave, Bayer-jittered
-      int ns = hi ? 22 : 10;
-      float L = min(dist, 4200.), ds = L / float(ns), gY = uCamPos.y - 260., T = 1.;
-      float jit = hi ? fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) : bayer4(gl_FragCoord.xy);
-      vec3 acc = vec3(0.), drift = vec3(uTime * 22., 0., uTime * 13.);
-      vec3 scat = hi ? body * pow(max(dot(wd, normalize(vec3(uSun.x, 0., uSun.z))), 0.), 4.) * mix(.8, .25, uNight) : vec3(0.);   // brighter mist toward the key light
-      for (int i = 0; i < 22; i++) {
-        if (i >= ns || T < .02) break;
-        float t = (float(i) + jit) * ds;
-        vec3 p = uCamPos + wd * t;
-        float hy = p.y - gY;
-        if (hy > 700.) continue;
-        vec3 pp = p + drift;
-        float n = vnoise(pp * .0045);
-        if (hi) n = n * .55 + vnoise((p - drift * 1.7) * .012) * .3 + vnoise((pp + 31.) * .03) * .15; else n = n * .8 + .1;
-        float dens = exp(-max(hy, 0.) / 120.) * smoothstep(.38, .8, n) * smoothstep(220., 560., t);
-        float a = 1. - exp(-dens * ds * .0055);
-        acc += T * a * (hor * (.8 + .45 * n) + scat * (.4 + n));
-        T *= 1. - a;
-      }
-      base = base * T + acc;
-    }
+  {   // showcase: sky behind the world + rolling distance fog + volumetric mist (ATMOS pass)
+    vec4 at = texture2D(tAtm, vUv);
+    vec3 base = at.a < -.5 ? at.rgb + max(sc.rgb - vec3(.02, .02, .035), 0.) * (-1. - at.a) : c * at.a + at.rgb;
     c = mix(c, base, uSky);
   }
 #endif
@@ -464,8 +495,15 @@ export function createPost(renderer, shared) {
     uDof: { value: 1 }, uDofY: { value: 0 }, uSsr: { value: 1 }, uRays: { value: 1 }, uBt: { value: new THREE.Vector2() },
     uGL: { value: glArr }, uGC: { value: gcArr }, uGN: { value: 0 },
     tAdapt: { value: null }, uExpo: { value: new THREE.Vector3(0, 0, 0) },
-    uSky: { value: 0 }, uAtmos: { value: 2 }, uFocus: { value: 800 }, uPxAng: { value: 0.002 }, uRT: { value: new THREE.Vector2() }, uSun: { value: new THREE.Vector3(-0.5, 0.13, 0.45) }, tDepth: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() },
+    uSky: { value: 0 }, tAtm: { value: null }, tSdof: { value: null },
   };
+  // showcase passes (scene-target size): ATMOS = sky / distance fog / mist, SDOF = bokeh. One uniform set: the camera / depth inputs are shared.
+  const atmU = {
+    tDepth: { value: null }, tScene: { value: null }, tDofA: { value: null }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uPAB: { value: new THREE.Vector2() },
+    uRT: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() }, uSun: { value: new THREE.Vector3(-0.5, 0.13, 0.45) }, uNight: { value: 0 }, uTime: { value: 0 }, uAtmos: { value: 2 },
+    uPxAng: { value: 0.002 }, uFog: { value: new THREE.Vector2(1000, 3200) }, uFocus: { value: 800 }, uSky: { value: 0 },
+  };
+  const mAtmos = mk(ATMOS, atmU), mSdof = mk(SDOF, atmU);
   // two FINAL programs sharing one uniform set: the normal one has the sky / fog / mist / bokeh code compiled out (no ALU, registers, depth fetch), SHOWCASE only while state.sky > 0
   const mFinal = mk(FINAL, finalUniforms);
   const mFinalShow = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: FINAL, uniforms: finalUniforms, defines: { SHOWCASE: 1 }, depthTest: false, depthWrite: false });
@@ -476,26 +514,27 @@ export function createPost(renderer, shared) {
   // 1x1 adaptation ping-pong (HalfFloat, persists across resizes)
   const adapt = [0, 1].map(() => new THREE.WebGLRenderTarget(1, 1, flat));
   let adaptI = 0, lastT = -1;
-  let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, downs = [], ups = [], w = 0, h = 0;
+  let scene_rt = null, ssr_rt = null, dofA = null, dofB = null, atm_rt = null, sdof_rt = null, downs = [], ups = [], w = 0, h = 0, samples = 0;
   const LEVELS = 5;
-  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, sky: 0, atmos: 2, focus: 800, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS };   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
+  const state = { expo: 1, expoK: 1.6, expoBloomK: 3.5, adaptUp: 10, adaptDown: 1.2, bloom: true, bloomStrength: 0.9, vignette: 0.35, threshold: 1.4, dof: true, dofStrength: 1, sky: 0, atmos: 2, focus: 800, ssr: true, ssrStrength: 1, rays: true, raysStrength: 1, bloomLevels: LEVELS, drawDist: 9000 };   // drawDist: the flat showcase fog closes inside it   // bloomLevels: mips used (5 = full; fewer = cheaper, tighter bloom)
   let ssrDirty = false;
   const noBloom = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); noBloom.needsUpdate = true;   // stands in for the bloom texture when bloom is off (adds nothing)
 
   function disposeRTs() {
     if (scene_rt) { scene_rt.dispose(); scene_rt.depthTexture && scene_rt.depthTexture.dispose(); }
-    if (ssr_rt) ssr_rt.dispose(); if (dofA) dofA.dispose(); if (dofB) dofB.dispose();
+    if (ssr_rt) ssr_rt.dispose(); if (dofA) dofA.dispose(); if (dofB) dofB.dispose(); if (atm_rt) atm_rt.dispose(); if (sdof_rt) sdof_rt.dispose();
     for (const t of downs) t.dispose(); for (const t of ups) t.dispose();
   }
-  function setRT(nw, nh) {
+  function setRT(nw, nh, force) {
     nw = Math.max(16, nw | 0); nh = Math.max(16, nh | 0);
-    if (nw === w && nh === h && scene_rt) return false;
+    if (nw === w && nh === h && scene_rt && !force) return false;
     w = nw; h = nh;
     disposeRTs();
-    scene_rt = new THREE.WebGLRenderTarget(w, h, rtOpts);
+    scene_rt = new THREE.WebGLRenderTarget(w, h, { ...rtOpts, samples });   // MSAA (ultra): three resolves colour + depth into the textures after the scene pass
     scene_rt.depthTexture = new THREE.DepthTexture(w, h);
     scene_rt.depthTexture.minFilter = scene_rt.depthTexture.magFilter = THREE.NearestFilter;
     ssr_rt = new THREE.WebGLRenderTarget(w, h, flat);
+    atm_rt = new THREE.WebGLRenderTarget(w, h, flat); sdof_rt = new THREE.WebGLRenderTarget(w, h, flat);
     dofA = new THREE.WebGLRenderTarget(Math.max(2, (w + 1) >> 1), Math.max(2, (h + 1) >> 1), lin);
     dofB = new THREE.WebGLRenderTarget(Math.max(2, (w + 3) >> 2), Math.max(2, (h + 3) >> 2), lin);
     downs = []; ups = []; ssrDirty = false;
@@ -596,10 +635,15 @@ export function createPost(renderer, shared) {
     f.uDof.value = doDof ? state.dofStrength : 0; f.uDofY.value = state.dofY || 0; f.uSsr.value = doSsr ? state.ssrStrength : 0;
     f.uRays.value = state.rays ? state.raysStrength : 0;
     f.uSky.value = state.sky;
-    if (showcase) {   // sky / mist / bokeh inputs: skipped (and the depth texture left unbound by FINAL) in the normal camera
-      f.uAtmos.value = state.atmos; f.uFocus.value = state.focus; f.uRT.value.set(w, h); f.uPxAng.value = camera.fov * Math.PI / 180 / h; f.tDepth.value = scene_rt.depthTexture;
-      if (shared) { const k = shared.uKeyDir.value, e = SUN_ELEV, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; f.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, lowered into the visible sky band
-      f.uInvProj.value.copy(camera.projectionMatrixInverse); f.uCamWorld.value.copy(camera.matrixWorld); f.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); f.uCamPos.value.copy(camera.position);
+    if (showcase) {   // sky / fog / mist + bokeh at the scene-target size; nothing of this runs in the normal camera
+      const a = atmU, fr = api.fogRange();
+      a.uAtmos.value = state.atmos; a.uFocus.value = state.focus; a.uSky.value = state.sky; a.uRT.value.set(w, h); a.uPxAng.value = camera.fov * Math.PI / 180 / h;
+      a.uFog.value.set(fr[0], fr[1]);   // medium+: denser rolling fog; a short draw distance pulls both in
+      a.uNight.value = night; a.uTime.value = time; a.tDepth.value = scene_rt.depthTexture; a.tScene.value = scene_rt.texture; a.tDofA.value = dofA.texture;
+      if (shared) { const k = shared.uKeyDir.value, e = SUN_ELEV, c = Math.sqrt(1 - e * e), hl = Math.hypot(k.x, k.z) || 1; a.uSun.value.set(k.x / hl * c, e, k.z / hl * c); }   // key-light azimuth, lowered into the visible sky band
+      a.uInvProj.value.copy(camera.projectionMatrixInverse); a.uCamWorld.value.copy(camera.matrixWorld); a.uPAB.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14]); a.uCamPos.value.copy(camera.position);
+      pass(mAtmos, atm_rt); f.tAtm.value = atm_rt.texture;
+      if (doDof) { pass(mSdof, sdof_rt); f.tSdof.value = sdof_rt.texture; }
     }
     f.tAdapt.value = adapt[adaptI].texture; f.uExpo.value.set(state.expoK, state.expoBloomK, bloomTex && state.expo ? 1 : 0);
     f.uGN.value = state.rays ? collectRays(camera, outW / outH) : 0;
@@ -607,8 +651,13 @@ export function createPost(renderer, shared) {
     if (warm === 1 && ++frames > 30) { warm = 2; renderer.setRenderTarget(null); quad.material = mFinalShow; renderer.compile(scene, cam); }   // build the showcase program off the first-zoom path
   }
 
-  return {
-    state, setRT, render, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
-    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); quadGeo.dispose(); noBloom.dispose(); },
+  const api = {
+    state, setRT, render,
+    /** showcase flat-fog start / end (world units from the eye); the bars / combat text fade with it */
+    fogRange() { const mm = Math.min(state.atmos, 1), end = Math.min(4200 + (3200 - 4200) * mm, state.drawDist * 0.85); return [Math.min(1500 + (1000 - 1500) * mm, end * 0.4), end]; },
+    /** scene-target MSAA samples (0 = off); rebuilds the targets */
+    setSamples(n) { n = n | 0; if (n === samples) return; samples = n; if (w) setRT(w, h, true); }, adaptRT: () => adapt[adaptI], get width() { return w; }, get height() { return h; }, get rt() { return scene_rt; },
+    dispose() { disposeRTs(); mPre.dispose(); mDown.dispose(); mBox.dispose(); mUp.dispose(); mAdapt.dispose(); for (const t of adapt) t.dispose(); mSsr.dispose(); mFinal.dispose(); mFinalShow.dispose(); mAtmos.dispose(); mSdof.dispose(); quadGeo.dispose(); noBloom.dispose(); },
   };
+  return api;
 }

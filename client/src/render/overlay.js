@@ -36,11 +36,13 @@ export function createOverlay(canvas) {
     /** queue a bar block for this frame (screen px) */
     bar(b) { bars.push(b); },
     project: null,
+    fade: null,   // (x, y, z) -> 0..1: the renderer hides text in the showcase mist / behind the camera
     draw(dt) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssW, cssH);
       ctx.imageSmoothingEnabled = false;
       for (const b of bars) {
+        ctx.globalAlpha = b.a == null ? 1 : b.a;
         const w = b.w, h = b.h || 4, x = Math.round(b.sx - w / 2), y = Math.round(b.sy);
         const big = h >= 7, mh = b.mana != null ? (big ? Math.max(3, Math.round(h * 0.45)) : 2) : 0, gap = b.mana != null ? 1 : 0;
         ctx.fillStyle = 'rgba(8,6,12,0.88)'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2 + (mh ? mh + gap : 0));
@@ -70,15 +72,16 @@ export function createOverlay(canvas) {
           ctx.fillStyle = '#f0e6c0'; ctx.fillText(String(b.level), bx + bw / 2, y - 1 + Math.round((bh + fs * 0.7) / 2));
         }
       }
-      bars.length = 0;
+      bars.length = 0; ctx.globalAlpha = 1;
       ctx.font = FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
       for (let i = texts.length - 1; i >= 0; i--) {
         const t = texts[i]; t.t += dt;
         if (t.t >= t.dur) { texts.splice(i, 1); continue; }
         const p = api.project && api.project(t.x, t.y, t.z + 70);
         if (!p) continue;
+        const fa = api.fade ? api.fade(t.x, t.y, t.z) : 1; if (fa <= 0.02) continue;
         const k = t.t / t.dur, rise = 38 * (1 - (1 - k) * (1 - k));
-        const a = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+        const a = (k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3) * fa;
         const x = Math.round(p.x + t.drift * k), y = Math.round(p.y - rise);
         ctx.globalAlpha = a;
         ctx.font = t.big ? '700 15px "Courier New", monospace' : FONT;
