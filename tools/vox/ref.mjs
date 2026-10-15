@@ -13,15 +13,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodePng } from '../art/png.mjs';
 import { Canvas } from '../art/vox.mjs';
-import { loadGlb, scene, animDuration } from './lib/glb.mjs';
-import { render, bounds, sampleAlbedo } from './lib/raster.mjs';
+import { loadGlb, scene, animDuration, bindBones } from './lib/glb.mjs';
+import { render, bounds, sampleAlbedo, basis } from './lib/raster.mjs';
 import { drawText } from './lib/font.mjs';
-import { CACHE, KINDS, RefError, gameUnits, resolveUnit, exportModel, sequences, pickAnims } from './lib/dota.mjs';
+import { CACHE, KINDS, RefError, gameUnits, resolveUnit, exportModel, sequences, skeleton, pickAnims } from './lib/dota.mjs';
 
 export const VIEWS = [['front', 0, 8], ['q34', 35, 14], ['side', 90, 8], ['back', 180, 8], ['top', 35, 60]];   // name, yaw, pitch (deg above horizon)
 export const POSE_CAM = [28, 30];   // yaw, pitch: the in-game lean (same camera as tools/vox/shot.mjs rows)
 export const FRAMES = 4;
 const S = 288, PS = 176, BG = [28, 32, 48];
+export const POSE_LAYOUT = { LW: 96, HEAD: 22, PS, gx: 4, gy: 6 };   // poses.png cell grid (tools/vox/view.mjs crops frames from it)
 const hex2 = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 
 /** Weighted RGB samples -> up to n clusters [{ hex, share }] (greedy, deterministic: 4-bit bins, heaviest first, merged within `tol`). */
@@ -58,11 +59,12 @@ export function buildRef(arg) {
   const roles = Object.entries(picks).filter(([, p]) => idxOf.has(p.seq)).map(([role, p]) => ({ role, ...p, anim: idxOf.get(p.seq), dur: animDuration(main, idxOf.get(p.seq)) }));
   const idle = roles.find(r => r.role === 'idle'), missing = [];
   const wg = [];
-  for (const w of u.wearables) { try { wg.push(loadGlb(exportModel(w))); } catch (e) { missing.push(w + ' (' + e.message + ')'); } }
+  for (const w of u.wearables) { try { wg.push({ g: loadGlb(exportModel(w)), skel: skeleton(w) }); } catch (e) { missing.push(w + ' (' + e.message + ')'); } }
   /** All primitives of the unit (body + wearables following its skeleton) at time t of animation `anim` (null: bind pose). */
+  const bind = bindBones(main);
   const pose = (anim, t = 0) => {
     const ms = scene(main, { anim, t }), prims = [...ms.prims];
-    for (const g of wg) prims.push(...scene(g, { boneWorld: anim == null ? null : ms.bones }).prims);
+    for (const { g, skel } of wg) prims.push(...scene(g, anim == null ? {} : { wear: { ...skel, world: ms.bones, bind } }).prims);
     return prims;
   };
   const prims = pose(idle ? idle.anim : null, 0);
@@ -98,12 +100,18 @@ export function buildRef(arg) {
   const cam = [...frames.flatMap(f => f.prims.flat()), ...prims];
   let pb = bounds(cam); const pz = [0, 1, 2].map(k => pb.mx[k] - pb.mn[k]);
   const pcenter = pb.mn.map((v, k) => (v + pb.mx[k]) / 2), pidle = PS / (Math.max(sz[2], Math.hypot(sz[0], sz[1])) * 1.12);
-  const pscale = Math.max(PS / (Math.max(pz[2], Math.hypot(pz[0], pz[1])) * 1.12), pidle * 0.6);   // a far-flung pose may crop rather than shrink everything
+  const { right: pr, up: pu } = basis(POSE_CAM[0], POSE_CAM[1]);   // fit the projected screen extent of every frame, not a bounding-sphere guess
+  let ext = 1;
+  for (const P of cam) for (let i = 0; i < P.pos.length; i += 3) {
+    const x = P.pos[i] - pcenter[0], y = P.pos[i + 1] - pcenter[1], z = P.pos[i + 2] - pcenter[2];
+    ext = Math.max(ext, Math.abs(x * pr[0] + y * pr[1] + z * pr[2]), Math.abs(x * pu[0] + y * pu[1] + z * pu[2]));
+  }
+  const pscale = Math.max(PS / (2 * ext * 1.06), pidle * 0.75);   // a far-flung pose may crop rather than shrink everything
   const shoot = ps => render(ps, { yaw: POSE_CAM[0], pitch: POSE_CAM[1], S: PS, scale: pscale, center: pcenter, bg: BG });
   frames.forEach(f => { f.img = f.prims.map(shoot); delete f.prims; });
 
   const info = {
-    unit: u.key, short: u.short, kind: u.kind, model: u.model, wearables: u.wearables, wearablesMissing: missing, pose: idle ? `idle (${idle.seq}, first frame)` : 'bind', modelScale: u.scale, tris,
+    unit: u.key, short: u.short, kind: u.kind, model: u.model, wearables: u.wearables, wearablesMissing: missing, pose: idle ? `idle (${idle.seq}, t=0)` : 'bind', modelScale: u.scale, tris,
     size: { height: +(sz[2] * sc).toFixed(1), width: +(sz[1] * sc).toFixed(1), depth: +(sz[0] * sc).toFixed(1), note: 'game units (model units x ModelScale); width = left-right, depth = front-back; Dota facing +x' },
     voxelHint: { heightAt4_2: +(sz[2] * sc / 4.2).toFixed(1), note: 'height in 4.2-unit character voxels if drawn to true scale; chibify (docs/VOXEL.md grids)' },
     palette: fmt(pal), materials: mats, bands: { note: 'head first; fromFeet = fraction of height; width/depth in game units', rows: bands },
@@ -127,7 +135,7 @@ export function buildRef(arg) {
   drawText(V, M, 6, title, '#e0e6ff', 1);
   fs.writeFileSync(path.join(dir, 'views.png'), encodePng(V.W, V.H, V.px));
 
-  const LW = 96, hasPoses = frames.length > 0, PC = hasPoses ? new Canvas(LW + FRAMES * (PS + 4) + M, HEAD + frames.length * (PS + 6) + M, '#1c2030') : null;
+  const LW = POSE_LAYOUT.LW, hasPoses = frames.length > 0, PC = hasPoses ? new Canvas(LW + FRAMES * (PS + POSE_LAYOUT.gx) + M, HEAD + frames.length * (PS + POSE_LAYOUT.gy) + M, '#1c2030') : null;
   if (hasPoses) {
     drawText(PC, M, 6, `${u.short.toUpperCase()}  POSES  yaw ${POSE_CAM[0]} pitch ${POSE_CAM[1]}  ${FRAMES} frames per anim  REF ONLY NEVER COMMIT`, '#e0e6ff', 1);
     frames.forEach((f, i) => {

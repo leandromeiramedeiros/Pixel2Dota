@@ -122,6 +122,21 @@ export function sequences(vmdl) {
   return seqs;
 }
 
+/** The model's skeleton { names, parent } (DATA block m_modelSkeleton); cached as skel.json. Wearable meshes index it with JOINTS_0. */
+export function skeleton(vmdl) {
+  const f = path.join(modelDir(vmdl), 'skel.json');
+  if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
+  let txt = ''; try { txt = run(['-i', VPK(), '-f', vmdl + '_c', '-b', 'DATA']).toString('utf8'); } catch { /* none */ }
+  const at = txt.indexOf('m_modelSkeleton'), blk = at >= 0 ? txt.slice(at) : '';
+  const arr = k => blk.match(new RegExp(k + ' = \\s*\\[([^\\]]*)\\]'))?.[1] || '';
+  const names = [...arr('m_boneName').matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  const parent = arr('m_nParent').split(',').map(x => parseInt(x)).filter(x => !isNaN(x));
+  const out = { names, parent };
+  fs.mkdirSync(modelDir(vmdl), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(out));
+  return out;
+}
+
 /** Roles of the reference sheets -> the sequence the game plays: { idle, run, attack, cast, ult?, stunned, death } -> { seq, act, loop } (only roles the model has). */
 export function pickAnims(seqs) {
   const best = test => {   // fewest modifiers, then highest weight, then first

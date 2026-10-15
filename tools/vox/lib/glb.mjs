@@ -1,4 +1,4 @@
-// glb loader for the reference renderer: Source2Viewer-CLI glTF exports -> world-space triangle primitives, skinned at the first frame of
+// glb loader for the reference renderer: Source2Viewer-CLI glTF exports -> world-space triangle primitives, skinned at a sampled time of
 // the exported animation (or the bind pose). Y-up metres in the file, converted here to Source Z-up units, model facing +X. Morph targets, lights, cameras are ignored.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -82,6 +82,25 @@ function worldMatrices(g, anim, t = 0) {
   return world;
 }
 
+/** Inverse of a rigid/affine 4x4 (column-major). */
+function inv(m) {
+  const a = m[0], b = m[4], c = m[8], d = m[1], e = m[5], f = m[9], g = m[2], h = m[6], i = m[10];
+  const A = e * i - f * h, B = f * g - d * i, C = d * h - e * g, det = a * A + b * B + c * C || 1;
+  const o = I4();
+  o[0] = A / det; o[4] = (c * h - b * i) / det; o[8] = (b * f - c * e) / det;
+  o[1] = B / det; o[5] = (a * i - c * g) / det; o[9] = (c * d - a * f) / det;
+  o[2] = C / det; o[6] = (b * g - a * h) / det; o[10] = (a * e - b * d) / det;
+  const x = m[12], y = m[13], z = m[14];
+  o[12] = -(o[0] * x + o[4] * y + o[8] * z); o[13] = -(o[1] * x + o[5] * y + o[9] * z); o[14] = -(o[2] * x + o[6] * y + o[10] * z);
+  return o;
+}
+/** Bind-pose world matrix of every named node: Map name -> 4x4. */
+export function bindBones(g) {
+  const w = worldMatrices(g, null), m = new Map();
+  g.json.nodes.forEach((nd, i) => m.set(nd.name, w[i]));
+  return m;
+}
+
 const texCache = new Map();
 function loadTex(dir, uri) {
   const f = path.join(dir, decodeURIComponent(uri));
@@ -94,8 +113,10 @@ function loadTex(dir, uri) {
  * `boneWorld` (Map jointName -> 4x4, optional) drives joints of the same name (wearables follow the hero skeleton).
  * Returns { prims: [{ pos, nrm, uv, idx, mesh, mat: { name, tex, factor, mask, cutoff } }], bones: Map name -> world matrix }.
  * Only lod0 meshes are kept when the file has them.
+ * Wearables export without a skin: their JOINTS_0 index the vmdl skeleton. `wear` = { names, parent (the wearable vmdl skeleton), world, bind (Maps of the hero's bones, animated / bind) }
+ * then skins each wearable bone like the hero bone of the same name (missing names inherit from their parent bone, else stay put).
  */
-export function scene(g, { anim = null, t = 0, boneWorld = null } = {}) {
+export function scene(g, { anim = null, t = 0, boneWorld = null, wear = null } = {}) {
   const J = g.json, world = worldMatrices(g, anim, t), prims = [], bones = new Map();
   J.nodes.forEach((nd, i) => bones.set(nd.name, world[i]));
   const lod0 = J.nodes.some(nd => nd.mesh != null && /lod0/i.test(J.meshes[nd.mesh].name || nd.name || ''));
@@ -108,11 +129,19 @@ export function scene(g, { anim = null, t = 0, boneWorld = null } = {}) {
       const sk = J.skins[nd.skin], ibm = accessor(g, sk.inverseBindMatrices).data;
       jm = sk.joints.map((j, k) => mul(boneWorld?.get(J.nodes[j].name) || world[j], Float64Array.from(ibm.subarray(k * 16, k * 16 + 16))));
     }
+    if (!jm && wear) {
+      const I = I4();
+      jm = wear.names.map((_, k) => {
+        let b = k; while (b >= 0 && !wear.world.has(wear.names[b])) b = wear.parent[b];
+        return b < 0 ? I : mul(wear.world.get(wear.names[b]), inv(wear.bind.get(wear.names[b])));
+      });
+    }
     for (const pr of mesh.primitives) {
       if (pr.mode != null && pr.mode !== 4) continue;
       const P = accessor(g, pr.attributes.POSITION).data, N = pr.attributes.NORMAL != null ? accessor(g, pr.attributes.NORMAL).data : null;
       const UV = pr.attributes.TEXCOORD_0 != null ? accessor(g, pr.attributes.TEXCOORD_0).data : null;
       const nv = P.length / 3, pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3);
+      if (jm && pr.attributes.JOINTS_0 == null) jm = null;
       const JW = jm ? accessor(g, pr.attributes.JOINTS_0) : null, WT = jm ? accessor(g, pr.attributes.WEIGHTS_0).data : null;
       for (let v = 0; v < nv; v++) {
         const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2], nx = N ? N[v * 3] : 0, ny = N ? N[v * 3 + 1] : 0, nz = N ? N[v * 3 + 2] : 0;

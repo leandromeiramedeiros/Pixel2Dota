@@ -31,6 +31,8 @@ const CLASS = {
   creep: { grid: '~30x30x34', h: '25-29 voxels tall', rig: 'biped' },
   neutral: { grid: '30x30x34 small / larger for big, ancient', h: '25-40 voxels (smaller than a hero; ancients near one)', rig: 'biped' },
   boss: { grid: 'larger than a hero (~48x44x56)', h: '~50-55 voxels', rig: 'big' },
+  courier: { grid: '~26x26x30', h: '~16-24 voxels (small, walks or flies beside heroes)', rig: 'quad' },
+  ward: { grid: '~20x20x28', h: '~12-18 voxels', rig: 'static' },
   building: { grid: 'tower ~3 heroes tall; fits its footprint', h: 'tower ~130 voxels at the 4.2 u density (check the grid budget first)', rig: 'static' },
 }[kind] || {};
 const hay = (key + ' ' + (info?.model || '')).toLowerCase();
@@ -44,7 +46,11 @@ out(`BRIEF ${short}  (${kind}${key ? ', ' + key : ''})${reg ? '  [registered: sh
 out('');
 out('REFERENCE (private visual reference: look, never copy, commit or voxelize it)');
 if (info) {
-  out(`  sheet   ${rel(path.join(refDir, 'sheet.png'))}   views: front q34 side back top .png next to it`);
+  out(`  sheet   ${rel(path.join(refDir, 'sheet.png'))}   (read first: 5 views + one frame per anim + palette)`);
+  out(`  poses   ${rel(path.join(refDir, 'poses.png'))}   (read when building ANIMS: rows = anims, 4 frames each, 3/4 camera); views.png, front|q34|side|back|top.png`);
+  const roles = Object.entries(info.anims?.roles || {});
+  out(`  anims   ${roles.length ? roles.map(([r, q]) => `${r}=${q.seq} ${q.duration}s${q.loop ? ' loop' : ''}`).join('  ') : 'none (static model: idle only)'}`);
+  if (roles.length) out('          ANIMS keys: idle, walk (= run), attack, cast, stunned, death; 2-4 frames each, timing from these durations; every sequence: ref.json anims.available');
   out(`  model   ${info.model}  scale ${info.modelScale}  ${info.tris} tris  pose ${info.pose}${info.wearables.length ? '  +' + info.wearables.length + ' wearables' : ''}`);
   const s = info.size, vh = s.height / 4.2;
   out(`  size    height ${s.height}  width ${s.width}  depth ${s.depth} game units  (true scale at 4.2 u/voxel: ${vh.toFixed(0)} tall)`);
