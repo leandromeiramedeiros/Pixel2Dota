@@ -186,7 +186,7 @@ const swH = (a, d) => a.map(([el, hd]) => [el, hd + d]);
 const IDLE = [0, 1, 2].map(b => ({ bob: -b * 0.25, head: [b * 1.5, 0, 0], armR: HOLD.R.map(([el, hd]) => [el - b, hd]), armL: HOLD.L.map(([el, hd]) => [el - b, hd]) }));
 const step = st => ({
   bob: st ? -0.6 : 0, spine: [6, st * 4, st * 4], head: [-4, -st * 3, -st * 3], footR: [0, -st * 2.2, 0], footL: [0, st * 2.2, 0],
-  armR: swH(HOLD.R, st * 12), armL: swH(HOLD.L, -st * 12), cleaver: [-72, 20],
+  armR: swH(HOLD.R, st * 12), armL: swH(HOLD.L, -st * 12),
 });
 const WALK = [step(1), IDLE[0], step(-1)];   // the passing pose is idle[0] (one frame fewer)
 const THROW = { bob: -0.5, spine: [10, 14, 0], head: [-8, -6, 0], armR: [[10, 80], [24, 86]], armL: HOLD.L, hook: [70, 90], chain: 2, footR: [0, -2.2, 0], footL: [0, 1, 0] };
@@ -209,4 +209,4 @@ export const ANIMS = {
 };
 
 /** HUD portrait framing (tools/vox/portrait.mjs): idle, the small head in the upper third with the shoulder domes around it. */
-export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, cy - 4, 34.5], scale: 1.05, fov: 24, sig: '#a8302a', face: [4, 11, 24, 24] };
+export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, HY, 38], scale: 1.8, fov: 24, sig: '#a8302a', face: [4, 11, 24, 24] };
