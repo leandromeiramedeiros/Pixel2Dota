@@ -15,6 +15,7 @@ export const VISION_FALLBACK = { day: 1800, night: 800 };
 export const FOG_LEVEL = 0.5;             // brightness multiplier of fogged (explored) ground; the visible edge blends up to 1
 export const FOG_UNSEEN_DARKEN = 0.18;    // 3rd stage: never-seen ground is this much darker than fogged (0 = pure Dota: two states only)
 export const FOG_DESAT = 0.6;             // how much colour fogged ground loses (0..1)
+export const MIST_CLEAR = 1.6, MIST_RETURN = 0.55;   // fog mist ease rates (1/s): disperses ~1 s after vision arrives, creeps back over ~3 s
 /** [fogged brightness, never-seen brightness, desaturation] -> shader uniform uFogLv */
 export function fogLevels() { return [FOG_LEVEL, FOG_LEVEL * (1 - FOG_UNSEEN_DARKEN), FOG_DESAT]; }
 const GHOST_KINDS = new Set(['tower', 'rax', 'ancient', 'fountain', 'building']);
@@ -151,9 +152,9 @@ void main(){
 export function createFog(uniforms, scene = null) {
   const map = getMap();
   const W = map.w, H = map.h, N = W * H;
-  const vis = new Uint8Array(N), explored = new Uint8Array(N), ease = new Float32Array(N), easeX = new Float32Array(N), tmp = new Float32Array(N);
-  const data = new Uint8Array(N * 2);
-  const tex = new THREE.DataTexture(data, W, H, THREE.RGFormat, THREE.UnsignedByteType);
+  const vis = new Uint8Array(N), explored = new Uint8Array(N), ease = new Float32Array(N), easeX = new Float32Array(N), easeM = new Float32Array(N).fill(1), tmp = new Float32Array(N);
+  const data = new Uint8Array(N * 4);   // R visible, G explored, B fog mist (slower: lingers then dissolves as vision comes, creeps back after), A unused
+  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping; tex.colorSpace = THREE.NoColorSpace; tex.flipY = false; tex.unpackAlignment = 1; tex.needsUpdate = true;
   uniforms.uFog.value = tex;
@@ -216,7 +217,7 @@ export function createFog(uniforms, scene = null) {
 
   /** ease the targets (visible fades in/out over ~0.4 s, so edges animate as vision moves), blur 1 tile (soft edge), upload */
   function upload(dt) {
-    const k = Math.min(1, dt * 4.5);
+    const k = Math.min(1, dt * 4.5), kIn = Math.min(1, dt * MIST_CLEAR), kOut = Math.min(1, dt * MIST_RETURN);
     let any = false;
     for (let j = 0; j < N; j++) {
       const tgt = revealAll ? 1 : vis[j], tx = revealAll || explored[j] ? 1 : 0;
@@ -224,10 +225,14 @@ export function createFog(uniforms, scene = null) {
       if (e !== tgt) { e += (tgt - e) * k; if (Math.abs(e - tgt) < 0.01) e = tgt; ease[j] = e; any = true; }
       let x = easeX[j];
       if (x !== tx) { x += (tx - x) * k; if (Math.abs(x - tx) < 0.01) x = tx; easeX[j] = x; any = true; }
+      const tm = tgt ? 0 : 1;
+      let m = easeM[j];
+      if (m !== tm) { m += (tm - m) * (tm < m ? kIn : kOut); if (Math.abs(m - tm) < 0.01) m = tm; easeM[j] = m; any = true; }
     }
     if (any || dirty) {
-      blurToBytes(ease, tmp, W, H, data, 0, 2);
-      blurToBytes(easeX, tmp, W, H, data, 1, 2);
+      blurToBytes(ease, tmp, W, H, data, 0, 4);
+      blurToBytes(easeX, tmp, W, H, data, 1, 4);
+      blurToBytes(easeM, tmp, W, H, data, 2, 4);
       tex.needsUpdate = true; dirty = false;
     }
   }
@@ -237,7 +242,7 @@ export function createFog(uniforms, scene = null) {
     setEnabled(on) { st.enabled = !!on; uniforms.uFogMap.value.w = on ? 1 : 0; },
     revealAll(on) { revealAll = !!on; dirty = true; },
     /** forget explored ground + structure ghosts (the vision perspective changed: spectator team switch) */
-    reset() { explored.fill(0); easeX.fill(0); ghosts.clear(); st.castAcc = 1; dirty = true; },
+    reset() { explored.fill(0); easeX.fill(0); easeM.fill(1); ghosts.clear(); st.castAcc = 1; dirty = true; },
     /** call every frame; casts at ~8 Hz, eases + uploads at ~24 Hz */
     update(view, myTeam, dt) {
       if (!st.enabled) return;

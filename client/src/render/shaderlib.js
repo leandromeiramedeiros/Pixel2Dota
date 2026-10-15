@@ -31,6 +31,7 @@ export function createSharedUniforms() {
     uLevels: { value: LIGHT_LEVELS },
     uFog: { value: fogTex },
     uFogMap: { value: new THREE.Vector4(-8832, 8832, 17664, 0) },           // x0, y1, size (world), enabled
+    uFogMist: { value: 1 },                                                 // fog-of-war mist on (atmos >= 1: medium and up)
     uVoid: { value: voidTex },                                              // static mist over the dead ground behind the fountains + map rim (fog.js voidMask)
     uFogLv: { value: new THREE.Vector3(0.5, 0.41, 0.6) },                   // fogged (explored) brightness, never-seen brightness, fogged desaturation; fog.js sets these from FOG_LEVEL / FOG_UNSEEN_DARKEN / FOG_DESAT
     uCamRight: { value: new THREE.Vector3(1, 0, 0) },
@@ -72,6 +73,7 @@ uniform vec4 uLC[${MAX_LIGHTS}];
 uniform sampler2D uFog, uVoid;
 uniform vec4 uFogMap;
 uniform vec3 uFogLv;
+uniform float uFogMist;
 uniform vec3 uCamRight, uCamUp, uCamPos;
 uniform vec2 uRT;
 uniform float uPxK, uArtPx, uRefW, uPersp;
@@ -125,6 +127,15 @@ vec3 fogGrade(vec3 col, vec3 p, vec2 dp){
     col *= 1. + amt * cl;
   }
   col *= fb;
+  if (uFogMist > .5 && uFogMap.w > .5) {                                  // fog mist (looks only): drifting cloud over unseen ground, B = slow eased mist
+    float m = texture2D(uFog, vec2((p.x - uFogMap.x) / uFogMap.z, (p.z + uFogMap.y) / uFogMap.z)).b;
+    if (m > .01) {
+      float n = .5 + .3 * sin(p.x * .0019 + uTime * .06) * sin(p.z * .0023 - uTime * .045) + .2 * sin(p.x * .0057 - p.z * .0043 + uTime * .1);
+      float cv = clamp(m * 1.7 - .7 + (n - .5) * 1.1, 0., 1.);          // thinning mist breaks into drifting patches before it is gone
+      cv = floor(cv * 4. + bayer4(dp + 11.)) / 4.;
+      col = mix(col, voidCol(p, dp) * 1.35, cv * .45);
+    }
+  }
   float vm = voidAmt(p, dp);
   return vm > 0. ? mix(col, voidCol(p, dp), vm) : col;
 }

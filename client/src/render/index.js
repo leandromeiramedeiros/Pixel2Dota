@@ -435,7 +435,7 @@ export function createRenderer({ canvas, sheets }) {
       if (name === 'dof') post.state.dof = !!value;
       if (name === 'ssr') post.state.ssr = !!value;
       if (name === 'rays') post.state.rays = !!value;
-      if (name === 'atmos') post.state.atmos = +value || 0;
+      if (name === 'atmos') { post.state.atmos = +value || 0; uniforms.uFogMist.value = post.state.atmos >= 1 ? 1 : 0; }   // fog mist: medium and up
       if (name === 'bloomLevels') post.state.bloomLevels = value | 0;
       if (name === 'maxLights') lights.setMax(value);
       if (name === 'shadowPoints') lights.setMaxShadow(value);
