@@ -97,7 +97,14 @@ export function tileContext(map) {
   return { forest, cliff, flags };
 }
 
+// Debris (rocks, scree, logs, twigs, bones, pillars) thinned hard: it was visual noise competing with the trees; vegetation slightly thinned too
+const DEBRIS = [V.ROCK, V.BOULDER, V.SCREE, V.LOG, V.TWIGS, V.BONES, V.PILLAR], DEBRIS_K = 0.25, PLANT_K = 0.8;
 function weightsFor(w, c) {
+  weightsRaw(w, c);
+  for (let i = 0; i < NV; i++) w[i] *= PLANT_K;
+  for (const v of DEBRIS) w[v] *= DEBRIS_K / PLANT_K;
+}
+function weightsRaw(w, c) {
   w.fill(0);
   const { t, forest, cliff, side, shore, roadEdge, camp, rosh, wd, dire } = c;
   const fk = Math.min(1, forest / 9);
