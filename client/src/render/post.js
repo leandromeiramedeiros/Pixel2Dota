@@ -398,7 +398,7 @@ vec3 tmHue(vec3 c, float k){
   return mix(c * (t / m), vec3(t), smoothstep(3., 10., m) * .25);   // only extreme cores whiten a little
 }
 void main(){
-  // v2 look (docs/ART-DIRECTION.md): tilt-shift DOF, bloom normalised + screen-composited, low-key exposure, teal shadows /
+  // v2 look (docs/ART-DIRECTION.md): tilt-shift DOF, bloom normalised + screen-composited, full exposure, light teal deep shadows /
   // warm highlights, water SSR, light scatter in the haze, far (top) of the frame dissolves into tinted haze.
   vec4 sc = texture2D(tScene, vUv);
   vec3 c = sc.rgb;
@@ -427,12 +427,12 @@ void main(){
   // stacked spells: exposure and bloom drop with the adapted over-threshold energy (floors keep the fight readable, not dark)
   float ae = uExpo.z > 0. ? texture2D(tAdapt, vec2(.5)).r : 0.;
   float ex = max(.55, 1. / (1. + uExpo.x * ae)), bx = max(.3, 1. / (1. + uExpo.y * ae));
-  c *= .8 * ex;
+  c *= ex;   // full exposure: vivid, bright base (the soft knees below keep highlights from whiting out)
   float l = dot(c, vec3(.3, .59, .11));
   // atmospheric perspective: saturation + contrast fall off toward the top (far side) of the frame
   float far = smoothstep(.3, 1., vUv.y);
-  c = mix(vec3(l), c, 1. - .38 * far);
-  c = mix(c * vec3(.72, .95, 1.), c, smoothstep(.15, .7, l));
+  c = mix(vec3(l), c, 1. - .15 * far);
+  c = mix(c * vec3(.9, .98, 1.), c, smoothstep(.05, .35, l));   // light teal only in the deepest shadows: warm colours keep their hue
   c += vec3(.05, .025, -.02) * smoothstep(.45, 1., l);
   vec3 b = texture2D(tBloom, vUv).rgb * (.14 * bx);   // subtle bloom (art refs: The Last Night, Noita)
   vec3 haze = mix(vec3(.09, .19, .19), vec3(.03, .08, .1), uNight);

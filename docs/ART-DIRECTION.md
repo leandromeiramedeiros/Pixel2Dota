@@ -7,7 +7,7 @@ The user is the creative director: every visual change gets a screenshot and a v
   the low-res target so it reads as crisp pixel art: dark outline, 4-step hue-shifted ramps, 9-level Bayer-quantised lighting, strong rim light on units.
   Method and conversion order: [VOXEL.md](VOXEL.md). The pixel HUD keeps the Trainer palette (dark purple panels, gold/pink frames; orb
   colours Quas cyan / Wex magenta / Exort orange). Camera: 3D at the Dota distance / pitch.
-- **Lighting and particles: The Last Night + Noita.** Low-key frame, cool teal/blue mid-tones, warm practical lights (towers, fountain, ancient, lanterns,
+- **Lighting and particles: The Last Night + Noita.** Vivid, bright frame (full exposure, saturated unit colours), cool teal only in the deepest shadows, warm practical lights (towers, fountain, ancient, lanterns,
   spells) with volumetric beams and a faint wide scatter. Bloom is a tight, high-threshold halo on emissive pixels only; **no whiteouts** (adaptive
   exposure + hue-preserving roll-off, see ARCHITECTURE "Pipeline"). Particles are crisp 1-art-pixel squares that fly on arcs, land and cool white -> yellow
   -> orange -> red -> dark; soft blobs only for small cores and haze. Saturated colour is reserved for emissive things.
