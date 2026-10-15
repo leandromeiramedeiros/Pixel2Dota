@@ -73,7 +73,7 @@ export function build(p = {}) {
   const q0 = [cx + 2.6, cy + 4.2, 11 + U], q1 = [cx - 2.4, cy + 4, 21.6 + U];
   cap(v, T.torso, q0, q1, 1.5, M.navy, 1.7);
   band(v, xfApply(T.torso, q0), xfApply(T.torso, q1), 0.86, 0.94, 1.9, M.steel);
-  for (const [ox, oy] of [[-0.6, -0.3], [0.7, 0.4], [0, 0.9]]) cap(v, T.torso, [q1[0] + ox, q1[1] + oy, q1[2]], [q1[0] - 1.2 + ox, q1[1] + oy, q1[2] + 2.6], 0.5, M.tip);
+  for (const [ox, oy] of [[-0.6, -0.3], [0.7, 0.4], [0, 0.9]]) cap(v, T.torso, [q1[0] + ox, q1[1] + oy, q1[2]], [q1[0] - 0.6 + ox, q1[1] + oy + 0.6, q1[2] + 1.2], 0.5, M.tip);
 
   // ---- legs: dark leggings, tall dark boots to the knee with a steel cuff and knee plate
   for (const k of ['R', 'L']) {

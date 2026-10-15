@@ -301,11 +301,11 @@ export function shield(v, rig, k, o, M) {
   disc(v, c, n, r, th, (px, py, pz, rad, front) => (rad > 1 - 1.15 / r ? M.rim : rad < 1.3 / r && front ? M.boss : M.face));
   v.ellipsoid(...add3(c, mul3(n, th / 2)), 0.9, 0.9, 0.9, M.boss);
 }
-/** Recurve bow gripped at g (posed): limbs along unit axis d (tip to tip), string on the archer side n (unit, perpendicular to d).
+/** Recurve bow gripped at g (posed): limbs along unit axis d (tip to tip), string on the archer side n (made perpendicular to d).
  * o: { len (half length), bend (limb sweep toward the string at the tips), recurve (tip flick away from the string over the last quarter),
  * r (limb radius), string (false = none) }. M: { limb, tip?, grip?, string? }; tip = the outer recurve (often emissive). Returns the tips [a, b]. */
-export function bow(v, g, d, n, o, M) {
-  const L = o.len ?? 9, bend = o.bend ?? 2.4, rc = o.recurve ?? 1.4, r = o.r ?? 0.6, N = Math.max(6, Math.ceil(L * 1.5));
+export function bow(v, g, d, n0, o, M) {
+  const n = norm3(sub3(n0, mul3(d, dot3(d, n0)))), L = o.len ?? 9, bend = o.bend ?? 2.4, rc = o.recurve ?? 1.4, r = o.r ?? 0.6, N = Math.max(6, Math.ceil(L * 1.5));
   const at = t => { const a = Math.abs(t), f = Math.max(0, (a - 0.75) / 0.25); return add3(add3(g, mul3(d, L * t)), mul3(n, bend * a * a - rc * f * f)); };
   for (const s of [-1, 1]) for (let i = 0; i < N; i++) {
     const t0 = s * i / N, t1 = s * (i + 1) / N, tip = M.tip && Math.abs(t1) > 0.78;
