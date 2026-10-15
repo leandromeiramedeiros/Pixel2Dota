@@ -3,14 +3,14 @@
 // pauldrons on both shoulders, dark bracers, a brown belt with a strap across the chest; dark brown trousers, grey greaves, dark boots. Both
 // fists hold the double-bladed great axe across the front, the head out to his right (-x), the long haft running down past his left hip.
 // Signature reads: red bulk with a black topknot + beard; the double-bit axe held across the body; dark iron shoulders on red arms.
-// Grid 64 x 64 x 56, ~45 voxels tall to the topknot (Pudge 45), faces -y.
+// Grid 96 x 80 x 80 (room for the great axe), ~45 voxels tall to the topknot (Pudge 45), faces -y.
 import { Vox } from '../vox.js';
 import { useMat } from '../mats.js';
 import { solve, sub3, norm3, apM } from '../rig.js';
 import { limb, band, hand, feet, pauldron, ell, cap, vol, greatAxe } from '../parts.js';
 
-export const META = { rig: 'biped', grid: [64, 64, 56], cx: 32, cy: 32 };
-const cx = 32, cy = 32;
+export const META = { rig: 'biped', grid: [96, 80, 80], cx: 48, cy: 40 };
+const cx = 48, cy = 40;
 /** Biped proportions: short legs, a broad chest, shoulders wide and high, the head set forward on a thick neck. */
 export const PROP = {
   cx, cy, hipZ: 11, hipX: 3.6, footX: 6.2, ankleY: -0.3, ankleZ: 3.4, thigh: 4.6, shin: 4.2,
@@ -23,13 +23,14 @@ const HOLD = { R: [2.6, -9.4, -4.6], L: [-4.4, -9, -10.4] };   // reach targets 
 export const rigOf = p => solve('biped', PROP, p).J;
 
 export function build(p = {}) {
-  const v = new Vox(64, 64, 56), rig = solve('biped', PROP, p), J = rig.J, T = rig.T, Rt = T.torso && T.torso.R;
+  const v = new Vox(96, 80, 80), rig = solve('biped', PROP, p), J = rig.J, T = rig.T, Rt = T.torso && T.torso.R;
   const SKIN = ['#3a0808', '#7c1614', '#a82420', '#cc4636'];
   const M = {
     skin: useMat(v, 'skin', { ramp: SKIN }),
     skinD: useMat(v, 'skinD', { ramp: ['#2a0606', '#5a0e0e', '#7c1614', '#9c2a22'] }),
     face: useMat(v, 'face', { ramp: SKIN, noShadow: true }),
     hair: useMat(v, 'hair', { ramp: ['#050304', '#120e0e', '#201818', '#342828'] }),
+    hairL: useMat(v, 'hairL', { ramp: ['#120c0c', '#2a2020', '#44363a', '#625058'], noShadow: true }),
     iron: useMat(v, 'iron', { ramp: ['#141218', '#302c36', '#4c4754', '#6c6676'] }),
     ironL: useMat(v, 'ironL', { ramp: ['#24222a', '#4a4652', '#6c6876', '#928c9a'] }),
     leather: useMat(v, 'leather', { ramp: ['#140c08', '#2e1e14', '#46301e', '#644630'] }),
@@ -99,11 +100,12 @@ export function build(p = {}) {
     cap(v, Th, [hx + dx * 0.7, hy + 1.2, hz + 4.4], [hx + dx * 1.3, hy + 1.2 + back, hz + 4.6 + up], 1.7, M.hair, 0.5);
   cap(v, Th, [hx, hy + 4.4, hz + 2], [hx, hy + 6.4, hz - 3], 2.8, M.hair, 1.6);                                 // mane down the nape
   for (const s of [-1, 1]) cap(v, Th, [hx + s * 4.6, hy + 0.4, hz + 0.4], [hx + s * 5.6, hy + 0.8, hz + 1.6], 0.9, M.face);   // ears
-  ell(v, Th, [hx, hy - 1.4, hz - 3.4], [5, 4, 3.8], M.hair, (px, py, pz) => pz < hz - 1.6 + Math.abs(px - hx) * 0.1);   // beard
+  ell(v, Th, [hx, hy - 1.4, hz - 3.4], [5, 4, 3.8], (px, py, pz) => (((px - hx) / 5) ** 2 + ((pz - hz + 3.4) / 3.8) ** 2 > 0.62 ? M.hairL : M.hair),
+    (px, py, pz) => pz < hz - 1.6 + Math.abs(px - hx) * 0.1);                                                    // beard, its outline lit so the mouth reads
   for (const s of [-1, 1]) cap(v, Th, [hx + s * 4.4, hy - 0.4, hz + 0.4], [hx + s * 4.2, hy - 1, hz - 2.8], 1.1, M.hair);  // sideburns
 
   // ---- face, painted on the front-most head voxels only: heavy brow, small pale eyes, nose shadow, a bared grimace in the beard
-  const HEAD = new Set([M.face, M.hair]);
+  const HEAD = new Set([M.face, M.hair, M.hairL]);
   const paint = (x, z, m) => { const y = v.front(x, z); if (y >= 0 && HEAD.has(v.get(x, y, z))) v.set(x, y, z, m); };
   const ox = Math.round(J.head[0] - hx), ez = Math.round(HZ + 1 + J.head[2] - hz), X = d => cx + ox + d;
   for (const [d, dz] of [[-4, 2], [-3, 2], [-2, 1], [-1, 1], [0, 0], [1, 1], [2, 1], [3, 2]]) paint(X(d), ez + dz, M.lash);
@@ -119,7 +121,7 @@ export function build(p = {}) {
   const butt = [hL[0] - d[0] * 6 + fwd[0] * lift, hL[1] - d[1] * 6 + fwd[1] * lift, hL[2] - d[2] * 6 + fwd[2] * lift];
   const span = Math.hypot(...sub3(hR, hL)) + 6;
   greatAxe(v, butt, d, Math.abs(d[1]) > 0.8 ? apM(Rt, [1, 0, 0]) : fwd,
-    { len: span + 16, head: span + 13, r: 0.9, bits: 2, reach: 7.4, l0: 2.4, l1: 6.4, th: 0.8, edge: 1.2, spike: 1.6, bands: [0.06, (span - 6) / (span + 16), 0.6] },
+    { len: span + 24, head: span + 19, r: 1, bits: 2, reach: 11.5, l0: 3.4, l1: 10, th: 0.9, edge: 1.6, spike: 2.2, bands: [0.06, (span - 6) / (span + 24), 0.55] },
     { haft: M.wood, band: M.iron, blade: M.blade, edge: M.edge });
   v.ellipsoid(butt[0], butt[1], butt[2], 1.1, 1.1, 1.1, M.iron);                                              // pommel
   return v;
@@ -132,7 +134,7 @@ const step = st => ({
   reachR: sh(HOLD.R, [0, st * 0.8, 0.8]), reachL: sh(HOLD.L, [0, st * 0.8, 0.8]),
 });
 const ROAR = { bob: 0.2, spine: [-10, 0, 0], head: [-16, 0, 0], reachR: [0.4, -1.2, 8.6], reachL: [-2, -4.6, -6.4], footR: [0, 0.6, 0], footL: [0, -0.6, 0] };
-const SLUMP = { bob: -0.8, spine: [12, 4, 5], head: [14, 8, 6], reachR: [3, -5, -11], reachL: [-3, -5, -11.4], eyes: 'shut' };
+const SLUMP = { bob: -0.8, spine: [12, 4, 5], head: [14, 8, 6], reachR: [3, -7, -5], reachL: [-3, -7, -9], eyes: 'shut' };
 /** Anims: idle = slow heavy breathing, axe across the belly; walk = a heavy stride, axe carried; attack = the axe wound up over the right
  * shoulder, then a diagonal chop across the front; cast = Berserker's Call: leans back, axe thrust up, roaring; stunned = slumped, eyes shut. */
 export const ANIMS = {
@@ -151,4 +153,5 @@ export const ANIMS = {
 };
 
 /** HUD portrait framing (tools/vox/portrait.mjs): idle, the bearded red head in the upper third, the pauldrons either side. */
-export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, HY, 34], scale: 1.6, fov: 24, sig: '#a82420', face: [4, 11, 24, 24] };
+export const PORTRAIT = { pose: ANIMS.idle[0], center: [cx, HY, 34], scale: 1.6, fov: 24, sig: '#a82420', face: [4, 11, 24, 24],
+  ambient: 0.34, fill: [0.85, -0.5, 0.45, 0.45], levels: [0.3, 0.55, 0.85] };   // lifted exposure: the beard + dark skin must not swallow the face
