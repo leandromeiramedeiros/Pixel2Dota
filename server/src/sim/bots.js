@@ -301,7 +301,7 @@ function tryCasts(w, pid, p, u, st, foes, hpPct) {
     if (ab.key === 'mirana_leap' && (!tgt || bd < 300)) continue;
     if (b.indexOf('UNIT_TARGET') >= 0) {
       if (d.targetTeam === 'FRIENDLY') { if (hpPct < 0.7) { if (cmd(w, pid, u, st, { t: 'cast', slot: i, id: u.id })) return true; } continue; }
-      if (!tgt || (tgt._st & ST.MAGIC_IMMUNE && !(d.dispellable === 'strong'))) continue;
+      if (!tgt || (tgt._st & ST.MAGIC_IMMUNE && d.immunity !== 'ENEMIES_YES')) continue;   // DATA SpellImmunityType
       if (cmd(w, pid, u, st, { t: 'cast', slot: i, id: tgt.id })) return true;
     } else if (b.indexOf('POINT') >= 0) {
       if (!tgt) continue;

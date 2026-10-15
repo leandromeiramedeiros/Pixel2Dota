@@ -14,7 +14,7 @@
 //   onDamaged(w, u, ab, src, dealt, type)       after the owner took any damage
 //   onKill(w, u, ab, victim) / onDeath(w, u, ab, killer)
 //   canCast(w, u, ab, target) -> true | string (reason)     castRange(w,u,ab) / castPoint / manaCost / cooldown(w,u,ab) overrides
-//   targeting: 'unit'|'point'|'none' (override of DATA behavior)    pierce: true (works on magic immune)    autocast: true (toggle on no-target cast)
+//   targeting: 'unit'|'point'|'none' (override of DATA behavior)    pierce: true (override: targets debuff-immune enemies; default from DATA immunity ENEMIES_YES)    autocast: true (toggle on no-target cast)
 //   learnReq(w, u, ab) -> min hero level to learn the next level     channelTick/channelEnd also supported via the object returned by cast()
 // }
 import { HERO_KEYS, HEROES } from '../../../../shared/heroes.js';

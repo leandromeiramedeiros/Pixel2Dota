@@ -208,7 +208,8 @@ function unitTargetOk(w, u, t, d, h, itemSpec) {
     const isH = t.kind === KIND.HERO, isB = t._building;
     if (!((isH && ty.indexOf('HERO') >= 0) || (isB && ty.indexOf('BUILDING') >= 0) || (!isH && !isB && (ty.indexOf('BASIC') >= 0 || ty.indexOf('CREEP') >= 0)))) return false;
   }
-  if (t.team !== u.team && (t._st & ST.MAGIC_IMMUNE) && !(h && h.pierce) && !(itemSpec && itemSpec.pierce)) return false;
+  // debuff-immune enemies: only abilities whose DATA SpellImmunityType is ENEMIES_YES (or a handler pierce override) can target them
+  if (t.team !== u.team && (t._st & ST.MAGIC_IMMUNE) && !(h && h.pierce) && !(d && d.immunity === 'ENEMIES_YES') && !(itemSpec && itemSpec.pierce)) return false;
   if (t.team !== u.team && (t._st & ST.INVIS) && !(t._st & ST.REVEALED)) return false;
   return true;
 }

@@ -70,7 +70,7 @@ export default {
   pudge_flesh_heap: {
     cast(w, u, ab) {
       const lv = ab.level, dur = w.val(FH, 'duration', lv);
-      w.addModifier(u, { key: FH, src: u, dur, mr: w.val(FH, 'damage_block', lv), debuff: false, purge: 'basic' });
+      w.addModifier(u, { key: FH, src: u, dur, mr: w.val(FH, 'damage_block', lv), debuff: false });   // purge from DATA (dispel NO)
       return { dur, r: 140 };
     },
     bonus(w, u, ab, b) { b.str += (u._fhStacks || 0) * FH_STR[Math.min(ab.level, FH_STR.length) - 1]; },

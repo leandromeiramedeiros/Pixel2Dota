@@ -63,7 +63,7 @@ export default {
         onHit(w2, p, v) {
           w2.damage(u, v, dmg, 'mag', { ability: key });
           if (v._dead) { ab.cd = Math.max(0, ab.cd - refund); return; }
-          w2.addModifier(v, { key: key + '_stun', src: u, dur: MINI_STUN, status: ST.STUN, debuff: true, purge: 'strong' });
+          w2.addModifier(v, { key: key + '_stun', src: u, dur: MINI_STUN, status: ST.STUN, debuff: true });   // purge from DATA (dispel NO)
         },
       });
       return { t: t.id };

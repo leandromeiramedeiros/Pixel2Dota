@@ -238,7 +238,7 @@ const spells = {
       w.after(delay, (w2) => {
         let total = 0;
         for (const v of w2.unitsInRadius(x, y, r, foes(u))) {
-          if (v._st & (ST.INVULN | ST.MAGIC_IMMUNE)) continue;
+          if (v._st & ST.INVULN) continue;   // debuff-immune units are burned too (no debuff involved)
           const b = Math.min(burn, v.mana);
           if (b <= 0) continue;
           v.mana -= b; total += b;
@@ -259,15 +259,16 @@ const spells = {
       const tp = w.spawnProjectile({
         src: u, dir, range: dist, speed, radius: r, pierce: true, k: key,
         onHit(w2, p, v) {
-          if (v._building || (v._st & (ST.INVULN | ST.MAGIC_IMMUNE))) return;
-          w2.addModifier(v, {
-            key: 'invoker_tornado_lift', src: u, dur: lift, status: ST.STUN | ST.INVULN, debuff: true, purge: 'strong', lifted: true,
+          if (v._building || (v._st & ST.INVULN)) return;
+          const m = w2.addModifier(v, {
+            key: 'invoker_tornado_lift', src: u, dur: lift, status: ST.STUN | ST.INVULN, debuff: true, lifted: true,   // purge from DATA (dispel YES)
             onExpire(w3, t, m, reason) {
               if (reason !== 'expired') return;
               t._st &= ~ST.INVULN;   // our own modifier is already gone but the status bits are only rebuilt after this hook
               w3.damage(u, t, dmg, 'mag', { ability: key });
             },
           });
+          if (!m) { w2.damage(u, v, dmg, 'mag', { ability: key }); return; }   // debuff immune: no lift, the damage lands on contact
           evSpell(w2, key, u.id, { sub: 'lift', t: v.id, x: Math.round(v.x), y: Math.round(v.y), dur: lift });   // the cyclone on the caught unit (client fx)
         },
       });
@@ -295,7 +296,7 @@ const spells = {
       // vision of the target area from the cast through the delay and vision_duration after the strike (baked: 400 / 4 s)
       w.addVision({ owner: u, x, y, r: V(w, u, key, 'vision_distance') || VISION_FALLBACK.r, dur: delay + (V(w, u, key, 'vision_duration') || VISION_FALLBACK.dur) });
       w.after(delay, (w2) => {
-        const hit = w2.unitsInRadius(x, y, r, foes(u)).filter((v) => !(v._st & (ST.INVULN | ST.MAGIC_IMMUNE)));
+        const hit = w2.unitsInRadius(x, y, r, foes(u)).filter((v) => !(v._st & ST.INVULN));   // DATA ENEMIES_YES: hits debuff-immune units
         const heroes = hit.filter((v) => v.kind === 'hero').length;
         for (const v of hit) w2.damage(u, v, v.kind === 'hero' && heroes > 1 ? dmg / heroes : dmg, 'pure', { ability: key });   // damage is split among enemy heroes
       });
@@ -369,15 +370,15 @@ const spells = {
         filter(v) {
           const along = (v.x - x0) * cs + (v.y - y0) * sn, side = Math.abs(-(v.x - x0) * sn + (v.y - y0) * cs);
           const width = r0 + (r1 - r0) * clamp((dist - p.left) / dist, 0, 1);
-          return !(v._st & (ST.INVULN | ST.MAGIC_IMMUNE)) && side <= width + v.radius && along > -v.radius;
+          return !(v._st & ST.INVULN) && side <= width + v.radius && along > -v.radius;
         },
         onHit(w2, pp, v) {
           if (v._building) return;
           w2.damage(u, v, dmg, 'mag', { ability: key });
           if (v._dead) return;
           const dx = v.x - x0, dy = v.y - y0, l = Math.hypot(dx, dy);
-          w2.addModifier(v, { key: 'invoker_deafening_blast_disarm', src: u, dur: kb + dis, status: ST.DISARM, debuff: true });
-          w2.knockback(v, { dx: l > 1e-3 ? dx : cs, dy: l > 1e-3 ? dy : sn, dist: kb * KNOCK_SPEED, speed: KNOCK_SPEED });
+          w2.addModifier(v, { key: 'invoker_deafening_blast_disarm', src: u, dur: kb + dis, status: ST.DISARM, debuff: true });   // blocked by debuff immunity; purge from DATA (NO)
+          if (!(v._st & ST.MAGIC_IMMUNE)) w2.knockback(v, { dx: l > 1e-3 ? dx : cs, dy: l > 1e-3 ? dy : sn, dist: kb * KNOCK_SPEED, speed: KNOCK_SPEED });
         },
       });
       w.addVision({ owner: u, x: x0, y: y0, r: r1, projectile: p, linger: V(w, u, key, 'end_vision_duration') });   // the wave's own width; baked has no travel-vision radius
