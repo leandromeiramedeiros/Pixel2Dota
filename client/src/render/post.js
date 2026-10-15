@@ -474,7 +474,9 @@ void main(){
     c = 1. - (1. - min(c, 1.)) * (1. - min(sct, vec3(.95)));
     c += max(sct - .95, 0.) * .2;
   }
-  c += b * uBloom * (1. - min(c, 1.));
+  // hue-bounded: an unbounded b would only land in the channels still below 1 (blue over a warm core) and the roll-off below
+  // would then rescale the pixel to that channel (a stacked HDR core turned into a blue hole)
+  c += b / max(1., max(b.r, max(b.g, b.b))) * uBloom * (1. - min(c, 1.));
   vec3 bb = min(b, vec3(1.)); c += bb * bb * .1;   // bounded: a stacked core must not add unbounded white
   // soft knee above 0.85 so HDR highlights roll off instead of clipping
   c = tmHue(c, .85);
