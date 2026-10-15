@@ -383,6 +383,7 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   let pathHero = null;
   const drawnPos = (id) => { const pk = renderer.actors && renderer.actors.picks; if (pk) for (const p of pk) if (p.id === id && Number.isFinite(p.x)) return p; const s = ctxState.state; return s && s.units ? s.units.get(id) || null : null; };
   function drawRings(hero) {
+    if (ring.width !== Math.round((hudRoot.clientWidth || innerWidth) * (window.devicePixelRatio || 1))) applyScale();   // backstop for a missed resize
     ringCtx.clearRect(0, 0, ring.width, ring.height); ringCtx.globalAlpha = 1;
     pathHero = hero && !(hero.respawn > 0) ? hero : null;
     if (!pathHero) paths.clear();
@@ -589,11 +590,14 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   applyScale();
   const onResize = () => applyScale();
   addEventListener('resize', onResize);
+  // a rotation / fullscreen / browser-bar settle can land after the last resize event: a stale ring canvas cut the rangefinder off mid-screen
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => applyScale()) : null;
+  if (ro) ro.observe(hudRoot);
 
   return {
     update, fx,
     destroy() {
-      removeEventListener('resize', onResize);
+      removeEventListener('resize', onResize); if (ro) ro.disconnect();
       tooltip.destroy(); shop.destroy(); minimap.destroy(); feed.destroy(); msgs.destroy(); chat.destroy(); end.destroy();
       hudRoot.textContent = ''; hudRoot.classList.remove('h-root');
     },
