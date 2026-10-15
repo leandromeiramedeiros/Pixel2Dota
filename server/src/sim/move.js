@@ -2,6 +2,7 @@
 import { canMove } from './status.js';
 
 const TAU = Math.PI * 2;
+const TURN_FREE = 0.2, TURN_STOP = Math.PI / 2;   // rad: walk straight below FREE, curve between, turn in place at/above STOP
 export function norm(a) { while (a > Math.PI) a -= TAU; while (a <= -Math.PI) a += TAU; return a; }
 export const angDiff = (a, b) => norm(b - a);
 
@@ -52,10 +53,14 @@ export function stepMove(w, u, dt) {
     }
   }
   const ang = Math.atan2(wy - u.y, wx - u.x);
+  // Turn while moving: nearly aligned -> full speed straight at the waypoint; otherwise advance along the current facing at
+  // cos(misalignment) speed (a curved start) and only turn in place beyond TURN_STOP. Approximation of Dota's turn-then-walk.
   const rem = faceToward(u, ang, dt);
-  if (rem > 0.35) return false;
-  const step = Math.min(u.ms * dt, Math.hypot(wx - u.x, wy - u.y));
-  const o = nav.slide(u.x, u.y, u.radius, u.x + Math.cos(ang) * step, u.y + Math.sin(ang) * step);
+  if (rem >= TURN_STOP) return false;
+  const along = rem <= TURN_FREE;
+  const step = Math.min(u.ms * dt * (along ? 1 : Math.cos(rem)), Math.hypot(wx - u.x, wy - u.y));
+  const da = along ? ang : u.facing;
+  const o = nav.slide(u.x, u.y, u.radius, u.x + Math.cos(da) * step, u.y + Math.sin(da) * step);
   const moved = Math.hypot(o.x - u.x, o.y - u.y);
   u.x = o.x; u.y = o.y;
   if (moved > 0.01) u._moved = true;

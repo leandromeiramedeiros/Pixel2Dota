@@ -106,7 +106,7 @@ export function think(w, u, dt) {
     case ORDER.HOLD: {
       let t = u._tgt;
       if (t && !(attackable(u, t) && inAttackRange(u, t, 0))) t = u._tgt = null;
-      if (!t && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius);
+      if (!t && !(u._st & ST.INVIS) && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius);
       break;
     }
     case ORDER.CAST: case ORDER.ITEM: doCast(w, u, o, dt); break;
@@ -125,7 +125,7 @@ export function tauntSource(w, u) {
 function idle(w, u) {
   let t = u._tgt;
   if (t && !(attackable(u, t) && inAttackRange(u, t, 20))) t = u._tgt = null;
-  if (!t && u.atkRate > 0 && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius + 20);
+  if (!t && u.atkRate > 0 && !(u._st & ST.INVIS) && ((w.tick + u._nid) & 3) === 0) u._tgt = acquire(w, u, u.atkRange + u.radius + 20);   // invisible units never auto-attack
 }
 
 /** Walk into range of t (chasing), attack once there. u._tgt must already be t. */

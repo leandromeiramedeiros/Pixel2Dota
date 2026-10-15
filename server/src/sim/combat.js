@@ -85,7 +85,8 @@ export function tickAttack(w, u, dt) {
     u._mv = null;
   }
   if (u._cd > 0) return;
-  u._cd = u._interval;
+  // The cooldown is only spent when the attack actually goes off (launch): a windup cancelled by an order, a stun or the
+  // target leaving range + AttackRangeBuffer costs nothing and the unit can start a fresh attack at once.
   u._wind = u._windup; u._windTgt = t;
   u._animType = 'attack'; u._animUntil = w.time + Math.max(u._windup + 0.12, 0.28);
   u.animSeq = (u.animSeq + 1) & 0xffff; u.animRate = Math.max(0.5, Math.min(3, u._asMult));
@@ -93,7 +94,8 @@ export function tickAttack(w, u, dt) {
 }
 
 function launch(w, u, t) {
-  if (!inAttackRange(u, t, ATTACK_RANGE_BUFFER)) return;
+  if (!inAttackRange(u, t, ATTACK_RANGE_BUFFER)) return;   // target escaped during the windup: no attack, no cooldown
+  u._cd = Math.max(0, u._interval - u._windup);              // attack-start to attack-start stays = _interval
   breakInvis(w, u);
   evAtk(w, u.id, t.id, u._ranged ? u._projKey || u._short || 'arrow' : '', u._ranged ? u._base.projSpeed : 0);
   if (u._ranged) {
