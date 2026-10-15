@@ -16,6 +16,24 @@
 // Quality: G.lod follows the particle density preset (quality.js particles: low .3 -> 0, medium .6 -> 1, high/ultra 1 -> 2). lod 0 swaps
 // tubes to 12 sides and orbs / rocks to the bare icosahedron (20 faces); recipes read G.lod to drop counts / outer shells.
 // Coordinates are WORLD (x east, y north, z up); the batches convert to three (x, z, -y).
+//
+// API (G = c.G; every call returns false when its batch is full or a <= 0; col = [r,g,b] HDR; a = alpha gain, stepped / dithered)
+//   G.tube(x, y, z, h, r0, r1, col, a, o)        base centre, height along o.axis, base / top radius
+//        o {axis [x,y,z], sweep, start, edge, front, swirl, phase, pow, flare, top, foot, footPull}
+//   G.disc(x, y, z, R, mode, col, a, o)          flat on the ground at z; mode 0 RING {rin, p1 power, p2 rim}, 1 TARGET {n dashes, p0 phase, p1 fill,
+//        p2 rays}, 2 SHOCK {p0 front 0..1, p1 band, p2 mist, n cells}, 3 FILL {p1 falloff, p2 noise, p3 rim, rin spokes, n, p0 spoke phase}
+//   G.orb(x, y, z, R, col, a, mode, o)           centre; mode G.GLOW {p2 centre fill} | G.ICE {p1 glint share}; o {sx, sy, sz, yaw, pitch, roll, lump, seed, foot, footPull}
+//   G.shard(x, y, z, L, w, yaw, pitch, roll, col, a, mode, o)   base point -> tip; ICE / GLOW; o {lump, seed, p1, p2, foot, footPull}
+//   G.rock(x, y, z, R, lava, heat, spin, a, o)   opaque lava rock (writes depth)
+//   b = G.newBolt() (pooled, null when all 20 are out) ; b.roll(c.T, period, x0, y0, z0, x1, y1, z1, {depth, jag, branches, branchLen, branchJag})
+//        G.bolt(b, glowCol, glowPx, coreCol, corePx, a) every frame ; G.free(b) when done (c.run(dur, fn, () => G.free(b)))
+//   G.lod (0 low, 1 medium, 2 high / ultra) ; G.stats (this frame's instance counts) ; G.peak / G.resetPeak() (budget high-water marks)
+// Depth near units: voxel units write their FOOT depth (mesh3d propDepth: foot card pulled ~20 toward the camera), so anything at body height
+// with real depth wins the depth test even behind them. foot / footPull: solids take ONE depth (their centre's ground point: hidden whole,
+// never chopped), tubes take it PER VERTEX (a band round a unit splits at his sides; the camera-side half also takes the nearer upright-card
+// depth so it stays in front of sprites (sprites.js), and above FOOT_TOP (140) the depth blends back to real so tall columns are not swallowed
+// by terrain behind). Discs lie on the ground; bolts use real depth (+12).
+// Only call G.* from update-time code (c.run / c.later callbacks, projectile trail / hit / tick, R.each), never from an event handler.
 import * as THREE from 'three';
 import { COMMON_GLSL, UNIFORMS_GLSL } from '../shaderlib.js';
 
@@ -46,13 +64,14 @@ vec4 outCol(vec3 col, float v, float n){            // stepped intensity bands (
 }`;
 
 const TUBE_VERT = /* glsl */ `
+#define FOOT_TOP 140.
 attribute vec2 aRing;      // u around (0..1 of the sweep), t along the axis (0 = base, 1 = top)
 attribute vec4 aP;         // base (three coords), height
 attribute vec4 aR;         // r0, r1, seed, fresnel power
 attribute vec4 aC;         // rgb (HDR), alpha gain
 attribute vec4 aS;         // front (0..1: fragment hidden below it, a descending head), swirl amount, phase, top-fade start
 attribute vec4 aQ;         // axis (three coords, unit), sweep (rad, TAU = closed)
-attribute vec4 aU;         // start angle (world yaw for a vertical axis), arc end fade (fraction of the sweep), -, -
+attribute vec4 aU;         // start angle (world yaw for a vertical axis), arc end fade (fraction of the sweep), foot ground height (three y), foot pull (> 0 = on)
 varying vec3 vN, vW, vC; varying float vT, vH, vA, vK, vU; varying vec4 vS, vR, vQ;
 void main(){
   float t = aRing.y;
@@ -66,7 +85,18 @@ void main(){
   vN = dir;
   vW = wp; vC = aC.rgb; vK = aC.w; vT = t; vH = aP.w; vS = aS; vR = aR; vU = aRing.x; vQ = vec4(aQ.w, aU.y, 0., 0.);
   vA = ang;
-  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.);
+  vec4 cr = projectionMatrix * viewMatrix * vec4(wp, 1.);
+  if (aU.w > 0.) {   // sprite depth per vertex: dropped to the ground and pulled toward the camera, so a ring round a unit splits at its sides
+    vec4 cf = projectionMatrix * viewMatrix * vec4(wp.x, aU.z, wp.z + aU.w, 1.);
+    float zf = cf.z / cf.w;
+    if (dot(dir.xz, cameraPosition.xz - aP.xz) > 0.) {   // camera-side half: also in front of upright-card sprites (sprites.js), whichever is nearer
+      vec4 cu = projectionMatrix * viewMatrix * vec4(wp.x, wp.y, wp.z + aU.w, 1.);
+      zf = min(zf, cu.z / cu.w);
+    }
+    float k = smoothstep(FOOT_TOP, FOOT_TOP + 60., wp.y - aU.z);                 // above unit height: real depth (terrain / cliffs behind)
+    cr.z = mix(zf * cr.w, cr.z, k);
+  }
+  gl_Position = cr;
 }`;
 const TUBE_FRAG = /* glsl */ `
 precision highp float;
@@ -441,7 +471,9 @@ export function createGeo3d({ scene, uniforms, particles }) {
    *  col = [r,g,b] HDR, a = alpha gain (dithers).
    *  o: {front (0..1, hides everything below it: a column dropping from the sky), swirl (0..1 spiral bands), phase (spiral scroll), pow (fresnel power, 2 = soft shell, 0.6 = solid core, 0 = flat),
    *      flare (1 = ground flare at the base), top (fade start 0..1),
-   *      axis [x,y,z] (world, unit; default up), sweep (rad, default TAU = closed), start (rad, world yaw of the arc start), edge (arc end fade, fraction of the sweep, default .2)} */
+   *      axis [x,y,z] (world, unit; default up), sweep (rad, default TAU = closed), start (rad, world yaw of the arc start), edge (arc end fade, fraction of the sweep, default .2),
+   *      foot (world z of the ground) + footPull (default 20): every vertex takes the depth of its own ground point pulled toward the camera,
+   *      so a band / arc round a voxel unit at body height is hidden behind him on the far side and drawn over him on the near side} */
   function tube(x, y, z, h, r0, r1, col, a, o) {
     if (T.n >= T.max || a <= 0 || (window.__gm & 1)) return false;
     o = o || DEF;
@@ -452,7 +484,8 @@ export function createGeo3d({ scene, uniforms, particles }) {
     d[i + 12] = o.front || 0; d[i + 13] = o.swirl || 0; d[i + 14] = o.phase || 0; d[i + 15] = o.top == null ? 0.85 : o.top;
     const ax = o.axis;
     if (ax) { d[i + 16] = ax[0]; d[i + 17] = ax[2]; d[i + 18] = -ax[1]; } else { d[i + 16] = 0; d[i + 17] = 1; d[i + 18] = 0; }
-    d[i + 19] = o.sweep || TAU; d[i + 20] = o.start || 0; d[i + 21] = o.edge == null ? 0.2 : o.edge; d[i + 22] = 0; d[i + 23] = 0;
+    d[i + 19] = o.sweep || TAU; d[i + 20] = o.start || 0; d[i + 21] = o.edge == null ? 0.2 : o.edge;
+    if (o.foot != null) { d[i + 22] = o.foot; d[i + 23] = o.footPull == null ? 20 : Math.max(0.01, o.footPull); } else { d[i + 22] = 0; d[i + 23] = 0; }
     return true;
   }
   function solid(B, x, y, z, size, sx, sy, sz, yaw, pitch, roll, col, a, mode, o) {
@@ -534,8 +567,9 @@ export function createGeo3d({ scene, uniforms, particles }) {
     }
   }
 
+  const peak = { tubes: 0, discs: 0, ribbons: 0, orbs: 0, shards: 0, rocks: 0, bolts: 0 };
   return {
-    tube, disc, bolt, newBolt, free, genBolt, orb, shard, rock, meshes, GLOW, ICE,
+    tube, disc, bolt, newBolt, free, genBolt, orb, shard, rock, meshes, GLOW, ICE, MOLTEN,
     /** 0 low, 1 medium, 2 high / ultra (from the particle density preset) */
     get lod() { return lod; },
     begin() { setLod(); for (let i = 0; i < batches.length; i++) batches[i].n = 0; },
@@ -545,7 +579,12 @@ export function createGeo3d({ scene, uniforms, particles }) {
         m.geometry.instanceCount = b.n; m.visible = b.n > 0;
         if (b.n) { b.buf.clearUpdateRanges(); b.buf.addUpdateRange(0, b.n * b.stride); b.buf.needsUpdate = true; }
       }
+      peak.tubes = Math.max(peak.tubes, T.n); peak.discs = Math.max(peak.discs, D.n); peak.ribbons = Math.max(peak.ribbons, Rb.n);
+      peak.orbs = Math.max(peak.orbs, O.n); peak.shards = Math.max(peak.shards, S.n); peak.rocks = Math.max(peak.rocks, K.n); peak.bolts = Math.max(peak.bolts, BOLTS - bfree.length);
     },
+    /** budget high-water marks since the last resetPeak() (debug / capture logging: window.__fxGeo.peak) */
+    get peak() { return peak; },
+    resetPeak() { for (const k in peak) peak[k] = 0; },
     get stats() { return { tubes: T.n, discs: D.n, ribbons: Rb.n, orbs: O.n, shards: S.n, rocks: K.n }; },
     dispose() { for (const m of meshes) { m.geometry.dispose(); m.material.dispose(); if (scene) scene.remove(m); } },
   };
