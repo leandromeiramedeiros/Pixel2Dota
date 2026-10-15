@@ -1,6 +1,7 @@
 // Offline render sandbox: mock units walking the lanes, real towers / barracks / ancients, day-night toggle, particle demos.
 // FX demo keys (fxdemo.js): 1-9,0 next spell of hero N, C cycle all spells, I items, M basic-attack projectiles, window.__fx.all().
-// Keys: WASD / screen edge pan, wheel zoom, N day/night, 1-4 particle demos at the cursor, F fog, B bloom, P pixel scale, L lane tour, click select.
+// Keys: WASD / screen edge pan, wheel zoom, N day/night, 1-4 particle demos at the cursor, F fog, B bloom, P pixel scale, L lane tour, click select,
+// H pick hitboxes (every unit box + the hover winner, render/pick.js; window.__pickAt = {x, y} pins the cursor, window.__shot() -> PNG data url with the boxes).
 import { loadSheets } from './art/atlas.js';
 import { createRenderer } from './render/index.js';
 import { getMap, heightAt } from '../../shared/map.js';
@@ -196,8 +197,31 @@ addEventListener('keydown', (e) => {
   else if (k === 'l') { tour = !tour; tourT = 0; }
   else if (k === ' ') r.snapTarget(myHero.x, myHero.y);
   else if (k === 'g') r.fog.revealAll(!revealed), revealed = !revealed;
+  else if (k === 'h') { pickDbg = !pickDbg; dbg.style.display = pickDbg ? 'block' : 'none'; }
 });
 let revealed = false;
+// pick hitbox debug (H): a 2D canvas over the game, outlines of every pick box (cyan units, amber buildings) + the box the hover / click selects (red)
+const dbg = document.createElement('canvas'); dbg.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;display:none';
+document.body.appendChild(dbg);
+let pickDbg = false;
+function drawPickDebug() {
+  if (!pickDbg) return;
+  if (dbg.width !== innerWidth || dbg.height !== innerHeight) { dbg.width = innerWidth; dbg.height = innerHeight; }
+  const g = dbg.getContext('2d'); g.clearRect(0, 0, dbg.width, dbg.height);
+  const cur = window.__pickAt || (mouse.in ? mouse : null);
+  const d = r.pickDebug(cur ? cur.x : -1e6, cur ? cur.y : -1e6);
+  g.lineWidth = 1;
+  for (const b of d.boxes) {
+    if (b.x1 < 0 || b.y1 < 0 || b.x0 > dbg.width || b.y0 > dbg.height) continue;
+    g.strokeStyle = b.id === d.winner ? '#ff3b3b' : b.building ? '#ffb040' : '#40e0ff';
+    g.fillStyle = b.id === d.winner ? 'rgba(255,59,59,.22)' : 'rgba(0,0,0,0)';
+    g.lineWidth = b.id === d.winner ? 2 : 1;
+    g.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0); g.strokeRect(b.x0 + 0.5, b.y0 + 0.5, b.x1 - b.x0, b.y1 - b.y0);
+  }
+  if (cur) { g.strokeStyle = '#ffffff'; g.beginPath(); g.moveTo(cur.x - 8, cur.y); g.lineTo(cur.x + 8, cur.y); g.moveTo(cur.x, cur.y - 8); g.lineTo(cur.x, cur.y + 8); g.stroke(); }
+}
+// PNG of the game frame + hitbox overlay (data url); same-task readback, so it works without preserveDrawingBuffer
+window.__shot = () => { step(1 / 60); drawPickDebug(); const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height; const g = c.getContext('2d'); g.drawImage(canvas, 0, 0); if (pickDbg) g.drawImage(dbg, 0, 0, c.width, c.height); return c.toDataURL('image/png'); };
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); r.zoom(Math.sign(e.deltaY) * 3); }, { passive: false });
 addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true; });
@@ -236,6 +260,7 @@ function step(dt) {
     r.setTarget(a[0] + (b[0] - a[0]) * (f - i), a[1] + (b[1] - a[1]) * (f - i));
   }
   r.update(view, dt);
+  drawPickDebug();
 }
 window.__frame = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) step(dt); return r.stats; };
 window.__bench = (n = 60) => {
@@ -251,7 +276,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
-  if (!window.__pause) step(dt); // __pause = true freezes the sim (for screenshots); __frame() still steps manually
+  if (!window.__pause) step(dt); else drawPickDebug(); // __pause = true freezes the sim (for screenshots); __frame() still steps manually
   const s = r.stats;
   hud.textContent = `${fps.toFixed(0)} fps  cpu ${s.cpuMs.toFixed(1)}ms  rt ${s.rt}  ${view.night ? 'night' : 'day'}\n` +
     `units ${s.units}  trees ${s.trees}  sprites ${s.sprites}  lights ${s.lights}  chunks ${s.chunks}  tris ${s.tris}\n` +

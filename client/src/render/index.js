@@ -16,7 +16,9 @@ import { createSprites } from './sprites.js';
 import { createActors } from './actors.js';
 import { createBuildings3d } from './buildings3d.js';
 import { createTrees3d } from './trees3d.js';
-import { createVoxActors } from './voxactors.js';
+import { createVoxActors, LEAN_TO, LEAN_K } from './voxactors.js';
+import { INFO as BINFO } from './buildings3d.js';
+import { pickAt, cylinderBox, minBox } from './pick.js';
 import { createClutter3d } from './clutter3d.js';
 import { createFog } from './fog.js';
 import { createShadow } from './shadow.js';
@@ -170,33 +172,82 @@ export function createRenderer({ canvas, sheets }) {
     return [[-1, 1 - t], [1, 1 - t], [1, b], [-1, b]].map(([nx, ny]) => { _d.set(nx, ny, 0.5).unproject(cam).sub(_o).normalize(); return rayToGround(_o, _d, gz, 6000); });
   }
 
-  /** Sprite hit test (alpha-tested, replicating the vertex shader's screen layout). */
-  function pickSprite(sx, sy) {
-    const cam = rig.camera, rtW = post.width, rtH = post.height;
-    const mx = (sx / cssW) * rtW, my = (1 - sy / cssH) * rtH;
-    let best = null, bestW = Infinity, bestTree = null, bestTreeW = Infinity;
+  // ---- picking (rule + boxes: pick.js) ---------------------------------------------------------------------------------------------
+  const BODY_K = { tower: [0.6, 0.68, 0.2], barracks: [0.95, 0.7, 0.2], fort: [0.75, 0.7, 0.2], fountain: [0.75, 0.7, 0.2], filler: [0.8, 0.7, 0.2] };   // building body box: [radius, height] share of INFO R / H, pad below the foot (share of r)
+  const tightMap = new WeakMap();
+  /** Tight opaque bounds of a sprite frame in screen-oriented pixels (flip applied), cached per frame object. */
+  function tightOf(f) {
+    let t = tightMap.get(f); if (t) return t;
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (let y = 0; y < f.h; y++) for (let x = 0; x < f.w; x++) if (atlas.texel(f, f.flip ? f.w - 1 - x : x, y)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    t = x1 < x0 ? { x0: 0, x1: f.w - 1, y0: 0, y1: f.h - 1 } : { x0, x1, y0, y1 };
+    tightMap.set(f, t); return t;
+  }
+  /** world -> css px + clip w + css px per world unit at that depth (null behind the camera) */
+  function projCss(x, y, z) {
+    const cam = rig.camera;
+    _v4.set(x, z, -y, 1).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix);
+    const w = _v4.w; if (w <= 0) return null;
+    return { sx: (_v4.x / w * 0.5 + 0.5) * cssW, sy: (1 - (_v4.y / w * 0.5 + 0.5)) * cssH, w, k: 0.5 * cssH * cam.projectionMatrix.elements[5] / w };
+  }
+  /** Lean of a voxel model (voxactors.js vertex shader): tilt th about the feet away from the camera. */
+  function leanOf(x, y, z) {
+    const c = rig.camera.position, dx = x - c.x, dz = -y - c.z, hl = Math.hypot(dx, dz);
+    if (hl < 1e-3) return null;
+    return { dx: dx / hl, dy: -dz / hl, th: Math.max(0, Math.atan2(c.y - z, hl) - LEAN_TO) * LEAN_K };
+  }
+  /** Screen boxes (css px) of every live unit this frame: [{ id, building, x0, y0, x1, y1, w }]. Voxel units and buildings: world cylinder of the body
+   *  through the camera (perspective-correct); sprite units: tight opaque bounds of the drawn frame. */
+  function pickBoxes(touch = false) {
+    const cam = rig.camera, rtW = post.width, rtH = post.height, out = [];
     const persp = uniforms.uPersp.value, art = uniforms.uArtPx.value, ref = uniforms.uRefW.value;
     for (const p of actors.picks) {
+      if (!p.id) continue;
+      const f = p.f; let box = null;
+      if (p.b) {
+        const bi = BINFO[p.b], k = BODY_K[p.b] || BODY_K.filler;
+        box = cylinderBox(projCss, p.x, p.y, p.z, bi.R * k[0], bi.H * k[1], { pad: k[2], touch });
+      } else if (f.vox) {
+        box = cylinderBox(projCss, p.x, p.y, p.z, (f.hw || f.r) * p.scale, (f.ptop || f.top) * p.scale, { lean: f.lean === false ? null : leanOf(p.x, p.y, p.z), touch });
+      } else {
+        _v4.set(p.x, p.z, -p.y, 1).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix);
+        const w = _v4.w; if (w <= 0) continue;
+        const fx = Math.floor((_v4.x / w * 0.5 + 0.5) * rtW + 0.5), fy = Math.floor((_v4.y / w * 0.5 + 0.5) * rtH + 0.5);
+        let s = art * p.scale * (1 + (ref / w - 1) * persp);
+        s = persp ? s : Math.max(1, Math.floor(s + 0.5));
+        if (f.dens > 1) s /= f.dens;
+        const t = tightOf(f), kx = cssW / rtW, ky = cssH / rtH;
+        const xl = fx + (t.x0 - 0.5 - f.ax) * s, xr = fx + (t.x1 + 0.5 - f.ax) * s, yt = fy + (f.ay - t.y0 + 0.5) * s, yb = fy + (f.ay - t.y1 - 0.5) * s;   // render-target px, y up
+        box = { ...minBox(xl * kx, (rtH - yt) * ky, xr * kx, (rtH - yb) * ky, touch), w };
+      }
+      if (box) { box.id = p.id; box.building = !!p.b; box.p = p; out.push(box); }
+    }
+    return out;
+  }
+  /** First tree under the cursor (alpha-tested sprite silhouette), nearest to the camera. */
+  function pickTree(sx, sy) {
+    const cam = rig.camera, rtW = post.width, rtH = post.height, mx = (sx / cssW) * rtW, my = (1 - sy / cssH) * rtH;
+    const persp = uniforms.uPersp.value, art = uniforms.uArtPx.value, ref = uniforms.uRefW.value;
+    let best = null, bestW = Infinity;
+    for (const p of actors.picks) {
+      if (p.id) continue;
       const f = p.f;
       _v4.set(p.x, p.z, -p.y, 1).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix);
-      const w = _v4.w; if (w <= 0) continue;
-      const nx = _v4.x / w, ny = _v4.y / w;
-      const fx = Math.floor((nx * 0.5 + 0.5) * rtW + 0.5), fy = Math.floor((ny * 0.5 + 0.5) * rtH + 0.5);
+      const w = _v4.w; if (w <= 0 || w >= bestW) continue;
+      const fx = Math.floor((_v4.x / w * 0.5 + 0.5) * rtW + 0.5), fy = Math.floor((_v4.y / w * 0.5 + 0.5) * rtH + 0.5);
       let s = art * p.scale * (1 + (ref / w - 1) * persp);
       s = persp ? s : Math.max(1, Math.floor(s + 0.5));
-      if (f.dens > 1) s /= f.dens;                                   // double-resolution hero sheets: dense px = 1/dens of a snapped art px
+      if (f.dens > 1) s /= f.dens;
       const lx = Math.floor((mx - fx) / s + f.ax + 0.5), ly = Math.floor(f.ay + 0.5 - (my - fy) / s);
       if (lx < -2 || ly < -2 || lx > f.w + 1 || ly > f.h + 1) continue;
-      let hit = !!f.vox;                                              // voxel units: footprint box (voxactors.js footFrame), no texels
-      if (!hit) for (const [dx, dy] of p.id ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]]) {
-        const tx = lx + dx, ty = ly + dy;
-        if (atlas.texel(f, f.flip ? f.w - 1 - tx : tx, ty)) { hit = true; break; }
-      }
-      if (!hit) continue;
-      if (p.id) { if (w < bestW) { bestW = w; best = p; } }
-      else if (w < bestTreeW) { bestTreeW = w; bestTree = p; }
+      if (atlas.texel(f, f.flip ? f.w - 1 - lx : lx, ly)) { bestW = w; best = p; }
     }
-    return { unit: best, tree: bestTree };
+    return best;
+  }
+  /** Unit (heroes, creeps, buildings, ...) or tree under the cursor: { unit: pick entry | null, tree: pick entry | null }. touch = larger minimum boxes. */
+  function pickSprite(sx, sy, touch = false) {
+    const r = pickAt(pickBoxes(touch), sx, sy, () => pickTree(sx, sy));
+    return { unit: r.unit ? r.unit.p : null, tree: r.tree };
   }
 
   // ---- built-in combat feedback (damage numbers, a little spark) ---------------------------------------------------------------------
@@ -355,14 +406,17 @@ export function createRenderer({ canvas, sheets }) {
         if (fxMod) safeFx(ev); else if (fxLoader) { if (fxQueue.length < 256) fxQueue.push(ev); }
       }
     },
-    pick(sx, sy) {
+    /** Cursor -> { x, y (ground / unit), unitId, tree? }. Hover and click both call this (rule: pick.js). o.touch: larger minimum hit boxes. */
+    pick(sx, sy, o) {
       const g = groundRay(sx, sy);
-      const p = pickSprite(sx, sy);
+      const p = pickSprite(sx, sy, !!(o && o.touch));
       const r = { x: g.x, y: g.y, unitId: p.unit ? p.unit.id : null };
       if (p.unit) { r.x = p.unit.x; r.y = p.unit.y; }
       if (!p.unit && p.tree) r.tree = p.tree.tree;
       return r;
     },
+    /** Debug: every unit hit box (css px) + the pick winner id at (sx, sy): [{ id, building, x0, y0, x1, y1, w }], same code path as pick(). */
+    pickDebug(sx, sy, o) { const p = pickSprite(sx, sy, !!(o && o.touch)); return { boxes: pickBoxes(!!(o && o.touch)).map(({ p: _p, ...b }) => b), winner: p.unit ? p.unit.id : null }; },
     worldToScreen,
     /** per-frame callbacks fn(dt, view, time), run after units are drawn and before lights are finalised (use lights.add / particles here) */
     hooks,

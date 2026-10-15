@@ -134,7 +134,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
 
   function seq(base, t) { const n = atlas.seqCount('buildings', base); return n ? atlas.frame('buildings', base + '_' + (Math.floor(t) % n)) : null; }
 
-  function addPick(id, x, y, z, f, scale, tree) { picks.push({ id, x, y, z, f, scale, tree }); }
+  function addPick(id, x, y, z, f, scale, tree, b) { picks.push({ id, x, y, z, f, scale, tree, b }); }   // b = 3D building type (buildings3d INFO key) | undefined
 
   return {
     state, picks, per, buildings, trees: trees3d,
@@ -301,7 +301,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
             sprites.decal(u.x, u.y, rr, 1, c[0], c[1], c[2], isSel ? 1 : 0.7, decalHeights(u.x, u.y, rr), isSel, 0.6);
           }
         }
-        if ((!bType || !dead) && !(dead && st.rag)) addPick(id, u.x, u.y, z, f, voxName ? uscale : 1, -1);   // voxel units: f = footprint box (voxactors.js footFrame)
+        if (!dead) addPick(id, u.x, u.y, z, f, bType ? 1 : uscale, -1, bType || undefined);   // dead / dying / ragdolling / destroyed: never pickable (pick.js). voxel units: f = footprint box (voxactors.js footFrame)
         nUnits++;
         // lights
         if (!dead) {
