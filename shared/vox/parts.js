@@ -301,3 +301,23 @@ export function shield(v, rig, k, o, M) {
   disc(v, c, n, r, th, (px, py, pz, rad, front) => (rad > 1 - 1.15 / r ? M.rim : rad < 1.3 / r && front ? M.boss : M.face));
   v.ellipsoid(...add3(c, mul3(n, th / 2)), 0.9, 0.9, 0.9, M.boss);
 }
+/**
+ * Bow held in hand k (archers). o: { up, fwd } body-frame vectors (posed by the torso): bow axis and the side its belly faces (toward the target);
+ * len = half length; bend = limb curve back toward the archer at the tips; recurve = tips flicking forward; r = limb radius at the grip
+ * (>= 0.9: thinner capsules leave gaps on diagonals); sr = string radius; draw = posed point the string is pulled to (null = straight string). M: { limb, grip, string, tip? }. Returns [top, bottom] tips.
+ */
+export function bow(v, rig, k, o, M) {
+  const Rt = rig.T.torso && rig.T.torso.R, h = rig.J['hand' + k], f = norm3(apM(Rt, o.fwd || [0, -1, 0]));
+  let u = apM(Rt, o.up || [0, 0, 1]); u = norm3(sub3(u, mul3(f, dot3(u, f))));
+  const L = o.len ?? 7, bend = o.bend ?? 2.2, rc = o.recurve ?? 1, r = o.r ?? 1, N = Math.max(6, Math.ceil(L * 1.5));
+  const at = t => { const a = Math.abs(t), back = bend * a * a - (a > 0.8 ? rc * ((a - 0.8) / 0.2) ** 2 : 0); return add3(add3(h, mul3(u, L * t)), mul3(f, -back)); };
+  for (let i = -N; i < N; i++) {
+    const t0 = i / N, t1 = (i + 1) / N, tip = M.tip && Math.max(Math.abs(t0), Math.abs(t1)) > 0.86;
+    v.capsule(at(t0), at(t1), r * (1 - 0.3 * Math.abs(t0)), tip ? M.tip : M.limb, r * (1 - 0.3 * Math.abs(t1)));
+  }
+  v.capsule(add3(h, mul3(u, -1.2)), add3(h, mul3(u, 1.2)), r + 0.35, M.grip);
+  const top = at(1), bot = at(-1);
+  const sr = o.sr ?? 0.55;   // thinner lines than ~0.55 leave gaps on diagonals
+  if (o.draw) { v.capsule(top, o.draw, sr, M.string); v.capsule(o.draw, bot, sr, M.string); } else v.capsule(top, bot, sr, M.string);
+  return [top, bot];
+}
