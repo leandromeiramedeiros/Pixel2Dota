@@ -301,3 +301,28 @@ export function shield(v, rig, k, o, M) {
   disc(v, c, n, r, th, (px, py, pz, rad, front) => (rad > 1 - 1.15 / r ? M.rim : rad < 1.3 / r && front ? M.boss : M.face));
   v.ellipsoid(...add3(c, mul3(n, th / 2)), 0.9, 0.9, 0.9, M.boss);
 }
+/**
+ * Two-handed great axe (posed coords): haft from butt along unit d for o.len (radius o.r, iron bands at o.bands fractions), head centred at
+ * o.head (distance along d) in the plane normal to n (n is made orthogonal to d; usually the body's forward, so the blade shows broadside).
+ * bits 1 | 2 crescent blades: reach o.reach from the haft, length o.l0 at the haft flaring to o.l1 at the edge, thickness o.th, the outer
+ * o.edge voxels in M.edge; an optional spike o.spike past the head. M: { haft, band, blade, edge }. Returns the head centre.
+ */
+export function greatAxe(v, butt, d, n, o, M) {
+  const { len = 20, r = 0.6, head: hAt = len - 2, bits = 2, reach = 5, l0 = 1.6, l1 = 4, th = 0.55, edge = 1, spike = 1.5, bands = [] } = o;
+  const nn = norm3(sub3(n, mul3(d, dot3(n, d)))), up = cross3(nn, d), tip = add3(butt, mul3(d, len)), c = add3(butt, mul3(d, hAt));
+  v.capsule(butt, tip, r, M.haft);
+  for (const t of bands) v.capsule(add3(butt, mul3(d, len * t - 0.4)), add3(butt, mul3(d, len * t + 0.4)), r + 0.45, M.band);
+  if (spike) v.capsule(tip, add3(tip, mul3(d, spike)), r + 0.2, M.blade, 0.3);
+  v.capsule(add3(c, mul3(d, -l0)), add3(c, mul3(d, l0)), r + 0.55, M.band);                           // socket collar
+  const R = Math.max(reach, l1) + 1;
+  v.each(c[0] - R, c[1] - R, c[2] - R, c[0] + R, c[1] + R, c[2] + R, (px, py, pz) => {
+    const q = [px - c[0], py - c[1], pz - c[2]], u = dot3(q, d), w = dot3(q, up), t = dot3(q, nn), aw = Math.abs(w);
+    if (bits === 1 && w < 0) return;
+    if (aw < r || aw > reach) return;
+    const f = (aw - r) / (reach - r), hl = l0 + (l1 - l0) * f * f, cur = reach - (u / l1) ** 2 * 1.4;   // flared crescent, edge curved back at the horns
+    if (Math.abs(u) > hl || aw > cur) return;
+    if (Math.abs(t) > th * (1.4 - 0.6 * f)) return;
+    return aw > cur - edge ? M.edge : M.blade;
+  });
+  return c;
+}
