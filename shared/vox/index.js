@@ -11,6 +11,7 @@ import * as lina from './heroes/lina.js';
 import * as melee_dire from './creeps/melee_dire.js';
 import * as melee_radiant from './creeps/melee_radiant.js';
 import * as pudge from './heroes/pudge.js';
+import * as zuus from './heroes/zuus.js';
 
 export const VOX = {   // alphabetical (parallel branches merge clean)
   crystal_maiden: { kind: 'hero', unit: 'npc_dota_hero_crystal_maiden', mod: crystal_maiden },
@@ -22,4 +23,5 @@ export const VOX = {   // alphabetical (parallel branches merge clean)
   melee_dire: { kind: 'creep', unit: 'npc_dota_creep_badguys_melee', mod: melee_dire },
   melee_radiant: { kind: 'creep', unit: 'npc_dota_creep_goodguys_melee', mod: melee_radiant },
   pudge: { kind: 'hero', unit: 'npc_dota_hero_pudge', mod: pudge },
+  zuus: { kind: 'hero', unit: 'npc_dota_hero_zuus', mod: zuus },
 };
