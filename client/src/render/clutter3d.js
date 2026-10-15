@@ -1,6 +1,7 @@
 // 3D ground clutter: rocks, scree, grass / ferns / bushes, mushrooms, fallen logs, bones, ruin pillars, reeds, lily pads and
-// base props (crates / barrels / banners). Low-poly flat-shaded variants, ONE instanced draw per variant, all sharing ONE
-// material (so three skips re-uploading uniforms between draws), lit / shadowed / fogged / Bayer-quantised exactly like trees3d.js.
+// base props (crates / barrels / banners). Every prop except the tufts is a hand-authored voxel model (shared/vox/world/clutter.js + rocks.js, meshed by
+// clutterVox.js), a Radiant and a Dire set, each with a few shapes: ONE instanced draw per (variant, side, shape) "slot" (a variant's scatter range is split by
+// the instance's side and phase), all sharing ONE material (so three skips re-uploading uniforms between draws), lit / shadowed / fogged / Bayer-quantised exactly like trees3d.js.
 //
 // The scatter (scatterClutter) is pure and deterministic: it runs once over the map grid, and the result is bucketed by
 // 256u cell x variant into one packed buffer that is already in GPU layout, so the per-frame work is "frustum-test a few
@@ -19,9 +20,11 @@ import { getMap, heightAt, TT, sideOf } from '../../../shared/map.js';
 import { voxtEnabled, VOX_CELL, VOX_FOREST_DIM, VOX_MACRO } from './terrain.js';
 import { TERRAINS } from '../../../shared/vox/terrain.js';
 import { hex, mix } from '../../../shared/vox/vox.js';
+import { slotGeo, slotOf, slotCount, SPECS } from './clutterVox.js';
 
 export const V = { ROCK: 0, BOULDER: 1, SCREE: 2, TUFT: 3, FERN: 4, BUSH: 5, SHROOM: 6, LOG: 7, TWIGS: 8, BONES: 9, PILLAR: 10, REED: 11, LILY: 12, CARGO: 13, BANNER: 14 };
 export const NV = 15;
+const NAME = Object.keys(V);   // variant id -> name (V is declared in id order)
 export const CELL = 256;
 const STRIDE = 7;                       // x, y(up), z, yaw, scale, phase, side
 const GRID = 64;                        // jittered-grid pitch (world units)
@@ -31,7 +34,8 @@ const VOX_P = { grass: 0.0045, road: 0.0015, forest: 0.0045 };   // base-cell pr
 const VOX_SHAPE = [0.1, 0.22, 0.58, 0.85];   // cumulative: single / flat pair / stack of 2 / stack of 3 / L (pair, one of them stacked); biased tall
 const VOX_HI = 0.3;                     // share of lone / flat cubes in the highlight tone (top[4] lightened; the rest top[4]); stack tops are always highlight
 const VOX_LITE = 0.3, VOX_SIDE_K = 0.58, VOX_TOP_K = 1.06;   // highlight tint toward the preset light colour; side face / top face albedo factors (sides clearly darker)
-const VOX_MAX = 8000;                   // instance buffer of each voxel tone variant (cubes are 1 instance each)
+const LOD_DIST = 900;                   // eye-to-cell distance past which the voxel props use their half-resolution grid
+const VOX_MAX = 8000;                  // instance buffer of each voxel tone variant (cubes are 1 instance each)
 const BIG = new Set([V.ROCK, V.BOULDER, V.LOG, V.PILLAR, V.CARGO, V.BANNER]);   // keep clear of tree trunks
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -43,25 +47,11 @@ function blade(k, bx, bz, h, r, t, a, col, seg = 3, o = {}) {
   k.cone(r, h, seg, { ...col, ctr: true, x: bx - (h / 2) * s * Math.cos(a), y: (o.by || 0) + (h / 2) * c, z: bz + (h / 2) * s * Math.sin(a), rz: t, ry: a, sw: 1, ...o });
 }
 const GRASS = [P(0x2f6a3e, 0x6e6030), P(0x3c7a47, 0x85703a), P(0x275a38, 0x5a4e2a)];
-const STONE = [P(0x565f5c, 0x6a584a), P(0x646d69, 0x7a6554), P(0x4a5350, 0x5c4a3e)];
 
 /** one ground cell cube, base at y 0 (aPart = tone: 0 top[4], 1 top[4] lightened) */
 const voxCube = (tone) => ({ ramp: 0, fn(k) { k.box(VOX_CELL, VOX_CELL, VOX_CELL, { part: tone }); } });
 
 const MESHES = {
-  [V.ROCK]: { ramp: 0, fn(k) {
-    k.ico(30, { ...STONE[0], y: 10, sy: 0.62 });
-    k.ico(19, { ...STONE[1], x: 36, z: 12, y: 7, sy: 0.7, ry: 1 });
-    k.oct(14, 10, 12, { ...STONE[2], x: -30, z: 20, y: 6 });
-  } },
-  [V.BOULDER]: { ramp: 0, fn(k) {
-    k.ico(62, { ...STONE[1], y: 24, sy: 0.7 });
-    k.oct(26, 17, 23, { ...STONE[2], x: 66, z: -20, y: 12, ry: 0.5 });
-  } },
-  [V.SCREE]: { ramp: 0, fn(k) {
-    const at = [[0, 0, 11], [26, 10, 8], [-22, 18, 9], [10, -26, 7], [-30, -10, 6]];
-    at.forEach(([x, z, r], i) => k.oct(r, r * 0.6, r * 0.85, { ...STONE[i % 3], x, z, y: r * 0.35, ry: i * 1.3 }));
-  } },
   [V.TUFT]: VOX ? voxCube(0) : { ramp: 34, fn(k) {
     for (let i = 0; i < 8; i++) {
       const a = i * 2.4, rr = 3 + (i % 3) * 3;
@@ -73,59 +63,6 @@ const MESHES = {
       const a = i * 1.047 + 0.2, col = P(i & 1 ? 0x2c6a48 : 0x347852, i & 1 ? 0x6a5a2c : 0x7c6834);
       blade(k, 0, 0, 44, 10, 1.0 + (i % 2) * 0.12, a, col, 4, { sx: 1.0, sz: 0.35, by: 6 });
     }
-  } },
-  [V.BUSH]: { ramp: 0, fn(k) {
-    k.ico(25, { ...P(0x2f6a3c, 0x75622f, { sw: 0.45 }), y: 18, sy: 0.82 });
-    k.ico(17, { ...P(0x3a7a46, 0x8b7538, { sw: 0.5 }), x: 24, z: 10, y: 12, sy: 0.8 });
-  } },
-  [V.SHROOM]: { ramp: 0, fn(k) {
-    const m = [[0, 0, 15, 11], [17, 7, 10, 8]];
-    m.forEach(([x, z, h, r]) => {
-      k.cyl(2.6, 3.6, h, 4, { c: 0xb0a88c, d: 0xa89a82, x, z });
-      k.cone(r, r * 0.7, 5, { c: [0.30, 0.62, 0.66], d: [0.66, 0.30, 0.40], x, z, y: h - 1, e: true });
-    });
-  } },
-  [V.LOG]: { ramp: 0, fn(k) {
-    const bark = P(0x5b4630, 0x4f3a2a);
-    k.cyl(10, 12, 118, 5, { ...bark, ctr: true, rz: Math.PI / 2, y: 11 });
-    k.cyl(2.6, 4, 36, 3, { ...bark, ctr: true, rz: 0.9, x: -12, y: 26, z: 6 });
-    k.cyl(2.2, 3.4, 30, 3, { ...bark, ctr: true, rz: -0.8, x: 26, y: 24, z: -8, ry: 0.7 });
-  } },
-  [V.TWIGS]: { ramp: 0, fn(k) {
-    const w = P(0x5e4a34, 0x54402e);
-    [[0, 0, 0.0, 70], [14, 12, 0.9, 56], [-10, 20, 2.1, 48]].forEach(([x, z, ry, l]) => k.cyl(2.2, 3, l, 3, { ...w, ctr: true, rz: Math.PI / 2, ry, x, z, y: 3 }));
-  } },
-  [V.BONES]: { ramp: 0, fn(k) {
-    const b = P(0x9d9279, 0x8f8068);
-    k.ico(8.5, { ...b, y: 6, sy: 0.85, x: 6 });
-    k.cyl(2.4, 2.8, 36, 3, { ...b, ctr: true, rz: Math.PI / 2, ry: 0.5, x: -16, z: 14, y: 2.5 });
-    k.cyl(2.2, 2.6, 30, 3, { ...b, ctr: true, rz: Math.PI / 2, ry: -0.6, x: -10, z: -12, y: 2.5 });
-  } },
-  [V.PILLAR]: { ramp: 0, fn(k) {
-    const s = P(0x6b7274, 0x796250);
-    k.cyl(13, 16, 52, 6, { ...s });
-    k.oct(17, 9, 15, { c: 0x5a6264, d: 0x66523f, y: 53, rz: 0.2 });
-    k.cyl(12, 12, 34, 6, { ...s, ctr: true, rz: Math.PI / 2, ry: 0.4, x: 42, z: 14, y: 12 });
-  } },
-  [V.REED]: { ramp: 60, fn(k) {
-    const g = [P(0x58763a, 0x7b6e3c), P(0x4c6a34, 0x6e6234), P(0x628040, 0x867842)];
-    [[0, 0, 80, 0.1], [9, 5, 94, 0.2], [-8, 7, 70, 0.28], [5, -9, 86, 0.15], [-10, -4, 62, 0.3]].forEach(([x, z, h, t], i) => blade(k, x, z, h, 3.2, t, i * 1.7, g[i % 3]));
-    [[9, 5, 94], [5, -9, 86]].forEach(([x, z, h], i) => k.cyl(3, 3, 13, 3, { c: 0x4a3626, d: 0x4e3a28, x: x - 4 * (i ? -1 : 1) * 0.3, z, y: h - 18, sw: 1 }));
-  } },
-  [V.LILY]: { ramp: 0, fn(k) {
-    k.cyl(17, 17, 1.6, 7, { c: 0x2c6a44, d: 0x5c6a30, y: 0 });
-    k.cyl(10, 10, 1.6, 6, { c: 0x347852, d: 0x6a7836, x: 26, z: 10, y: 0.4, ry: 0.7 });
-    k.oct(4.5, 4, 4.5, { c: 0xb89aa6, d: 0xb8825a, y: 4 });
-  } },
-  [V.CARGO]: { ramp: 0, fn(k) {
-    k.box(26, 24, 26, { c: 0x3a7a72, d: 0x9a4430, ry: 0.15 });
-    k.box(29, 3, 29, { c: 0x2c5a54, d: 0x6c2c20, y: 24, ry: 0.15 });
-    k.cyl(10.5, 12, 30, 5, { c: 0x2e625c, d: 0x7c3622, x: 32, z: 8 });
-  } },
-  [V.BANNER]: { ramp: 0, fn(k) {
-    k.cyl(2.4, 3.2, 124, 4, { c: 0x3b3029, d: 0x33271f });
-    k.box(2, 38, 30, { c: 0x2fa093, d: 0xb83a28, x: 0, y: 78, z: 17, sw: 1 });
-    k.oct(4.5, 7, 4.5, { c: 0x8a8670, d: 0x9a7040, y: 128 });
   } },
 };
 
@@ -358,21 +295,22 @@ export function scatterClutter(map = getMap(), { density = 1, vox = false } = {}
   return { n, data, vari, keyStart, GW, GH, cellMaxH, counts, stride: STRIDE };
 }
 
+/** Instance scale. The voxel props keep a narrow range so their voxel size stays near one grain (a wide spread would mix coarse and fine cubes on screen). */
 function scaleOf(v, h) {
   switch (v) {
-    case V.ROCK: return 0.7 + 0.8 * h * h;
-    case V.BOULDER: return 0.8 + 0.6 * h;
-    case V.SCREE: return 0.8 + 0.6 * h;
+    case V.ROCK: return 0.85 + 0.45 * h * h;
+    case V.BOULDER: return 0.9 + 0.3 * h;
+    case V.SCREE: return 0.9 + 0.3 * h;
     case V.TUFT: return 0.9 + 0.7 * h;
     case V.FERN: return 0.8 + 0.5 * h;
-    case V.BUSH: return 0.75 + 0.6 * h;
-    case V.SHROOM: return 0.8 + 0.5 * h;
-    case V.LOG: return 0.8 + 0.5 * h;
-    case V.REED: return 0.8 + 0.5 * h;
-    case V.LILY: return 1 + 0.6 * h;
-    case V.BANNER: return 1.1 + 0.1 * h;
-    case V.CARGO: return 1.25 + 0.3 * h;
-    default: return 0.85 + 0.35 * h;
+    case V.BUSH: return 0.85 + 0.3 * h;
+    case V.SHROOM: return 0.9 + 0.3 * h;
+    case V.LOG: return 0.9 + 0.25 * h;
+    case V.REED: return 0.9 + 0.3 * h;
+    case V.LILY: return 1 + 0.25 * h;
+    case V.BANNER: return 1.05 + 0.1 * h;
+    case V.CARGO: return 1.05 + 0.2 * h;
+    default: return 0.95 + 0.15 * h;
   }
 }
 
@@ -484,14 +422,25 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
   const voxMat = VOX ? new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: mat.uniforms, side: THREE.FrontSide, defines: { VOXC: 1 } }) : null;   // voxel tufts: shares the uniform objects
   const isVox = (v) => VOX && (v === V.TUFT || v === V.FERN);
   const vars = [], stats = { draws: 0, tris: 0, instances: 0, cells: 0, total: data.n, ms: 0 };
-  for (let v = 0; v < NV; v++) {
-    const kit = createKit(1); MESHES[v].fn(kit);
-    const merged = kit.build(), ramp = MESHES[v].ramp;
-    if (ramp) { const sw = merged.attributes.aSw, pos = merged.attributes.position; for (let i = 0; i < sw.count; i++) sw.setX(i, sw.getX(i) * Math.min(1, Math.max(0, pos.getY(i) / ramp))); }
-    const inst = instancedGeo(merged, isVox(v) ? Math.max(max, VOX_MAX) : max, IFLOATS);
-    const mesh = new THREE.Mesh(inst.geo, isVox(v) ? voxMat : mat); mesh.userData.depthMat = depthMat; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; mesh.name = 'clutter3d_' + v; mesh.renderOrder = 1;
+  const slotBase = new Int32Array(NV), routed = new Array(NV).fill(null);   // slot of a variant's first draw; routed[v] = voxel prop name (instances split by side / phase), null = one draw
+  const addSlot = (v, name, merged, voxc) => {
+    const inst = instancedGeo(merged, voxc ? Math.max(max, VOX_MAX) : max, IFLOATS);
+    const mesh = new THREE.Mesh(inst.geo, voxc ? voxMat : mat); mesh.userData.depthMat = depthMat; mesh.frustumCulled = false; mesh.matrixAutoUpdate = false; mesh.name = 'clutter3d_' + name + vars.length; mesh.renderOrder = 1;
     mesh.visible = false; group.add(mesh);
-    vars.push({ inst, mesh, n: 0, tris: inst.tris });
+    vars.push({ v, inst, mesh, n: 0, tris: inst.tris });
+  };
+  for (let v = 0; v < NV; v++) {
+    slotBase[v] = vars.length;
+    const name = NAME[v];
+    if (SPECS[name]) {
+      routed[v] = name;
+      for (let lod = 0; lod < 2; lod++) for (let side = 0; side < 2; side++) for (let k = 0; k < SPECS[name].shapes; k++) addSlot(v, name, slotGeo(name, side, k, lod).geo, false);   // LOD 0 slots, then LOD 1
+    } else {   // tufts: the one-cube / low-poly slots
+      const kit = createKit(1); MESHES[v].fn(kit);
+      const merged = kit.build(), ramp = MESHES[v].ramp;
+      if (ramp) { const sw = merged.attributes.aSw, pos = merged.attributes.position; for (let i = 0; i < sw.count; i++) sw.setX(i, sw.getX(i) * Math.min(1, Math.max(0, pos.getY(i) / ramp))); }
+      addSlot(v, name, merged, isVox(v));
+    }
   }
   const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), box = new THREE.Box3(), lo = new THREE.Vector3(), hi = new THREE.Vector3();
   const { GW, GH, keyStart, cellMaxH } = data, src = data.data;
@@ -504,6 +453,8 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
       const t0 = performance.now();
       for (const t of vars) t.n = 0;
       let cells = 0;
+      // cells further than LOD_DIST from the eye get the half-resolution props (about a quarter of the triangles, same silhouette), chosen per 256u cell
+      const lodR2 = LOD_DIST * LOD_DIST - camera.position.y * camera.position.y;
       if (api.enabled) {
         pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
         const x0 = map.x0, y1 = map.y1;
@@ -522,11 +473,21 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
         }
         if (reach > 0) order.sort((p, q) => ordD[p] - ordD[q]);
         for (let oi = 0; oi < order.length; oi++) {
-          const ci = order[oi];
+          const ci = order[oi], lodOff = ordD[ci] > lodR2 ? 1 : 0;
           cells++;
           for (let v = 0; v < NV; v++) {
             const s = keyStart[ci * NV + v], e = keyStart[ci * NV + v + 1]; if (s === e) continue;
-            const t = vars[v], room = t.inst.max - t.n;
+            if (routed[v]) {   // voxel prop: each instance goes to the slot of its side and shape (the phase field picks the shape); thinning as below
+              const name = routed[v], base = slotBase[v], d = api.density, thin = d < 1;
+              for (let i = s, a = 0; i < e; i++) {
+                if (thin) { const q = Math.floor((i - s + 1) * d); if (q === a) continue; a = q; }
+                const o = i * STRIDE, t = vars[base + lodOff * slotCount(name) + slotOf(name, src[o + 6], src[o + 5])];
+                if (t.n >= t.inst.max) continue;
+                t.inst.data.set(src.subarray(o, o + STRIDE), t.n * STRIDE); t.n++;
+              }
+              continue;
+            }
+            const t = vars[slotBase[v]], room = t.inst.max - t.n;
             if (api.density >= 1) {
               const k = Math.min(e - s, room); if (k <= 0) continue;
               t.inst.data.set(src.subarray(s * STRIDE, (s + k) * STRIDE), t.n * STRIDE); t.n += k;
@@ -546,7 +507,7 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
     },
     setRim(on) { rimU.value = on ? 1 : 0; },
     /** shadow casters: the big props only. [{ mesh, mat }] */
-    casters() { return (VOX ? [...CASTERS, V.TUFT, V.FERN] : CASTERS).map((v) => ({ mesh: vars[v].mesh, mat: depthMat })); },
+    casters() { const cv = new Set(VOX ? [...CASTERS, V.TUFT, V.FERN] : CASTERS); return vars.filter((t) => cv.has(t.v)).map((t) => ({ mesh: t.mesh, mat: depthMat })); },
     dispose() { for (const t of vars) t.inst.geo.dispose(); mat.dispose(); depthMat.dispose(); if (voxMat) voxMat.dispose(); scene.remove(group); },
   };
   return api;
