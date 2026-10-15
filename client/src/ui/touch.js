@@ -9,8 +9,10 @@
 //          other targeted spells: press -> range finder + aim ring; the ICON STAYS PUT, a small knob follows the finger; drag aims, release casts.
 //          Cancel: release on the CANCEL target above the wheel, or slide back onto the button.  A short tap only previews the range.
 //          The move joystick keeps working while a spell / attack is aimed (the other thumb), the rangefinder stays on the hero.
-//   WORLD  one-finger drag pans (unlocks the camera), pinch zooms, tap an enemy attacks it.  Minimap (bottom-left, next to the portrait) tap moves the camera,
-//          portrait tap recentres + locks, portrait hold shows the stats panel (hud.js).
+//   WORLD  the camera is locked to the hero by default (CAM toggles it).  Tap = move there (an enemy: attack it); hold / drag = keep moving to the finger
+//          (WALK_MS repeat).  Unlocked: drag pans.  Pinch zooms.  Minimap (top-left, under the top bar) frees the camera while pressed (cast on a far
+//          spot with the other thumb) and snaps back to the hero on release / when that cast ends; aiming a long-range spell at a screen edge pans fast.
+//          Portrait tap recentres + locks + resets the zoom, portrait hold shows the stats panel (hud.js).
 //   Portrait phones get a "turn your phone sideways" overlay that blocks input.
 import { MSG, ORDER, TEAM, ST, KIND } from '../../../shared/protocol.js';
 import { MAP_MIN, MAP_MAX } from '../../../shared/constants.js';
@@ -57,12 +59,24 @@ export const T = {
   REORDER_MS: 1750,      // hold a spell button still this long to rearrange the wheel
   CANCEL_BACK: 0.9,      // sliding back within this x the button radius (after having left it) cancels the aim
   RECENTRE_SNAP: 1500,   // camera jumps further than this snap instead of gliding
+  WALK_MS: 150,          // world finger held (locked camera): a move order to the finger this often
+  EDGE_M: 56,            // px (x K): aiming a long-range spell with the finger this close to a screen edge pans the camera that way
+  EDGE_SPEED: 3200,      // world units / s at the very edge
+  EDGE_RANGE: 0.5,       // ... only for spells whose range is over this x the visible width (or global)
+  PINCH_MIN: 40,         // px: two fingers closer than this do not zoom (noise)
+  PINCH_STEP: 0.1,       // max zoom factor change per move event
 };
 
 const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
 const RAD = Math.PI / 180;
 
 // ------------------------------------------------------------------------------------------------ pure helpers (node-testable)
+/** Screen-edge pan direction for a finger at (x, y) in a W x H view: each axis -1..1, ramping in over the last m px (0 = not at that edge). */
+export function edgePanDir(x, y, W, H, m) {
+  const ax = (v, n) => (v < m ? -Math.min(1, (m - v) / m) : v > n - m ? Math.min(1, (v - (n - m)) / m) : 0);
+  return { x: ax(x, W), y: ax(y, H) };
+}
+
 /** Touch mode on? `?touch=1` forces it, `?touch=0` disables it, otherwise a coarse primary pointer. */
 export function touchWanted(search = '', coarse = false) {
   const m = /[?&]touch=([^&#]*)/.exec(search || '');
@@ -390,7 +404,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
 
   // ---- orders (spectators never order)
   let lastOtherAt = 0, suppressUntil = 0;
-  const order = (o) => { if (isSpec()) return; send(MSG.ORDER, o); };
+  const order = (o, opts) => { if (isSpec()) return; send(MSG.ORDER, o, opts); };
   const noteOrder = () => { lastOtherAt = now(); suppressUntil = lastOtherAt + T.SUPPRESS_MS; };
 
   // ---- DOM
@@ -551,7 +565,24 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (tg && Math.hypot(tg.x - p.x, tg.y - p.y) > T.RECENTRE_SNAP && renderer.snapTarget) renderer.snapTarget(p.x, p.y);   // far flight: jump (the ground height under the camera glides slower than x/y)
     else renderer.setTarget(p.x, p.y);
     const r = rig();
-    if (r && r.showcase) r.distanceGoal = Math.min(r.maxDist, Math.max(r.minDist, T.ZOOM_START));   // a pinched-in close-up (flat pitch, narrow FOV) is the "odd angle": back to the gameplay view
+    if (r) r.distanceGoal = Math.min(r.maxDist, Math.max(r.minDist, T.ZOOM_START));   // an explicit re-lock is also "reset the view": back to the default zoom
+  }
+  // temporary free camera while locked: the minimap is pressed (mmPtr), or this aim moved it (minimap / edge pan) -> snap back when it ends
+  let mmPtr = null, freeAim = false, lastT = 0, mmEl = null, mmHome = null;
+  const following = () => locked && mmPtr == null && !(aim && freeAim);
+  function snapHome() {
+    const u = heroU(); if (!u || isSpec()) return;
+    const p = heroPos(u);
+    if (renderer.snapTarget) renderer.snapTarget(p.x, p.y); else renderer.setTarget(p.x, p.y);
+  }
+  const longAim = (info) => { const r = rig(), w = (r && r.visibleWidth) || 2100; return !(info.range > 0 && info.range < 2500) || info.range > w * T.EDGE_RANGE; };
+  function edgePan(dt) {
+    if (!aim || !aim.moved || !longAim(aim.info) || !renderer.getTarget) return;
+    const cr = canvas.getBoundingClientRect(), d = edgePanDir(aim.ex - cr.left, aim.ey - cr.top, cr.width, cr.height, T.EDGE_M * K);
+    if (!d.x && !d.y) return;
+    freeAim = true;
+    const tg = renderer.getTarget();
+    renderer.setTarget(clampW(tg.x + d.x * T.EDGE_SPEED * dt), clampW(tg.y - d.y * T.EDGE_SPEED * dt));   // screen up = world +y
   }
 
   // ---- target lock
@@ -585,7 +616,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const m = T.JOY_R * K + 6;
     // the base never sits on the bottom-left HUD cluster (minimap / portrait / bars): it is drawn above it, and the stick reads the drag from where the thumb
     // actually went down (sx, sy), so a touch that began over the cluster still moves the hero without a jump
-    const lo = topLimit() + m, hi = Math.max(lo, Math.min(rect.bottom, coverTop()) - m);
+    const mmR = mmEl ? mmEl.getBoundingClientRect() : null;   // nor on the minimap (top-left)
+    const lo = Math.max(topLimit(), mmR && mmR.height > 0 && p.x < mmR.right + m ? mmR.bottom : 0) + m, hi = Math.max(lo, Math.min(rect.bottom, coverTop()) - m);
     const ox = Math.max(rect.left + m, Math.min(p.x, rect.left + rect.width * T.ZONE + m)), oy = Math.max(lo, Math.min(p.y, hi));
     joy = { id: p.id, ox, oy, sx: p.x, sy: p.y, vec: dragVector(0, 0, T.JOY_R * K), last: null, sentAt: 0, moving: false };
     joyBase.style.left = ox + 'px'; joyBase.style.top = oy + 'px';
@@ -604,7 +636,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (v.len < T.JOY_DEAD * K) { if (joy.moving) { order({ t: ORDER.STOP }); joy.moving = false; joy.sentAt = t; joy.last = null; } return; }
     lastDir = v.ang;
     if (!joyShouldSend(joy.last, v.ang, t)) return;
-    order(orderMove(Math.round(clampW(u.x + Math.cos(v.ang) * T.JOY_RANGE)), Math.round(clampW(u.y + Math.sin(v.ang) * T.JOY_RANGE)), false));
+    order(orderMove(Math.round(clampW(u.x + Math.cos(v.ang) * T.JOY_RANGE)), Math.round(clampW(u.y + Math.sin(v.ang) * T.JOY_RANGE)), false), { noPath: true });   // no order-path preview for the stick
     joy.last = { t, ang: v.ang }; joy.sentAt = t; joy.moving = true;
   }
   function endJoy() {
@@ -833,6 +865,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   function endAim(cast) {
     const a = aim; if (!a) return;
     aim = null; clearLong(); clearReorderTimer(); hideTip();
+    if (freeAim) { freeAim = false; if (locked && mmPtr == null) snapHome(); }   // the camera went off for this cast: straight back to the hero (a.point is already fixed)
     pointers.delete(a.ptr); a.b.ptr = null;
     a.b.el.classList.remove('bad'); aimKnob.classList.remove('t-on');
     R.classList.remove('aiming'); cancelEl.classList.remove('hot');
@@ -920,23 +953,35 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   const rig = () => renderer.rig;
   function worldTap(p, rect) {
     const pk = renderer.pick ? renderer.pick(p.x - rect.left, p.y - rect.top) : null;
-    const s = state(), u = pk && pk.unitId && s && s.units ? s.units.get(pk.unitId) : null;
+    const s = state(), u = pk && pk.unitId && s && s.units ? s.units.get(pk.unitId) : null, me_ = heroU();
     if (u && alive(u) && u.team !== myTeam() && u.team !== TEAM.NONE && !isSpec() && validTarget(u, { team: 'ENEMY', myTeam: myTeam(), visible })) {
       setLock(u.id); order(orderAttack(u.id)); noteOrder();
-    } else if (u) { setLock(''); if (renderer.setSelected) renderer.setSelected(u.id); if (H.select) H.select(u.id); }
+    } else if (pk && !isSpec() && me_ && !dead(me_)) { order(orderMove(Math.round(clampW(pk.x)), Math.round(clampW(pk.y)), false)); noteOrder(); }   // anything else: move there
+    else if (u) { setLock(''); if (renderer.setSelected) renderer.setSelected(u.id); if (H.select) H.select(u.id); }
     else if (!lockId) { if (renderer.setSelected) renderer.setSelected(null); if (H.select) H.select(null); }
+  }
+  /** hold-to-walk: a move order to the world point under the finger */
+  function walkTo(p) {
+    const u = heroU(); if (!u || dead(u) || !renderer.pick) return;
+    const cr = canvas.getBoundingClientRect(), g = renderer.pick(p.x - cr.left, p.y - cr.top);
+    order(orderMove(Math.round(clampW(g.x)), Math.round(clampW(g.y)), false)); noteOrder(); p.sent = true;
   }
   function canvasDown(e) {
     if (turnShown) return;
     e.preventDefault();
+    if (e.isPrimary && e.pointerType === 'touch') {   // first finger down = no other touch is live: a world pointer still in the map lost its pointerup and would turn this touch into a runaway pinch
+      for (const [id, q] of pointers) if (q.role === 'pan' || q.role === 'pinch' || q.role === 'dead' || q.role === 'walk' || q.role === 'joy') { pointers.delete(id); if (q.role === 'joy') endJoy(); }
+      pinch = null;
+    }
     try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     const rect = canvas.getBoundingClientRect();
     const p = { id: e.pointerId, role: 'pan', x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: now(), moved: false };
     // the joystick stays live while a spell / attack is being aimed (one thumb moves, the other aims); a touch outside the joystick zone during an aim only pans (no tap)
     if (!isSpec() && !joy && e.clientX < rect.left + rect.width * T.ZONE && e.clientY > topLimit()) { p.role = 'joy'; startJoy(p, rect); }
-    else if (aim || (atkS && atkS.aiming)) p.aimPan = true;
+    else if (aim || (atkS && atkS.aiming)) { p.aimPan = true; if (locked) p.role = 'dead'; }   // locked: a second finger during an aim does nothing
+    else if (locked && !isSpec()) p.role = 'walk';
     pointers.set(e.pointerId, p);
-    const pans = [...pointers.values()].filter((q) => q.role === 'pan' || q.role === 'pinch');
+    const pans = [...pointers.values()].filter((q) => q.role === 'pan' || q.role === 'pinch' || (q.role === 'walk' && !q.sent));   // two fresh world fingers = pinch
     if (pans.length >= 2) {
       const [a, b] = pans; a.role = b.role = 'pinch';
       const r = rig();
@@ -959,12 +1004,16 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     if (p.role === 'rdrag') { rdragMove(e); return; }
     if (p.role === 'tip') { if (p.moved) { clearLong(); clearReorderTimer(); hideTip(); } return; }
     if (p.role === 'joy') { moveJoy(p); return; }
+    if (p.role === 'walk') { if (!p.walking && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) p.walking = true; return; }
     if (p.role === 'pan') {
       if (!p.panning && Math.hypot(p.x - p.x0, p.y - p.y0) > T.PAN_SLOP) { p.panning = true; if (locked) setLocked(false); panBy(p.x - p.x0, p.y - p.y0); return; }
       if (p.panning) panBy(dx, dy);
     } else if (p.role === 'pinch' && pinch) {
       const d = Math.hypot(pinch.a.x - pinch.b.x, pinch.a.y - pinch.b.y);
-      if (renderer.zoomBy) { if (d > 0 && pinch.last > 0) renderer.zoomBy(pinch.last / d); pinch.last = d; return; }   // renderer clamps showcase..far
+      if (renderer.zoomBy) {   // renderer clamps showcase..far; fingers too close or a jump between events are noise, not a zoom
+        if (d >= T.PINCH_MIN && pinch.last >= T.PINCH_MIN) renderer.zoomBy(Math.max(1 - T.PINCH_STEP, Math.min(1 + T.PINCH_STEP, pinch.last / d)));
+        pinch.last = d; return;
+      }
       const r = rig(); if (!r) return;
       r.distanceGoal = pinchGoal(pinch.g0, pinch.d0, d, r.minDist, r.maxDist);
     }
@@ -986,6 +1035,8 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       const quick = now() - p.t0 < T.TAP_MS && !p.moved;
       endJoy();
       if (quick && !cancelled) worldTap(p, canvas.getBoundingClientRect());
+    } else if (p.role === 'walk') {
+      if (!cancelled && !p.sent) worldTap(p, canvas.getBoundingClientRect());   // never held / dragged: a tap
     } else if (p.role === 'pan') {
       if (!cancelled && !p.aimPan && !p.panning && !p.moved && now() - p.t0 < T.TAP_MS) worldTap(p, canvas.getBoundingClientRect());
     } else if (p.role === 'pinch') {
@@ -1021,7 +1072,10 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     act(bCam, () => { if (locked) setLocked(false); else { setLocked(true); recentre(); } });
     const sb = root.querySelector('.h-sb'); if (sb) on(sb, 'click', () => setSb(false));
     if (H.setPortraitCentre) H.setPortraitCentre(() => { setLocked(true); recentre(); });      // portrait tap/double-tap centres on the hero (hold = stats panel, in hud.js)
-    const mm = root.querySelector('.h-mm'); if (mm) on(mm, 'pointerdown', () => { if (locked) setLocked(false); }, true);
+    const mm = root.querySelector('.h-mm');
+    if (mm) on(mm, 'pointerdown', (e) => { mmPtr = e.pointerId; }, true);   // free while pressed (hud.js moves the camera)
+    const mmUp = (e) => { if (e.pointerId !== mmPtr) return; mmPtr = null; if (aim) freeAim = true; else if (locked) snapHome(); };   // aiming: stay there until the cast
+    on(window, 'pointerup', mmUp); on(window, 'pointercancel', mmUp);
   }
 
   // ---- portrait guard (full screen + landscape lock live in fullscreen.js)
@@ -1050,7 +1104,13 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     const u = heroU();
     updateButtons(u);
     if (turnShown) return;
-    if (locked && u && !isSpec()) { const p = heroPos(u); renderer.setTarget(p.x, p.y); }
+    const dt = lastT ? Math.min(0.05, (t - lastT) / 1000) : 0; lastT = t;
+    edgePan(dt);
+    if (following() && u && !isSpec()) { const p = heroPos(u); renderer.setTarget(p.x, p.y); }
+    for (const p of pointers.values()) if (p.role === 'walk') {   // hold-to-walk
+      if (!p.walking && t - p.t0 >= T.TAP_MS) p.walking = true;
+      if (p.walking && t >= (p.next || 0)) { walkTo(p); p.next = t + T.WALK_MS; }
+    }
     if ((fc = (fc + 1) % 45) === 0) updateInset(false);
     checkLock(u);
     if (aim) updateAim();
@@ -1067,6 +1127,10 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     injectTouchStyle(); injectTouchStyle2();
     document.documentElement.classList.add('p2d-touch');
     root.append(turn); R.style.display = '';
+    // minimap: top-left under the top bar on touch (out of the bottom-left portrait cluster): the left thumb rests bottom-left on the stick,
+    // so a minimap press is a deliberate reach, never a stray joystick touch; the right thumb keeps the spell wheel for minimap casts
+    mmEl = root.querySelector('.h-mm');
+    if (mmEl) { mmHome = { parent: mmEl.parentNode, next: mmEl.nextSibling }; mmEl.classList.add('t-mmtop'); root.append(mmEl); }
     layout(); attachTop();
     on(canvas, 'pointerdown', canvasDown);
     on(atk, 'pointerdown', attackDown);
@@ -1120,6 +1184,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
         if (renderer.setViewInset) renderer.setViewInset({ top: 0, bottom: 0 });
         document.documentElement.style.removeProperty('--p2d-u'); document.documentElement.style.removeProperty('--k'); document.documentElement.style.removeProperty('--bk');
       }
+      if (mmEl && mmHome && mmHome.parent) { mmEl.classList.remove('t-mmtop'); mmHome.parent.insertBefore(mmEl, mmHome.next && mmHome.next.parentNode === mmHome.parent ? mmHome.next : null); }
       R.remove(); turn.remove(); clearTimeout(rangeTimer);
     },
   };

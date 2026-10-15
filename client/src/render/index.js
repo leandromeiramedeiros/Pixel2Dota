@@ -285,7 +285,7 @@ export function createRenderer({ canvas, sheets }) {
     sprites.setRim(settings.rim);
     clutter.enabled = settings.clutter > 0; clutter.density = settings.clutter; clutter.setRim(settings.rim); clutter.update(cam, tg.x, tg.y, rig.visibleWidth, rig.visibleHeight, rig.showcase || rig.yaw !== 0, post.state.sky > 0.002 ? Math.min(settings.drawDist * 0.5, 3000) : 0);
 
-    terrain.update(cam, rig.snap ? 999 : 6, 2);   // + 2 off-screen chunks a frame: the whole map is built before the first showcase looks at the horizon
+    terrain.update(cam, rig.snap ? 999 : 6, 1);   // + 1 off-screen chunk a frame: the whole map is built before the first showcase looks at the horizon
     shadow.setEnabled(settings.shadows);
     shadow.renderPoints(scene, lights.shadowLights);
     shadow.render(scene, tg.x, heightAt(tg.x, tg.y), -tg.y, Math.max(rig.visibleWidth * 0.75, rig.visibleHeight * 1.15));

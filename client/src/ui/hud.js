@@ -13,6 +13,7 @@ import { PORTRAIT, portraitPhase, heroKeyLetters, ITEM_LETTERS, canLearn, pipCou
 import { inShopRange, sellValue } from './shopdata.js';
 import { createTooltip } from './tooltip.js';
 import { createMinimap } from './minimap.js';
+import { createOrderPaths } from './orderpath.js';
 import { createShop } from './shop.js';
 import { createScoreboard, createFeed, createMessages, createChat, createEnd, h, sizeU, faceEl } from './panels.js';
 
@@ -367,8 +368,15 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
   }
 
   // ---- range rings
+  // own order paths (move green / attack red), fed by game.js for every move / attack order the player sends
+  const paths = createOrderPaths();
+  let pathHero = null;
+  const drawnPos = (id) => { const pk = renderer.actors && renderer.actors.picks; if (pk) for (const p of pk) if (p.id === id && Number.isFinite(p.x)) return p; const s = ctxState.state; return s && s.units ? s.units.get(id) || null : null; };
   function drawRings(hero) {
     ringCtx.clearRect(0, 0, ring.width, ring.height); ringCtx.globalAlpha = 1;
+    pathHero = hero && !(hero.respawn > 0) ? hero : null;
+    if (!pathHero) paths.clear();
+    else if (renderer.worldToScreen) { const cl = nearClip(); paths.draw(ringCtx, performance.now(), { from: drawnPos(hero.id), unitPos: drawnPos, toScreen: renderer.worldToScreen, behind: cl ? (x, y) => cl.depth(x, y) < cl.d : null }); }
     if ((!targeting || !hero) && !povMarks.length || !renderer.worldToScreen) return;
     const cl = nearClip();
     const circle = (cx, cy, r, color, fill, lw) => {
@@ -595,6 +603,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
       if (ax != null && ay != null) aim = { x: ax, y: ay };
     },
     /** spectator player-perspective: an accepted order of the watched player {t, x?, y?, id?, slot?} -> click marker + pressed ability / item button */
+    /** the local player just sent this move / attack / attack-move order: draw its path */
+    orderPath(o) { if (pathHero) paths.note(o, drawnPos(pathHero.id) || pathHero, drawnPos); },
     povOrder(e) {
       if (!e) return;
       if ((e.x != null && e.y != null) || e.id) { povMarks.push({ t: e.t, x: e.x, y: e.y, id: e.id || '', at: performance.now() }); if (povMarks.length > 12) povMarks.shift(); }

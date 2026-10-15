@@ -282,7 +282,7 @@ html.p2d-touch .h-hero .h-lv { font-size:max(11px, calc(11px * var(--k, 1))); }
 html.p2d-touch .h-bottom { --u:calc(1.5px * var(--k, 1)); left:calc(6px + env(safe-area-inset-left, 0px)); bottom:calc(4px + env(safe-area-inset-bottom, 0px)); transform:none; padding-bottom:0; align-items:flex-end; gap:calc(4px * var(--k, 1)); }
 html.p2d-touch .h-bottom, html.p2d-touch .h-bottom * { pointer-events:none !important; }
 html.p2d-touch .h-bottom .h-port { pointer-events:auto !important; }
-html.p2d-touch .h-bottom .h-mm, html.p2d-touch .h-bottom .h-mm * { pointer-events:auto !important; }   /* minimap: tap / drag moves the camera */
+html.p2d-touch .h-mm, html.p2d-touch .h-mm * { pointer-events:auto !important; }   /* minimap: tap / drag moves the camera */
 html.p2d-touch .h-port .h-plv { font-size:max(11px, calc(11px * var(--k, 1))); min-width:calc(18px * var(--k, 1)); height:calc(16px * var(--k, 1)); }
 html.p2d-touch .h-main { min-width:0; width:calc(156px * var(--k, 1)); }
 html.p2d-touch .h-bars { padding:calc(4px * var(--k, 1)); gap:calc(3px * var(--k, 1)); }
@@ -294,7 +294,8 @@ html.p2d-touch .h-inv, html.p2d-touch .h-shopbtn { display:none !important; }
 html.p2d-touch .h-invwrap { display:flex; }
 html.p2d-touch .h-goldrow { height:calc(26px * var(--k, 1)); min-width:calc(104px * var(--k, 1)); font-size:max(11px, calc(13px * var(--k, 1))); padding:calc(3px * var(--k, 1)) calc(7px * var(--k, 1)); gap:calc(6px * var(--k, 1)); }
 html.p2d-touch .h-goldpop { font-size:max(11px, calc(12px * var(--k, 1))); }
-html.p2d-touch .h-mm { --u:max(.9px, calc(1.05px * var(--k, 1))); margin-bottom:0; }   /* bottom-left cluster: minimap | portrait | bars (landscape phones) */
+html.p2d-touch .h-mm { --u:max(1.2px, calc(1.4px * var(--k, 1))); margin-bottom:0; }
+html.p2d-touch .h-mm.t-mmtop { position:absolute; left:calc(6px + env(safe-area-inset-left, 0px)); top:calc(48px * var(--k, 1) + env(safe-area-inset-top, 0px)); }   /* touch: top-left under the top bar (touch.js moves it out of the portrait cluster) */
 /* narrow phones (< 760 px wide): the bottom-left cluster must stop short of the item row, so minimap / bars / gold shrink */
 html.p2d-narrow .h-mm { --u:calc(.9px * var(--k, 1)); }
 html.p2d-narrow .h-main { width:calc(128px * var(--k, 1)); }

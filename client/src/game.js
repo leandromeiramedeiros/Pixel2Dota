@@ -25,8 +25,10 @@ export async function startGame({ root, net }) {
   root.append(canvas, hudRoot);
 
   const renderer = createRenderer({ canvas, sheets });
-  const send = (type, payload) => net.send(type, payload);
-  const hud = createHud(hudRoot, { send, renderer, sheets });
+  // opts.noPath: joystick moves (8 Hz, 300 u ahead) draw no order path
+  const send = (type, payload, opts) => { net.send(type, payload); if (type === MSG.ORDER && !(opts && opts.noPath) && hud) hud.orderPath(payload); };
+  let hud = null;
+  hud = createHud(hudRoot, { send, renderer, sheets });
   const getState = () => net.state;
   const input = createInput({ canvas, renderer, send, hud, getState, mySid: () => net.mySid });
 

@@ -123,4 +123,9 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   button after leaving it (a quick tap keeps its preview behaviour). Holding a spell/item still 0.75 s shows its tooltip (release does not cast, moving
   resumes aiming); 1.75 s enters wheel reorder (per hero). HUD bottom bar, left to right: minimap, hero portrait, stats (desktop), bars/items;
   portrait: tap/double tap/click centres the camera, press-and-hold 0.5 s shows the full stats panel (`format.heroStats`) while held. Pinch zoom, menu button.
-  Pure helpers (`holdPhase`, `releaseAction`, `aimCancelled`, `portraitPhase`) in `ui/touch.js` / `ui/targeting.js` are node-tested.
+  Touch camera: locked to the hero by default (CAM toggles); tap the world = move (enemy = attack), hold = keep moving to the finger. The minimap sits
+  top-left under the top bar (left thumb reach, clear of the joystick); pressing it frees the camera to cast far with the right thumb, release / cast end
+  snaps back. Aiming a long-range spell at a screen edge pans fast (`edgePanDir`).
+  Pure helpers (`holdPhase`, `releaseAction`, `aimCancelled`, `portraitPhase`, `edgePanDir`) in `ui/touch.js` / `ui/targeting.js` are node-tested.
+- **Order paths** (`ui/orderpath.js`, drawn by hud.js): every move / attack / attack-move order (desktop and touch, not the joystick) shows marching dashes
+  along the A* path from `shared/nav.js` (the same nav the server sim walks) with a cross at the end; green move, red attack, orange attack-move; 1 s fade.
