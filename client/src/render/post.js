@@ -354,7 +354,7 @@ void main(){
   float coc = cocOf(zv) * uSky;
   if (coc > .01) {
     int nT = uAtmos > 2.5 ? 24 : uAtmos > 1.5 ? 16 : 8;
-    float R = (uAtmos > 2.5 ? 18. : uAtmos > 1.5 ? 15. : 10.) * coc, rot = vh2(floor(vUv * uRT)) * 6.2832;
+    float R = (uAtmos > 2.5 ? 9. : uAtmos > 1.5 ? 7.5 : 5.) * coc, rot = vh2(floor(vUv * uRT)) * 6.2832;
     vec4 acc = c; float ws = 1.;
     for (int i = 0; i < 24; i++) {
       if (i >= nT) break;
