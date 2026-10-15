@@ -43,8 +43,8 @@ export function voxEntry(mod, o = {}) {
   return { build: mod.build, rigOf: mod.rigOf, anims: mod.ANIMS, cx: M.cx, cy: M.cy, unit: CHAR_UNIT, max: 16, lean: M.rig !== 'static', rig: M.rig || 'biped', ...o };
 }
 export const VOX_HEROES = VOX_UNITS;   // old name
-const LEAN_TO = 30 * Math.PI / 180;    // view pitch the model is shown at (deg above the horizon)
-const LEAN_K = 1;                      // share of (camera pitch - LEAN_TO) taken by the lean
+export const LEAN_TO = 30 * Math.PI / 180;    // view pitch the model is shown at (deg above the horizon)
+export const LEAN_K = 1;                      // share of (camera pitch - LEAN_TO) taken by the lean
 const OUT_W = 3;                       // outline thickness, world units
 // voxel death (world units, seconds): burst speed out / up, gravity, bounce restitution, ground slide kept after the bounce, launch stagger,
 // lean release, dissolve start (+ up to DIE_FADE_J per voxel) -> fully gone at DIE_T
@@ -195,7 +195,7 @@ const IFLOATS = [['iPos', 3], ['iXf', 4], ['iTi', 4], ['iHi', 4], ['iMs', 4], ['
 /** Sprite-like pick / bar frame from a voxel footprint (model units x world unit): art px box, foot at (ax, ay); `vox` = solid box hit test. */
 function footFrame(fp, unit) {
   const r = fp.r * unit / ART_UNITS_PER_PX, h = fp.top * unit / ART_UNITS_PER_PX;
-  return { w: Math.max(1, Math.round(r * 2)), h: Math.max(1, Math.round(h)), ax: r, ay: h, dens: 1, vox: true, r: fp.r * unit, top: fp.top * unit };
+  return { w: Math.max(1, Math.round(r * 2)), h: Math.max(1, Math.round(h)), ax: r, ay: h, dens: 1, vox: true, r: fp.r * unit, top: fp.top * unit, hw: (fp.max[0] - fp.min[0] + fp.max[2] - fp.min[2]) / 4 * unit };
 }
 
 /** ground(x, z) = terrain height at plane coords (x, z = -game y), for the ragdolls. */
@@ -233,6 +233,7 @@ export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
       f.pf = footFrame(geo.userData.fp, h.unit); f.joints = geo.userData.joints || null;
     });
     const idle = (m.anims.idle || Object.values(m.anims)[0])[0];
+    for (const anim in m.anims) for (const f of m.anims[anim]) { f.pf.hw = idle.pf.hw; f.pf.ptop = idle.pf.top; f.pf.lean = h.lean !== false; }   // pick box: one stable body size per model (raised arms / walk frames do not change it)
     m.radius = idle.pf.r;   // decal radius: one stable value per model (per-frame reach jumps with raised arms)
     m.built = true; stats.buildMs = performance.now() - t0;
   }

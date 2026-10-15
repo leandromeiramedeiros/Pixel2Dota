@@ -85,6 +85,7 @@ export const T = {
 };
 
 const clampW = (v) => Math.max(MAP_MIN, Math.min(MAP_MAX, v));
+const TOUCH_PICK = { touch: true };   // renderer.pick option: larger minimum hit boxes for fingers (render/pick.js)
 const RAD = Math.PI / 180;
 
 // ------------------------------------------------------------------------------------------------ pure helpers (node-testable)
@@ -1001,7 +1002,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
     // the aim point is the cursor's screen position unprojected through the CURRENT camera every frame, so panning the camera
     // (minimap / left hand / edge pan) under a stationary thumb moves the aim; finite-range spells clamp to the ring, global ones reach map-wide
     if (hasDrag && renderer.pick) {
-      const g = renderer.pick(vx - cr.left, vy - cr.top);
+      const g = renderer.pick(vx - cr.left, vy - cr.top, TOUCH_PICK);
       ax = g.x; ay = g.y;
     } else if (hasDrag) { ax = u.x + off.x; ay = u.y + off.y; }
     else { ax = u.x + Math.cos(u.facing || 0) * a.fw; ay = u.y + Math.sin(u.facing || 0) * a.fw; }   // not dragging yet: the preview ahead of the hero (= the cursor's start)
@@ -1136,7 +1137,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   let pinch = null;
   const rig = () => renderer.rig;
   function worldTap(p, rect) {
-    const pk = renderer.pick ? renderer.pick(p.x - rect.left, p.y - rect.top) : null;
+    const pk = renderer.pick ? renderer.pick(p.x - rect.left, p.y - rect.top, TOUCH_PICK) : null;
     const s = state(), u = pk && pk.unitId && s && s.units ? s.units.get(pk.unitId) : null, me_ = heroU();
     if (u && alive(u) && u.team !== myTeam() && u.team !== TEAM.NONE && !isSpec() && validTarget(u, { team: 'ENEMY', myTeam: myTeam(), visible })) {
       setLock(u.id); order(orderAttack(u.id)); noteOrder();
@@ -1147,7 +1148,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
   /** hold-to-walk: a move order to the world point under the finger */
   function walkTo(p) {
     const u = heroU(); if (!u || dead(u) || !renderer.pick) return;
-    const cr = canvas.getBoundingClientRect(), g = renderer.pick(p.x - cr.left, p.y - cr.top);
+    const cr = canvas.getBoundingClientRect(), g = renderer.pick(p.x - cr.left, p.y - cr.top, TOUCH_PICK);
     order(orderMove(Math.round(clampW(g.x)), Math.round(clampW(g.y)), false)); noteOrder(); p.sent = true;
   }
   function canvasDown(e) {
