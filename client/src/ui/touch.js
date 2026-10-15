@@ -29,6 +29,7 @@ import { GLYPHS } from './glyphs.js';
 import { pixelEl, paintInto } from './pixels.js';
 import { fmtCd, sweepDeg, prettyName, fmtGold } from './format.js';
 import { inShopRange, sellValue } from './shopdata.js';
+import { slotCharges } from './tipdata.js';
 import { h } from './panels.js';
 import {
   targetInfo, abilityReady, itemReady, canLearn, orderMove, orderCast, orderAttack, orderAmove, teamOk,
@@ -724,7 +725,7 @@ export function createTouch({ root, canvas, renderer, hud, input, sheets, getSta
       tc(b.el, 'passive', !!k && targetInfo('item', k, 1).mode === 'passive');
       const cd = !!(it && it.cd > 0.05); tc(b.el, 'cd', cd);
       if (cd) { ts(b.sweep, '--a', sweepDeg(it.cd, it.cdMax) + 'deg'); tt(b.cdt, fmtCd(it.cd)); }
-      const ch = it && it.charges > 0; ts(b.ch, 'display', ch ? 'block' : 'none'); if (ch) tt(b.ch, it.charges);
+      const ch = slotCharges(it); ts(b.ch, 'display', ch !== null ? 'block' : 'none'); if (ch !== null) tt(b.ch, ch);
       tc(b.el, 'aiming', !!(aim && aim.b === b));
     }
     tc(bagB, 'has', bagHas);

@@ -3,7 +3,7 @@
 // Modifier def (all optional except key):
 //   key        string id ("sven_storm_bolt", "stun"...)         src: unit | unit id     dur: seconds (Infinity = permanent)
 //   status     ST.* bits it grants (STUN, ROOT, SILENCE, HEX, INVIS, INVULN, MAGIC_IMMUNE, DISARM, TAUNT, ...)
-//   ms msPct as armor dmg str agi int mr hpRegen manaRegen hp mana range   (stat bonuses; msPct < 0 = slow, strongest slow wins)
+//   ms msPct as armor dmg str agi int mr hpRegen manaRegen hp mana manaPct range   (stat bonuses; manaPct = % of max mana; msPct < 0 = slow, strongest slow wins)
 //   dot        {dps, type:'mag'|'phys'|'pure', interval=1}
 //   aura       {radius, team:'ally'|'enemy', def:<modifier def>, interval=0.25}   (applied to units in radius, refreshed)
 //   stack      'refresh' (default; same key+src refreshes) | 'stack' (stacks++ up to maxStacks, stat values x stacks) | 'unique' (same key replaces regardless of src)
@@ -21,7 +21,7 @@ export const canCast = (u) => !(u._st & (ST.STUN | ST.HEX | ST.SILENCE | ST.DEAD
 export const canUseItem = (u) => !(u._st & (ST.STUN | ST.HEX | ST.MUTE | ST.DEAD));
 export const isInvisible = (u) => (u._st & ST.INVIS) && !(u._st & ST.REVEALED);
 
-const STAT_KEYS = ['ms', 'msPct', 'as', 'armor', 'dmg', 'str', 'agi', 'int', 'mr', 'hpRegen', 'manaRegen', 'hp', 'mana', 'range'];
+const STAT_KEYS = ['ms', 'msPct', 'as', 'armor', 'dmg', 'str', 'agi', 'int', 'mr', 'hpRegen', 'manaRegen', 'hp', 'mana', 'manaPct', 'range'];
 
 export function addModifier(w, u, def) {
   if (!u || u._dead) return null;

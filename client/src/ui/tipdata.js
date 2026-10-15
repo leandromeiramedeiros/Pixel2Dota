@@ -6,7 +6,16 @@ import { recipeTree } from './shopdata.js';
 const HIDE = /scepter|facet|shard|talent|vision|model|max_level|upgrade|cataclysm|^abilitydamage$|^abilitycastpoint|^abilityduration$|undispellable|^tooltip_|^cooldown_reduction|^charge_restore|_pct_tooltip/i;
 const BEHAVIOR_TEXT = { UNIT_TARGET: 'Unit Target', POINT: 'Point Target', NO_TARGET: 'No Target', PASSIVE: 'Passive', TOGGLE: 'Toggle', AUTOCAST: 'Auto-cast', CHANNELLED: 'Channeled', AOE: 'AoE' };
 const DMG_TEXT = { mag: 'Magical', phys: 'Physical', pure: 'Pure' };
-const STAT_TEXT = { str: 'Strength', agi: 'Agility', int: 'Intelligence', dmg: 'Damage', armor: 'Armor', as: 'Attack Speed', ms: 'Move Speed', msPct: '% Move Speed', hp: 'Health', mana: 'Mana', hpRegen: 'Health Regen', manaRegen: 'Mana Regen', mr: '% Magic Resist' };
+const STAT_TEXT = { str: 'Strength', agi: 'Agility', int: 'Intelligence', dmg: 'Damage', armor: 'Armor', as: 'Attack Speed', ms: 'Move Speed', msPct: '% Move Speed', hp: 'Health', mana: 'Mana', hpRegen: 'Health Regen', manaRegen: 'Mana Regen', mr: '% Magic Resist', manaPct: '% Max Mana' };
+
+/** Charge count shown on an inventory slot, or null. DATA showCharges (stick / wand) shows even 0; hideCharges (Faerie Fire) never. */
+export function slotCharges(it) {
+  if (!it || !it.key) return null;
+  const d = DATA.items[it.key];
+  if (d && d.hideCharges) return null;
+  if (it.charges > 0) return it.charges;
+  return d && d.showCharges ? 0 : null;
+}
 
 const idx = (arr, level) => Math.min(Math.max((level | 0) || 1, 1), arr.length) - 1;
 
@@ -62,7 +71,7 @@ export function itemTip(key, data = DATA) {
   if (d.consumable) tip.notes.push('Consumable');
   for (const k of Object.keys(d.stats || {})) {
     const v = d.stats[k];
-    tip.stats.push({ k: STAT_TEXT[k] || k, v, text: (v > 0 ? '+' : '') + fmtNum(v, 2) + (k === 'msPct' || k === 'mr' ? '%' : '') + ' ' + (STAT_TEXT[k] || k).replace(/^% /, '') });
+    tip.stats.push({ k: STAT_TEXT[k] || k, v, text: (v > 0 ? '+' : '') + fmtNum(v, 2) + (k === 'msPct' || k === 'mr' || k === 'manaPct' ? '%' : '') + ' ' + (STAT_TEXT[k] || k).replace(/^% /, '') });
   }
   const skip = /^bonus_|max_level|model_scale|tooltip_charges/i;
   for (const name of Object.keys(d.values || {})) {

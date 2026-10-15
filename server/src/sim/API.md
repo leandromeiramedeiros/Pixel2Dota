@@ -38,7 +38,8 @@ Blink/teleported units become visible to queries next tick. Invulnerable / dead 
 
 ```js
 w.damage(src, tgt, amount, 'phys'|'mag'|'pure', info?) -> dealt     // armor / magic resist / lifesteal hooks / kill handled
-   info: { attack, crit, ability:'key', dot, pierce, silent, noKill }   // INVULN blocks all; MAGIC_IMMUNE blocks non-phys unless pierce
+   info: { attack, crit, ability:'key', dot, pierce, silent, noKill }   // INVULN blocks all. MAGIC_IMMUNE = debuff immunity only: magic damage goes
+   // through, reduced by the granting modifier's `mr` (BKB 60, Blade Fury 80); pure non-attack damage is blocked only by a modifier with `pureImmune` (BKB)
 w.heal(tgt, amount, src?) -> healed        w.restoreMana(tgt, amount)
 w.addModifier(tgt, def) -> mod | null      // null when blocked (magic immune / invuln / building for debuffs unless def.pierce)
 w.removeModifier(tgt, key, srcId?, reason?)   w.hasModifier(tgt,key)   w.getModifier(tgt,key)   w.dispel(tgt, {strong?, buffs?, debuffs?})
@@ -56,7 +57,7 @@ Modifier def:
 ```js
 { key, src: unit|id, dur: seconds (omit = permanent), debuff?: bool (default: src is an enemy),
   status: ST.STUN|ST.ROOT|ST.SILENCE|..., stack?: 'unique' | 'stack' (+maxStacks), purge?: 'basic'|'strong'|'none', fade?: s,
-  // stat bonuses (summed): ms msPct as armor dmg str agi int mr hpRegen manaRegen hp mana range
+  // stat bonuses (summed): ms msPct as armor dmg str agi int mr hpRegen manaRegen hp mana manaPct range   (manaPct: % of max mana)
   dot?: { dps, interval=1, type='mag' },
   aura?: { radius, interval=0.25, team:'enemy'|'ally', self?, def:{...modifier def...}, buildings? },
   onTick(w,u,m,dt), onExpire(w,u,m,reason) }
@@ -85,6 +86,8 @@ w.getAbility(u, 'key') -> ab {key, level, cd, ...}          w.castNow(u, slot, {
 Cast flow (orders.js `doCast`): validate (`canCast`, mana, cd, handler.canCast) -> walk into `castRange` -> face -> `castPoint` windup (interruptible by stun/stop) -> `executeAbility`
 (pay mana + cd, break invis, auto EV.SPELL merged with handler return, start channel if `{channel}` returned).
 Channel: return `{ channel: secs, tick(w,u,ch,dt), end(w,u,ch,interrupted), noInterruptOnOrder? }`.
+IMMEDIATE (DATA `behavior`, abilities and items, orders.js `immediate`): a no-cast-point cast/item fires on the order and never enters the queue, so the current move / attack / queue continues (Phase Boots while walking, Invoker orbs). With a channel running it fires only with `IGNORE_CHANNEL`, else it takes the normal path (breaks the channel). `DONT_RESUME_ATTACK` drops a current attack order and the auto-attack target; `DONT_RESUME_MOVEMENT` drops a move order. A unit-target immediate out of range falls back to a queued cast; `OPTIONAL_UNIT_TARGET` passes `o.id` (Mango on an ally).
+Procs: `prdRoll(w, u, key, pct)` (`prd.js`) = pseudo-random distribution (counter in `u._prd[key]`); use it for every % proc.
 Attack hooks get `info = { dmg, final, type, crit, pierce, noCleave }` (mutable in `onAttack`).
 
 ## Items (`items.js`) and Bots (`bots.js`)
@@ -92,7 +95,10 @@ Attack hooks get `info = { dmg, final, type, crit, pierce, noCleave }` (mutable 
 Exports and signatures are documented at the top of each file. Item state: `u.items[i] = {key, charges, cd, cdMax}`; set `u._dirty = true` after changes.
 Inventory = `INV_SLOTS` 9 (`shared/protocol.js`): slots `0..ACTIVE_SLOTS-1` (6) are the main inventory, `6..8` the backpack. Backpack items give no stats / passives / hooks, cannot be used (`useInfo` null, item orders refused) and gain no charges; they still tick cooldowns and count for recipes, stacking and selling. Buying fills main then backpack; refused when all 9 are taken unless it completes a recipe. `{t:'swap',a,b}` works over all 9; an item moved backpack -> main gets `cd = max(cd, BACKPACK_SWAP_CD=6)` (and `cdMax`), which blocks use for every item, so the client shows it through the normal `cd/cdMax` item fields (no extra field). The Aegis only lives in main. New item code: loop `i < ACTIVE_SLOTS` for anything that acts (stats, passives, hooks, use).
 `useInfo(w,u,slot) -> null | {targeting, range, castPoint, ready, ...}` makes `{t:'item'}` orders work through the same cast flow as abilities.
-`use()` may return `{key, channel, tick?, end?}` (TP scroll). `onEnemySpell(w, u, caster, key)` (magic stick/wand) fires for enemy heroes within 1200 of any non-passive cast (orders.js).
+`use()` may return `{key, channel, tick?, end?}` (TP scroll). `onEnemySpell(w, u, caster, key)` (magic stick/wand) fires for enemy heroes within DATA `charge_radius` (`STICK_RADIUS`) of any non-passive cast whose team sees the caster (not if the caster was invisible at cast time) (orders.js).
+Item DATA keys beyond cost/stats/values (baked only when the file sets them): `castPoint`, `targetTeam/Type/Flags`, `channel` (TP 3 s), `stackMax` (Mango 3), `purchasable:false` / `backpack:false` / `droppable:false` (Aegis), `share`, `disassemble`, `declare`, `neutralBanned`, `needsCharges`, `showCharges` (stick / wand: slot shows 0), `hideCharges` (Faerie Fire). Client slot badge: `tipdata.slotCharges(it)`.
+Item rules: Salve / Clarity break and Blink locks only on damage from a hero or Roshan; Salve on an ally heals at half rate; BKB duration steps down per use on the hero (`u._bkbUses`); Blink past `blink_range` lands `blink_range_clamp` away, self-cast goes toward the fountain; Quelling Blade is unique, vs every non-hero non-building; Crystalys rolls PRD and never crits buildings.
+Not implemented: item give / share (TP, wards, tango), Iron Branch planting, ItemDeclarations chat, neutral slot, Aegis expiry heal, TP min/max distance (engine 170 offset), Phase "turn faster". Tango range is the engine's 260, not the file's 165. Some hero spells (Invoker, Drow, Lion) still skip MAGIC_IMMUNE targets for damage.
 Bots: `update(w, dt)` runs once per tick before units think; use `w.order(pid, ...)`; stagger by `(w.tick + slot) % N`. Per-hero item builds: `BUILD` / `MELEE_CORE` tables.
 
 ## Invoker / Rubick slot rules

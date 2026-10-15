@@ -11,21 +11,19 @@
 //   hooks (heroes only): onAttack onAttackLanded onAttacked onDamaged onKill onDeath tick
 //   Inventory = ACTIVE_SLOTS main + backpack (INV_SLOTS total). Backpack items give no stats/passives, cannot be used, charge nothing; they still
 //   count for recipes, stacking and selling. Every stats / passive / hook / use path loops i < ACTIVE_SLOTS.
-//   Item state lives on u.items[i] = {key, charges, cd, cdMax} (+ private `_t` `_paid` `_attr` `_uses`).
+//   Item state lives on u.items[i] = {key, charges, cd, cdMax} (+ private `_t` `_paid` `_attr`); hero-level u._bkbUses, u._prd.
 import { INV_SLOTS, ACTIVE_SLOTS, BACKPACK_SWAP_CD, KIND, ST } from '../../../shared/protocol.js';
 import { SHOP_RANGE, SELL_RATIO, SELL_FULL_WINDOW } from '../../../shared/constants.js';
 import { evSpell, evTp, evMsg } from './events.js';
 import { placeWard } from './wards.js';
+import { prdRoll } from './prd.js';
 
-const STAT = ['str', 'agi', 'int', 'dmg', 'armor', 'as', 'ms', 'msPct', 'hp', 'mana', 'hpRegen', 'manaRegen', 'mr', 'range'];
+const STAT = ['str', 'agi', 'int', 'dmg', 'armor', 'as', 'ms', 'msPct', 'hp', 'mana', 'manaPct', 'hpRegen', 'manaRegen', 'mr', 'range'];
 const BOOTS = { item_boots: 1, item_phase_boots: 1, item_power_treads: 1 };   // movement speed does not stack between boots
-const BLINK_RANGE = 1200;          // landing distance cap (DATA also has blink_range_clamp 960; we use the full 1200)
-const BLINK_HIT_CD = 3;
-const TP_CHANNEL = 3, TP_HIT_RETRY_CD = 5, TP_MANA = 75;
+const TP_HIT_RETRY_CD = 5;
 const TREE_REACH_SLACK = 110;      // unit may be this much farther from the tree than the item's cast range
 const TREE_PICK = 160;             // tree must be within this of the clicked point
 const TANGO_RANGE = 260;           // tree footprints block units: DATA 165 is unreachable from the tree centre
-const BKB_BASE = 9, BKB_MIN = 6;
 
 const nMain = (u) => Math.min(u.items.length, ACTIVE_SLOTS);
 const empty = () => ({ key: '', charges: 0, cd: 0, cdMax: 0 });
@@ -166,7 +164,7 @@ export function stockLeft(w, team, key) {
 export function buy(w, u, key) {
   key = norm(w, key);
   const d = w.data.items[key];
-  if (key === 'item_aegis') return false;
+  if (!d || d.purchasable === false) return false;   // DATA ItemPurchasable 0 (Aegis)
   const st = d && d.stock && !u._dead && nearShop(w, u) ? stockOf(w, u.team, key, d) : null;
   if (st && st.n < 1) { msg(w, u, 'Out of stock'); return false; }
   const ok = buyInner(w, u, key);
@@ -179,12 +177,13 @@ function buyInner(w, u, key) {
   const p = w.players.get(u.owner);
   if (!d || !p || u._dead) return false;
   if (!nearShop(w, u)) { msg(w, u, 'Too far from shop'); return false; }
-  // stackable consumable already held: add charges
+  // stackable consumable already held: add charges (DATA stackMax caps one slot's charges, e.g. Mango 3; a full stack opens a new slot)
   if (d.stack) {
-    const ex = u.items.find((it) => it.key === key);
+    const add = d.charges || 1;
+    const ex = u.items.find((it) => it.key === key && (!d.stackMax || it.charges + add <= d.stackMax));
     if (ex) {
       if (p.gold < d.cost) { msg(w, u, 'Not enough gold'); return false; }
-      p.gold -= d.cost; ex.charges += d.charges || 1; ex._paid = (ex._paid || 0) + d.cost; ex._t = w.time;
+      p.gold -= d.cost; ex.charges += add; ex._paid = (ex._paid || 0) + d.cost; ex._t = w.time;
       u._dirty = true; return true;
     }
   }
@@ -223,8 +222,9 @@ export function sell(w, u, slot) {
 }
 
 export function swap(w, u, a, b) {
-  if (u.items[a] && u.items[a].key === 'item_aegis' && b >= ACTIVE_SLOTS) return false;   // the Aegis only works in the main inventory
-  if (u.items[b] && u.items[b].key === 'item_aegis' && a >= ACTIVE_SLOTS) return false;
+  const noBp = (it) => it && it.key && w.data.items[it.key] && w.data.items[it.key].backpack === false;   // DATA AllowedInBackpack 0 (Aegis)
+  if (noBp(u.items[a]) && b >= ACTIVE_SLOTS) return false;
+  if (noBp(u.items[b]) && a >= ACTIVE_SLOTS) return false;
   if (a === b || a < 0 || b < 0 || a >= INV_SLOTS || b >= INV_SLOTS || a >= u.items.length || b >= u.items.length) return false;
   const t = u.items[a]; u.items[a] = u.items[b]; u.items[b] = t;
   // Dota rule: an item moved from the backpack into the main inventory is unusable for BACKPACK_SWAP_CD s (works for items without a cooldown too)
@@ -277,7 +277,7 @@ function useInfoOf(w, u, slot) {
       return { ...base, targeting: 'unit', range: d.castRange || 250, ready: it.charges > 0, targetTeam: 'FRIENDLY', targetType: ['HERO'] };
     case 'item_faerie_fire': return { ...base, ready: cdOk && it.charges > 0 };
     case 'item_enchanted_mango': return { ...base, ready: it.charges > 0 };
-    case 'item_tpscroll': return { ...base, targeting: 'point', ready: cdOk && it.charges > 0 && u.mana + 1e-6 >= TP_MANA && !rooted(u) };
+    case 'item_tpscroll': return { ...base, targeting: 'point', ready: cdOk && it.charges > 0 && u.mana + 1e-6 >= (d.manaCost || 0) && !rooted(u) };
     case 'item_magic_stick': case 'item_magic_wand': return { ...base, ready: cdOk && it.charges > 0 };
     case 'item_phase_boots': return base;
     case 'item_power_treads': return { ...base, ready: true };
@@ -334,8 +334,9 @@ export function use(w, u, slot, target) {
       if (it.charges <= 0) return;
       const t = target && target.unit && !target.unit._dead && target.unit.team === u.team ? target.unit : u;
       const flask = it.key === 'item_flask';
+      // Salve tooltip: "Heals for half the amount per second when cast on an ally."
       w.addModifier(t, flask
-        ? { key: 'item_flask', src: u, dur: val(d, 'buff_duration', 13), hpRegen: val(d, 'health_regen', 30), debuff: false }
+        ? { key: 'item_flask', src: u, dur: val(d, 'buff_duration', 13), hpRegen: val(d, 'health_regen', 30) * (t === u ? 1 : 0.5), debuff: false }
         : { key: 'item_clarity', src: u, dur: val(d, 'buff_duration', 25), manaRegen: val(d, 'mana_regen', 6), debuff: false });
       consume(u, it);
       evSpell(w, it.key, u.id, { t: t.id, dur: val(d, flask ? 'buff_duration' : 'buff_duration', 13) });
@@ -349,11 +350,17 @@ export function use(w, u, slot, target) {
       evSpell(w, 'item_faerie_fire', u.id, {});
       return;
     }
-    case 'item_enchanted_mango': {
+    case 'item_enchanted_mango': {   // OPTIONAL_UNIT_TARGET: an allied hero within castRange (tooltip: Ctrl-cast on a nearby ally)
       if (it.charges <= 0) return;
-      w.restoreMana(u, val(d, 'replenish_amount', 100));
+      let t = u;
+      const o = target && target.unit;
+      if (o && o !== u && !o._dead && o.team === u.team && o.kind === KIND.HERO) {
+        if (Math.hypot(o.x - u.x, o.y - u.y) - o.radius > (d.castRange || 400)) { msg(w, u, 'Target out of range'); return; }
+        t = o;
+      }
+      w.restoreMana(t, val(d, 'replenish_amount', 100));
       consume(u, it);
-      evSpell(w, 'item_enchanted_mango', u.id, {});
+      evSpell(w, 'item_enchanted_mango', u.id, { t: t.id });
       return;
     }
     case 'item_magic_stick': case 'item_magic_wand': {
@@ -381,10 +388,13 @@ export function use(w, u, slot, target) {
     case 'item_black_king_bar': {
       if (it.cd > 0 || u.mana + 1e-6 < (d.manaCost || 0)) return;
       u.mana -= d.manaCost || 0;
-      const dur = Math.max(BKB_MIN, BKB_BASE - (it._uses || 0));
-      it._uses = (it._uses || 0) + 1;
+      // DATA duration [9 8 7]: each use steps down, floor at the last. Counted per hero (tooltip: buying another BKB does not reset it).
+      const durs = Array.isArray(d.values.duration) ? d.values.duration : [d.values.duration];
+      const dur = durs[Math.min(u._bkbUses || 0, durs.length - 1)];
+      u._bkbUses = (u._bkbUses || 0) + 1;
       w.dispel(u, { debuffs: true });
-      w.addModifier(u, { key: 'item_black_king_bar', src: u, dur, status: ST.MAGIC_IMMUNE, purge: 'none', debuff: false });
+      // tooltip: debuff immunity + spell_reduce % magic resistance + immunity to pure damage; magic damage is not blocked outright
+      w.addModifier(u, { key: 'item_black_king_bar', src: u, dur, status: ST.MAGIC_IMMUNE, mr: val(d, 'spell_reduce', 60), pureImmune: true, purge: 'none', debuff: false });
       setCd(it, d.cooldown || 95);
       evSpell(w, 'item_black_king_bar', u.id, { dur });
       return;
@@ -399,9 +409,13 @@ export function use(w, u, slot, target) {
     }
     case 'item_blink': {
       if (it.cd > 0 || rooted(u)) return;
-      let dx = tx - u.x, dy = ty - u.y; const dist = Math.hypot(dx, dy);
+      let dx = tx - u.x, dy = ty - u.y;
+      if (target && target.unit === u) { const f = w.fountains[u.team]; if (f) { dx = f.x - u.x; dy = f.y - u.y; } }   // tooltip: self-cast blinks toward the team fountain
+      const dist = Math.hypot(dx, dy);
       if (dist < 1) return;
-      const L = Math.min(dist, BLINK_RANGE);
+      // DATA blink_range 1200; a target beyond it lands blink_range_clamp (960) away (Dota overshoot rule)
+      const max = val(d, 'blink_range', d.castRange || 1200);
+      const L = dist > max ? Math.min(dist, val(d, 'blink_range_clamp', max)) : dist;
       dx /= dist; dy /= dist;
       const x0 = u.x, y0 = u.y;
       u._mv = null;
@@ -410,15 +424,16 @@ export function use(w, u, slot, target) {
       return;
     }
     case 'item_tpscroll': {
-      if (it.charges <= 0 || it.cd > 0 || u.mana + 1e-6 < TP_MANA || rooted(u)) return;
+      const mana = d.manaCost || 0, chan = d.channel || 3;   // DATA AbilityManaCost 75, AbilityChannelTime 3
+      if (it.charges <= 0 || it.cd > 0 || u.mana + 1e-6 < mana || rooted(u)) return;
       const dest = tpDestination(w, u, tx, ty);
-      u.mana -= TP_MANA;
+      u.mana -= mana;
       setCd(it, d.cooldown || 80);
-      evTp(w, u.id, dest.x, dest.y, TP_CHANNEL);
+      evTp(w, u.id, dest.x, dest.y, chan);
       return {
-        key: 'item_tpscroll', channel: TP_CHANNEL,
+        key: 'item_tpscroll', channel: chan,
         end(ww, uu, ch, interrupted) {
-          if (interrupted) { uu.mana = Math.min(uu.maxMana, uu.mana + TP_MANA); it.cd = TP_HIT_RETRY_CD; return; }
+          if (interrupted) { uu.mana = Math.min(uu.maxMana, uu.mana + mana); it.cd = TP_HIT_RETRY_CD; return; }
           if (uu.items.indexOf(it) < 0) return;
           consume(uu, it);
           ww.teleport(uu, dest.x, dest.y);
@@ -430,23 +445,24 @@ export function use(w, u, slot, target) {
 }
 
 // ------------------------------------------------------------------------------------------------ hooks
-function heroSource(w, src) {
-  if (!src) return false;
-  if (src.kind === KIND.HERO) return true;
-  return !!(src.owner && w.players.has(src.owner));
-}
+/** Tooltips (Salve, Clarity, Blink): the effect breaks on damage from an enemy hero or Roshan (not from creeps or summons). */
+const heroOrRoshan = (src) => !!src && (src.kind === KIND.HERO || !!src._roshan);
+
+/** Magic stick / wand charge radius (DATA charge_radius, 1200). */
+export function STICK_RADIUS(w) { return val(w.data.items.item_magic_wand || w.data.items.item_magic_stick, 'charge_radius', 1200); }
 
 export function onAttack(w, u, tgt, info) {
-  let crit = null;
+  let crit = null, quell = null;
   for (let i = 0, n = nMain(u); i < n; i++) {
     const it = u.items[i];
-    if (it.key === 'item_quelling_blade' && tgt && tgt.kind === KIND.CREEP) {
-      const d = w.data.items[it.key];
-      info.dmg += melee(u) ? val(d, 'damage_bonus', 8) : val(d, 'damage_bonus_ranged', 4);
-    } else if (it.key === 'item_lesser_crit' && !crit) crit = w.data.items[it.key];
+    if (it.key === 'item_quelling_blade') quell = w.data.items[it.key];
+    else if (it.key === 'item_lesser_crit' && !crit) crit = w.data.items[it.key];
   }
-  if (crit) {
-    if (w.rand() * 100 < val(crit, 'crit_chance', 30)) info.crit = Math.max(info.crit || 1, val(crit, 'crit_multiplier', 160) / 100);
+  // Quell: bonus vs non-hero units (not buildings); several Quelling Blades do not stack (tooltip)
+  if (quell && tgt && tgt.kind !== KIND.HERO && !tgt._building) info.dmg += melee(u) ? val(quell, 'damage_bonus', 8) : val(quell, 'damage_bonus_ranged', 4);
+  // Crystalys: no crits on buildings (tooltip); pseudo-random roll (engine rule, prd.js)
+  if (crit && tgt && !tgt._building && prdRoll(w, u, 'item_lesser_crit', val(crit, 'crit_chance', 30))) {
+    info.crit = Math.max(info.crit || 1, val(crit, 'crit_multiplier', 160) / 100);
   }
 }
 export function onAttackLanded(w, u, tgt, info, dealt) {}
@@ -455,16 +471,13 @@ export function onAttacked(w, u, attacker, info, dealt) {}
 export function onDamaged(w, u, src, dealt, type) {
   if (!(dealt > 0) || !src) return;
   if (src.team === u.team) return;
-  const hero = heroSource(w, src);
-  if (u._mods.length) {
-    if (hero) w.removeModifier(u, 'item_flask');
-    w.removeModifier(u, 'item_clarity');
-  }
-  if (hero) {
-    for (let i = 0, n = nMain(u); i < n; i++) {
-      const it = u.items[i];
-      if (it.key === 'item_blink' && it.cd < BLINK_HIT_CD) { it.cd = BLINK_HIT_CD; if (it.cdMax < BLINK_HIT_CD) it.cdMax = BLINK_HIT_CD; }
-    }
+  if (!heroOrRoshan(src)) return;
+  if (u._mods.length) { w.removeModifier(u, 'item_flask'); w.removeModifier(u, 'item_clarity'); }
+  for (let i = 0, n = nMain(u); i < n; i++) {
+    const it = u.items[i];
+    if (it.key !== 'item_blink') continue;
+    const lock = val(w.data.items.item_blink, 'blink_damage_cooldown', 3);
+    if (it.cd < lock) { it.cd = lock; if (it.cdMax < lock) it.cdMax = lock; }
   }
 }
 

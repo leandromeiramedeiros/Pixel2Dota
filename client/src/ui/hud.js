@@ -11,6 +11,7 @@ import { pixelEl, paintInto } from './pixels.js';
 import { GLYPHS } from './glyphs.js';
 import { PORTRAIT, portraitPhase, heroKeyLetters, ITEM_LETTERS, canLearn, pipCount, targetInfo, makeDepthFn, clipPolyNear, clipSegmentNear } from './targeting.js';
 import { inShopRange, sellValue } from './shopdata.js';
+import { slotCharges } from './tipdata.js';
 import { createTooltip } from './tooltip.js';
 import { createMinimap } from './minimap.js';
 import { createOrderPaths } from './orderpath.js';
@@ -548,8 +549,8 @@ export function createHud(hudRoot, { send, renderer, sheets }) {
         const cd = it && it.cd > 0.05;
         cls(s.el, 'cd', cd);
         if (cd) { sty(s.sweep, '--a', sweepDeg(it.cd, it.cdMax) + 'deg'); txt(s.cdt, fmtCd(it.cd)); }
-        const ch = it && it.charges > 0 && (DATA.items[k] ? DATA.items[k].stack || DATA.items[k].charges : true);
-        sty(s.ch, 'display', ch ? 'block' : 'none'); if (ch) txt(s.ch, it.charges);
+        const ch = slotCharges(it);
+        sty(s.ch, 'display', ch !== null ? 'block' : 'none'); if (ch !== null) txt(s.ch, ch);
         cls(s.el, 'active', !!(targeting && targeting.kind === 'item' && targeting.slot === i));
       }
     }

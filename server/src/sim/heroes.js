@@ -26,7 +26,7 @@ export function recalc(w, u) {
     u.str = Math.floor(str); u.agi = Math.floor(agi); u.int = Math.floor(int);
   }
   // health / mana
-  const maxHp = Math.max(1, b.hp + str * ATTR.hpPerStr + B.hp), maxMana = Math.max(0, b.mana + int * ATTR.manaPerInt + B.mana);
+  const maxHp = Math.max(1, b.hp + str * ATTR.hpPerStr + B.hp), maxMana = Math.max(0, (b.mana + int * ATTR.manaPerInt + B.mana) * (1 + B.manaPct / 100));
   if (u.maxHp !== maxHp) { if (u.hp > 0) u.hp = Math.min(maxHp, u.hp + Math.max(0, maxHp - u.maxHp)); u.maxHp = maxHp; }
   if (u.maxMana !== maxMana) { if (u.hp > 0) u.mana = Math.min(maxMana, u.mana + Math.max(0, maxMana - u.maxMana)); u.maxMana = maxMana; }
   u._hpRegen = (b.hpRegen || 0) + str * ATTR.hpRegenPerStr + B.hpRegen;

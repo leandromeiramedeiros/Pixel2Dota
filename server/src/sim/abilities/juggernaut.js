@@ -11,14 +11,14 @@ function critRoll(w, u, ab) {
 }
 
 export default {
-  // Spin: magic immune, cannot attack (can move), magic dps to enemies in radius.
+  // Spin: debuff immune (ST.MAGIC_IMMUNE) with immunity_resist % magic resistance, cannot attack (can move), magic dps to enemies in radius.
   juggernaut_blade_fury: {
     cast(w, u, ab) {
       const lv = ab.level;
       const r = w.val(BF, 'blade_fury_radius', lv), dur = w.val(BF, 'duration', lv), tick = w.val(BF, 'blade_fury_damage_tick', lv) || 0.2;
       const dps = w.val(BF, 'blade_fury_damage', lv);
       w.addModifier(u, {
-        key: BF, src: u, dur, status: ST.MAGIC_IMMUNE | ST.DISARM, debuff: false, stack: 'unique',
+        key: BF, src: u, dur, status: ST.MAGIC_IMMUNE | ST.DISARM, mr: w.val(BF, 'immunity_resist', lv), debuff: false, stack: 'unique',
         onTick(w2, uu, m, dt) {
           m._acc = (m._acc || 0) + dt;
           if (m._acc < tick) return;

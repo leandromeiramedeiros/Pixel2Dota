@@ -1,4 +1,4 @@
-// Item actives: blink, TP scroll, BKB, tango, quelling blade, flask, clarity, faerie fire, mango, magic stick/wand, phase boots, power treads.
+// Item actives: blink, TP scroll, BKB, tango, quelling blade, flask, clarity, faerie fire, mango (self or ally), magic stick/wand, phase boots, power treads, wards (own team).
 import { EV } from '../../../../shared/protocol.js';
 import { PAL, rnd, TAU } from './common.js';
 
@@ -111,10 +111,10 @@ export function register(c, R) {
     c.blob(su.x, su.y, z, PAL.sun, { count: 14 }); c.stars(su.x, su.y, z + 20, p, { count: 12 }); c.glow(su.x, su.y, z, p.lt, 300, 1.4, 0.5);
     c.swirl(su.id, 0.6, p, { r: 30, rate: 40, speed: 8 });
   });
-  R.spell('item_enchanted_mango', (ev, su) => {
-    if (!su) return; const z = c.chest(su);
-    c.blob(su.x, su.y, z, PAL.mana, { count: 20 }); c.stars(su.x, su.y, z + 20, PAL.sun, { count: 8 }); c.glow(su.x, su.y, z, PAL.mana.lt, 300, 1.4, 0.5);
-    c.rise(su.x, su.y, su.z || 0, PAL.mana, { count: 16 });
+  R.spell('item_enchanted_mango', (ev, su, tu) => {   // ev.t = the hero that ate it (self or an ally)
+    const t = tu || su; if (!t) return; const z = c.chest(t);
+    c.blob(t.x, t.y, z, PAL.mana, { count: 20 }); c.stars(t.x, t.y, z + 20, PAL.sun, { count: 8 }); c.glow(t.x, t.y, z, PAL.mana.lt, 300, 1.4, 0.5);
+    c.rise(t.x, t.y, t.z || 0, PAL.mana, { count: 16 });
   });
   R.spell(['item_magic_stick', 'item_magic_wand'], (ev, su) => {
     if (!su) return; const z = c.chest(su);
@@ -134,6 +134,12 @@ export function register(c, R) {
       for (let i = 0; i < n; i++) P.spawn(c.pix(p, { x: u.x + rnd(-12, 12), y: u.y + rnd(-12, 12), z: (u.z || 0) + rnd(4, 110), life: [0.3, 0.6], speed: 0, up: [0, 20] }));
     });
     c.glow(su.x, su.y, c.chest(su), p.lt, 260, 0.8, dur, { follow: id, dz: 80, mode: 'flat' });
+  });
+  R.spell(['item_ward_observer', 'item_ward_sentry'], (ev, su) => {   // x,y = the planted ward; own team only (the ward itself is invisible to enemies)
+    if (ev.x == null || !su || !c.view || su.team !== c.view.myTeam) return;
+    const z = c.zAt(ev.x, ev.y), p = ev.k === 'item_ward_sentry' ? PAL.mana : PAL.gold;
+    c.dust(ev.x, ev.y, z, { count: 8 }, PAL.smoke);
+    c.ring(ev.x, ev.y, z, p, { R: 60, life: [0.3, 0.5] });
   });
   R.spell('item_power_treads', (ev, su) => { if (su) { c.flash(su.x, su.y, (su.z || 0) + 8, PAL.gold, 30, 0.15); c.sparks(su.x, su.y, (su.z || 0) + 8, PAL.gold, { count: 8 }); } });
   // blink / tp are driven by EV.BLINK / EV.TP; passives never cast

@@ -108,10 +108,18 @@ test('BKB: magic immune, dispels, duration shrinks 9 -> 8, mana and cooldown', (
   it.cd = 0; h.mana = h.maxMana;
   w.order('a', { t: 'item', slot: s }); run(w, 8.3);
   assert.equal(h._st & ST.MAGIC_IMMUNE, 0, 'second use lasts 8 s');
-  assert.equal(it._uses, 2);
+  assert.equal(h._bkbUses, 2, 'uses are counted on the hero');
+  // DATA duration [9 8 7]: third and later uses floor at 7 s
+  for (let k = 0; k < 2; k++) {
+    it.cd = 0; h.mana = h.maxMana;
+    w.order('a', { t: 'item', slot: s }); run(w, 6.8);
+    assert.ok(h._st & ST.MAGIC_IMMUNE, 'use ' + (k + 3) + ' still on at 6.8 s');
+    run(w, 0.5);
+    assert.equal(h._st & ST.MAGIC_IMMUNE, 0, 'use ' + (k + 3) + ' lasts 7 s');
+  }
 });
 
-test('blink: clamps to 1200, 3 s lock after hero damage, not usable rooted', () => {
+test('blink: past 1200 lands at the 960 clamp, 3 s lock after hero damage, not usable rooted', () => {
   const { w, h, e, buy, slot } = setup(true);
   buy('blink'); const s = slot('blink');
   put(w, h, -3000, -3000);
@@ -121,7 +129,7 @@ test('blink: clamps to 1200, 3 s lock after hero damage, not usable rooted', () 
   w.order('a', { t: 'item', slot: s, x: x0 + 2000, y: y0 });
   run(w, 0.3);
   const d = Math.hypot(h.x - x0, h.y - y0);
-  assert.ok(d > 1000 && d <= 1201, `blinked ${d}`);
+  assert.ok(d > 940 && d <= 961, `overshoot blinks blink_range_clamp: ${d}`);
   assert.ok(h.items[s].cd > 14);
   assert.ok(w.drainEvents().some((ev) => ev.e === EV.BLINK));
   h.items[s].cd = 0;
