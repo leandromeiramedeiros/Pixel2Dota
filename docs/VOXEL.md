@@ -30,6 +30,15 @@ pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creeps (`shared/
 Skill `.claude/skills/vox-unit/SKILL.md` (one or many units per run): `npm run vox:ref -- <unit>` -> read `sheet.png` (then `poses.png` for `ANIMS`; `vox:brief -- <short>` condenses them with the kit) -> signature
 reads -> model file + registry line -> `vox:check` -> `vox:shot -- <short> --small` (<= 3 fix rounds) -> full `vox:shot` (or `vox:view -- <short> --poses`, skill `vox-view`) to the creative director -> register in `VOX_UNITS`, portrait (heroes), done.
 
+## Spell FX reference (`tools/fx/`)
+The director approves each ability from a sheet with the OG Dota 2 FX on top and ours below. All output is private, in the gitignored `tools/.cache/ref/<hero>/fx/`: never commit it and never copy it to docs/ or client/. Numbers and colours read from `ref.json` may go into code.
+- `npm run fx:ref -- <hero> [ability ...]` (`--list` shows the mapping only) reads the local game files only. It maps each ability to its `.vpcf` roots and walks `m_Children`. Per ability it writes `<ability>/ref.json`, `tex/*.png` and `og.png`:
+  - `ref.json` holds the emitters, renderers, lifetimes, rates, radii, fades, colours, textures and light colours, plus `ambiguous` notes on the mapping.
+  - `tex/*.png` holds frame 0 of each texture.
+  - `og.png` holds a CPU preview at 0.1 / 0.4 / 1.0 s, the textures, the swatches and a params table. The preview is approximate: `ref.json` `preview.cannot` lists what it skips (models, moving CPs, curves, forces).
+- `npm run fx:view -- <hero> [ability ...]` builds `og.png` if it is missing. It then fires `__fx.fire(key)` from `client/src/fxdemo.js` in headless Chrome: Ultra, day, fixed camera, sim stepped at 30 Hz, using its own ports (vite 5310, CDP 9340). The result is `sheet.png`: per ability, OG over OURS at the same three times.
+- Hero agent loop: `fx:ref` -> read `og.png` and `ref.json` -> build the FX on `render/fx/geo3d.js` -> `fx:view -- <hero> <ability>` -> fix -> hand `sheet.png` to the director. If an ability has no or a wrong mapping, extend `ALIAS` in `tools/fx/lib/vpcf.mjs`.
+
 ## Grid and densities
 - Axes: x = right seen from the front, y = depth (**the model faces -y**), z = up. Feet on z 0, centred on `META.cx, cy`.
 - One material id per voxel (`Uint8`, 0 = empty, max 255 mats per model).
