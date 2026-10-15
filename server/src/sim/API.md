@@ -40,8 +40,11 @@ Blink/teleported units become visible to queries next tick. Invulnerable / dead 
 w.damage(src, tgt, amount, 'phys'|'mag'|'pure', info?) -> dealt     // armor / magic resist / lifesteal hooks / kill handled
    info: { attack, crit, ability:'key', dot, pierce, silent, noKill }   // INVULN blocks all. MAGIC_IMMUNE = debuff immunity only: magic damage goes
    // through, reduced by the granting modifier's `mr` (BKB 60, Blade Fury 80); pure non-attack damage is blocked only by a modifier with `pureImmune` (BKB)
+   // unless info.pierce or info.ability's DATA immunity is ENEMIES_YES
 w.heal(tgt, amount, src?) -> healed        w.restoreMana(tgt, amount)
-w.addModifier(tgt, def) -> mod | null      // null when blocked (magic immune / invuln / building for debuffs unless def.pierce)
+w.addModifier(tgt, def) -> mod | null      // null when blocked (magic immune / invuln / building for debuffs unless pierce)
+   // pierce / purge default from the ability owning def.key (longest `_` prefix that is a DATA ability): immunity ENEMIES_YES -> pierce,
+   // dispel YES|YES_STRONG|NO -> purge basic|strong|none. Explicit def.pierce / def.purge win.
 w.removeModifier(tgt, key, srcId?, reason?)   w.hasModifier(tgt,key)   w.getModifier(tgt,key)   w.dispel(tgt, {strong?, buffs?, debuffs?})
 w.interrupt(u, clearQueue?)                // ends channel + cast windup
 w.killUnit(victim, killer, info?)
@@ -98,7 +101,12 @@ Inventory = `INV_SLOTS` 9 (`shared/protocol.js`): slots `0..ACTIVE_SLOTS-1` (6) 
 `use()` may return `{key, channel, tick?, end?}` (TP scroll). `onEnemySpell(w, u, caster, key)` (magic stick/wand) fires for enemy heroes within DATA `charge_radius` (`STICK_RADIUS`) of any non-passive cast whose team sees the caster (not if the caster was invisible at cast time) (orders.js).
 Item DATA keys beyond cost/stats/values (baked only when the file sets them): `castPoint`, `targetTeam/Type/Flags`, `channel` (TP 3 s), `stackMax` (Mango 3), `purchasable:false` / `backpack:false` / `droppable:false` (Aegis), `share`, `disassemble`, `declare`, `neutralBanned`, `needsCharges`, `showCharges` (stick / wand: slot shows 0), `hideCharges` (Faerie Fire). Client slot badge: `tipdata.slotCharges(it)`.
 Item rules: Salve / Clarity break and Blink locks only on damage from a hero or Roshan; Salve on an ally heals at half rate; BKB duration steps down per use on the hero (`u._bkbUses`); Blink past `blink_range` lands `blink_range_clamp` away, self-cast goes toward the fountain; Quelling Blade is unique, vs every non-hero non-building; Crystalys rolls PRD and never crits buildings.
-Not implemented: item give / share (TP, wards, tango), Iron Branch planting, ItemDeclarations chat, neutral slot, Aegis expiry heal, TP min/max distance (engine 170 offset), Phase "turn faster". Tango range is the engine's 260, not the file's 165. Some hero spells (Invoker, Drow, Lion) still skip MAGIC_IMMUNE targets for damage.
+Not implemented: item give / share (TP, wards, tango), Iron Branch planting, ItemDeclarations chat, neutral slot, Aegis expiry heal, TP min/max distance (engine 170 offset), Phase "turn faster". Tango range is the engine's 260, not the file's 165.
+
+Debuff immunity (DATA `immunity` = SpellImmunityType, `dispel` = SpellDispellableType, baked by tools/bake.mjs): ENEMIES_NO spells cannot
+unit-target a debuff-immune enemy (checked at order and again at the end of the cast point), and on one they apply no debuff, forced
+movement or mana burn, but their damage lands (magic reduced by `mr`, pure blocked by BKB). ENEMIES_YES spells target and affect it fully.
+Bots do not spend ENEMIES_NO spells on debuff-immune foes.
 Bots: `update(w, dt)` runs once per tick before units think; use `w.order(pid, ...)`; stagger by `(w.tick + slot) % N`. Per-hero item builds: `BUILD` / `MELEE_CORE` tables.
 
 ## Invoker / Rubick slot rules

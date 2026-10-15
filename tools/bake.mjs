@@ -107,6 +107,9 @@ function bakeAbility(def) {
   for (const f of Object.keys(STRUCT)) o[f] = fit(st[f], maxLevel);
   o.values = sortObj(Object.fromEntries(Object.entries(values).map(([k, a]) => [k, fit(a, maxLevel)])));
   if (Object.keys(levelKeys).length) o.levelKeys = sortObj(levelKeys); // e.g. Invoker: damage -> "exortlevel" (index = orb level)
+  // SpellImmunityType (ENEMIES_YES = pierces debuff immunity) / SpellDispellableType (YES | YES_STRONG | NO), only when the file sets them
+  if (def.SpellImmunityType) o.immunity = String(def.SpellImmunityType).replace('SPELL_IMMUNITY_', '');
+  if (def.SpellDispellableType) o.dispel = String(def.SpellDispellableType).replace('SPELL_DISPELLABLE_', '');
   return sortObj(o);
 }
 

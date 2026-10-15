@@ -12,7 +12,7 @@ export default {
       const key = 'axe_berserkers_call', lv = ab.level;
       const r = w.val(key, 'radius', lv), dur = w.val(key, 'duration', lv);
       for (const v of w.unitsInRadius(u.x, u.y, r, { enemyOf: u, buildings: false })) {
-        w.addModifier(v, { key, src: u, dur, status: ST.TAUNT, taunter: u.id, debuff: true, pierce: true, purge: 'strong' });
+        w.addModifier(v, { key, src: u, dur, status: ST.TAUNT, taunter: u.id, debuff: true, pierce: true });   // DATA dispel NO -> undispellable
       }
       w.addModifier(u, { key: key + '_armor', src: u, dur, armor: w.val(key, 'bonus_armor', lv), as: w.val(key, 'bonus_attack_speed', lv), debuff: false, hidden: true });
       return { r, dur };

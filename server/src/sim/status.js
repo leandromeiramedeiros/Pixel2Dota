@@ -7,8 +7,10 @@
 //   dot        {dps, type:'mag'|'phys'|'pure', interval=1}
 //   aura       {radius, team:'ally'|'enemy', def:<modifier def>, interval=0.25}   (applied to units in radius, refreshed)
 //   stack      'refresh' (default; same key+src refreshes) | 'stack' (stacks++ up to maxStacks, stat values x stacks) | 'unique' (same key replaces regardless of src)
-//   debuff     bool (default: src is an enemy of the target). Debuffs are blocked by MAGIC_IMMUNE unless def.pierce.
-//   purge      'basic' | 'strong' | 'none' (default 'basic'; 'none' = not removable by dispel)
+//   debuff     bool (default: src is an enemy of the target). Debuffs are blocked by MAGIC_IMMUNE unless pierce
+//              (pierce default: the owning ability's DATA immunity === 'ENEMIES_YES'; owner = longest ability-key prefix of `key`)
+//   purge      'basic' | 'strong' | 'none' ('none' = not removable by dispel). Default: owning ability's DATA dispel
+//              (YES basic, YES_STRONG strong, NO none), else 'basic'
 //   fade       seconds before the status bits take effect (invis fade)       breakOnAttack  removed when the holder attacks/casts
 //   hidden     not shown in `buffs`          taunter  unit id (TAUNT)          onTick(w,u,m,dt)  onExpire(w,u,m,reason)
 import { ST } from '../../../shared/protocol.js';
@@ -23,11 +25,27 @@ export const isInvisible = (u) => (u._st & ST.INVIS) && !(u._st & ST.REVEALED);
 
 const STAT_KEYS = ['ms', 'msPct', 'as', 'armor', 'dmg', 'str', 'agi', 'int', 'mr', 'hpRegen', 'manaRegen', 'hp', 'mana', 'manaPct', 'range'];
 
+const abCache = new Map();
+/** DATA ability a modifier key belongs to: the longest `_`-prefix that is an ability key ('invoker_cold_snap_freeze' -> invoker_cold_snap), or null. */
+export function abilityOfKey(w, key) {
+  if (typeof key !== 'string' || !w.data || !w.data.abilities) return null;
+  if (abCache.has(key)) return abCache.get(key);
+  let k = key, d = null;
+  while (k) { if (w.data.abilities[k]) { d = w.data.abilities[k]; break; } const i = k.lastIndexOf('_'); if (i <= 0) break; k = k.slice(0, i); }
+  abCache.set(key, d);
+  return d;
+}
+const PURGE = { YES: 'basic', YES_STRONG: 'strong', NO: 'none' };
+
 export function addModifier(w, u, def) {
   if (!u || u._dead) return null;
   const src = def.src && typeof def.src === 'object' ? def.src : def.src ? w.units.get(def.src) : null;
   const debuff = def.debuff !== undefined ? def.debuff : !!(src && src.team !== u.team);
-  if (debuff && !def.pierce) {
+  // DATA defaults by the owning ability: SpellImmunityType ENEMIES_YES pierces debuff immunity, SpellDispellableType sets the purge
+  const ad = (def.pierce === undefined || def.purge === undefined) ? abilityOfKey(w, def.key) : null;
+  const pierce = def.pierce !== undefined ? def.pierce : !!(ad && ad.immunity === 'ENEMIES_YES');
+  if (def.purge === undefined && ad && PURGE[ad.dispel]) def = { ...def, purge: PURGE[ad.dispel] };
+  if (debuff && !pierce) {
     if (u._st & ST.MAGIC_IMMUNE) return null;
     if (u._st & ST.INVULN) return null;
     if (u._building) return null;

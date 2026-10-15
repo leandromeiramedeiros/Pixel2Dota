@@ -1,7 +1,7 @@
 // Combat: attack cycle, projectiles, damage pipeline, kills and rewards. Pure.
 import { KIND, ST, TEAM } from '../../../shared/protocol.js';
 import { armorMult, DENY_HP_PCT, XP_RADIUS, heroKillGold, heroKillXp, ATTACK_RANGE_BUFFER, CREEP_CALL_HELP } from '../../../shared/constants.js';
-import { canAttack, interrupt, endChannel } from './status.js';
+import { canAttack, interrupt, endChannel, abilityOfKey } from './status.js';
 import { getHandler } from './abilities/index.js';
 import * as items from './items.js';
 import * as H from './heroes.js';
@@ -149,13 +149,14 @@ function creepIn(w, p, src) {
  *   info: {attack, crit, ability, dot, pierce (ignore magic immunity), silent (no EV.HIT), noKill}
  * Blocked entirely by INVULN (incl. protected buildings). ST.MAGIC_IMMUNE is Dota's debuff immunity: it does NOT block magic
  * damage (the granting modifier carries its magic resistance as `mr`: BKB spell_reduce 60, Blade Fury immunity_resist 80);
- * pure spell damage is blocked only while a modifier with `pureImmune` is on (BKB tooltip: immune to pure damage), unless pierce.
+ * pure spell damage is blocked only while a modifier with `pureImmune` is on (BKB tooltip: immune to pure damage), unless pierce
+ * (info.pierce, or info.ability's DATA immunity === 'ENEMIES_YES': Counter Helix, Meat Hook, Sun Strike, Culling Blade).
  */
 export function damage(w, src, tgt, amount, type, info) {
   if (!tgt || tgt._dead || amount <= 0) return 0;
   info = info || NOINFO;
   if (tgt._st & ST.INVULN) return 0;
-  if (type === 'pure' && (tgt._st & ST.MAGIC_IMMUNE) && !info.pierce && !info.attack && pureImmune(tgt)) return 0;
+  if (type === 'pure' && (tgt._st & ST.MAGIC_IMMUNE) && !info.pierce && !info.attack && pureImmune(tgt) && !piercesByData(w, info.ability)) return 0;
   let d = amount;
   if (tgt._cp && tgt._cp.inHero && src) d *= creepIn(w, tgt._cp, src);
   if (src && src._spellAmp && info.ability && type !== 'phys') d *= 1 + src._spellAmp / 100;   // Rubick Arcane Supremacy
@@ -184,6 +185,7 @@ export function damage(w, src, tgt, amount, type, info) {
 }
 const NOINFO = Object.freeze({});
 function pureImmune(u) { for (const m of u._mods) if (m.pureImmune) return true; return false; }
+function piercesByData(w, key) { const d = key ? abilityOfKey(w, key) : null; return !!(d && d.immunity === 'ENEMIES_YES'); }
 
 /**
  * Dota aggro: a hero (or its summon) attacking an enemy hero -- an attack order on it or an attack landing -- marks the

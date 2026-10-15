@@ -12,7 +12,7 @@ export default {
         onHit(w2, p, t) {
           for (const v of w2.unitsInRadius(t.x, t.y, aoe, { enemyOf: u, buildings: false })) {
             w2.damage(u, v, dmg, 'mag', { ability: key });
-            w2.addModifier(v, { key: 'stun', src: u, dur, status: ST.STUN, debuff: true });
+            w2.addModifier(v, { key, src: u, dur, status: ST.STUN, debuff: true });   // DATA: ENEMIES_NO (blocked on debuff immune), dispel YES_STRONG
           }
         },
       });
