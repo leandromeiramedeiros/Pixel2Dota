@@ -34,7 +34,7 @@ const VOX_P = { grass: 0.0045, road: 0.0015, forest: 0.0045 };   // base-cell pr
 const VOX_SHAPE = [0.1, 0.22, 0.58, 0.85];   // cumulative: single / flat pair / stack of 2 / stack of 3 / L (pair, one of them stacked); biased tall
 const VOX_HI = 0.3;                     // share of lone / flat cubes in the highlight tone (top[4] lightened; the rest top[4]); stack tops are always highlight
 const VOX_LITE = 0.3, VOX_SIDE_K = 0.58, VOX_TOP_K = 1.06;   // highlight tint toward the preset light colour; side face / top face albedo factors (sides clearly darker)
-const LOD_DIST = 900;                   // camera-to-target distance past which the voxel props switch to their half-resolution grid
+const LOD_DIST = 900;                   // eye-to-cell distance past which the voxel props use their half-resolution grid
 const VOX_MAX = 8000;                  // instance buffer of each voxel tone variant (cubes are 1 instance each)
 const BIG = new Set([V.ROCK, V.BOULDER, V.LOG, V.PILLAR, V.CARGO, V.BANNER]);   // keep clear of tree trunks
 
@@ -453,9 +453,8 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
       const t0 = performance.now();
       for (const t of vars) t.n = 0;
       let cells = 0;
-      // far camera -> the half-resolution props (about a quarter of the triangles, same silhouette): a whole-view switch, no per-instance popping
-      const lodOff = Math.hypot(camera.position.x - tx, camera.position.y, camera.position.z + ty) > LOD_DIST ? 1 : 0;
-      api.lod = lodOff;
+      // cells further than LOD_DIST from the eye get the half-resolution props (about a quarter of the triangles, same silhouette), chosen per 256u cell
+      const lodR2 = LOD_DIST * LOD_DIST - camera.position.y * camera.position.y;
       if (api.enabled) {
         pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
         const x0 = map.x0, y1 = map.y1;
@@ -474,7 +473,7 @@ export function createClutter3d({ scene, uniforms, max = 1800, scatter } = {}) {
         }
         if (reach > 0) order.sort((p, q) => ordD[p] - ordD[q]);
         for (let oi = 0; oi < order.length; oi++) {
-          const ci = order[oi];
+          const ci = order[oi], lodOff = ordD[ci] > lodR2 ? 1 : 0;
           cells++;
           for (let v = 0; v < NV; v++) {
             const s = keyStart[ci * NV + v], e = keyStart[ci * NV + v + 1]; if (s === e) continue;

@@ -133,6 +133,6 @@ One director gate per batch, with in-game shots.
 | 2. Buildings | Tower, barracks, fort, fountain, shop, lantern, filler; `lean: false`; rubble on destroy | |
 | 3. Heroes | The 12 after Lina | |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |
-| 5. Trees + clutter | Trees, 15 clutter variants | clutter + rocks: 13 voxel variants, Radiant / Dire shapes (`shared/vox/world/{clutter,rocks}.js`), greedy-meshed, half-res LOD past camera distance 900, awaiting the director gate (tufts / ferns stay cubes) |
+| 5. Trees + clutter | Trees, 15 clutter variants | clutter + rocks: 13 voxel variants, Radiant / Dire shapes (`shared/vox/world/{clutter,rocks}.js`), greedy-meshed, half-res LOD for cells past 900 from the eye, awaiting the director gate (tufts / ferns stay cubes) |
 | 6. Portraits | `npm run vox:portrait` for every hero | Lina done |
 | 7. Sprite removal | Delete `?vox=0` / `?voxt=0`, the sprite unit path (`actors.js` / `sprites.js`), body / world sheets and generators, painted portraits, the tile atlas terrain path; switch to real depth | |
