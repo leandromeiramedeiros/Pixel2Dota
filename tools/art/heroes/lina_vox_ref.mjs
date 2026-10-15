@@ -1,4 +1,4 @@
-// FROZEN reference: the hand-built voxel Lina as it was before the parts kit (shared/vox/heroes/lina.js). Kept only for vox_kit_check.mjs
+// FROZEN reference: the hand-built voxel Lina as it was before the parts kit (shared/vox/heroes/lina.js). Kept only for tools/vox/check.mjs
 // (old vs new equivalence). Do not edit; delete once the kit port is accepted.
 // Voxel Lina (chibi, after the v3 chibi pilot docs/shots/v3-lina-sheet.png): big round head with large amber eyes, long straight red-orange
 // hair with a fringe and a flame tuft on top, small crimson dress with gold V trim + flame emblem, gold hem, short legs, brown boots, one hand

@@ -16,10 +16,18 @@ pixel sprites. Lina (`shared/vox/heroes/lina.js`) and the melee creeps (`shared/
 | `client/src/render/voxmesh.js` | Mesher: `meshVox` / `buildVoxFrames` -> compact geometry + footprint per frame (layout in the file header). |
 | `client/src/render/voxactors.js` | Game draw: `VOX_UNITS` registry, instancing, light, outline, lean, team tint, death. |
 | `tools/art/vox.mjs` | CPU ray-cast renderer (`renderVox`) for offline sheets. No GPU. |
-| `tools/art/vox_portrait.mjs <short>` | HUD portrait (32x42) -> `client/src/art/portraits/<short>.js` + a 12x preview. |
-| `tools/art/heroes/vox_kit_check.mjs`, `lina_vox_mesh_check.mjs`, `client/test/voxmesh.test.js` | Checks (model, mesh, CI). |
-| `tools/art/heroes/lina_vox_{shot,poses,terrains}.mjs`, `tools/art/creeps/creep_vox_shot.mjs` | Review sheets -> `docs/voxel-chibi/`. |
+| `shared/vox/index.js` | Registry `VOX = { short: { kind, unit, mod } }`: one line per model; the tools and `voxmesh.test.js` iterate it. |
+| `tools/vox/ref.mjs <short|all|list>` | Private reference renders of the Dota 2 unit (`tools/.cache/ref/<short>/`, gitignored): 5 views, `sheet.png`, `ref.json`. |
+| `tools/vox/brief.mjs <short>` | Agent brief: ref proportions + palette, grid class, kit, files, checklist. |
+| `tools/vox/check.mjs <short|all>` | Kit contract + mesh checks (wraps `voxmesh.test.js`); `all` adds rigs and the frozen-Lina diff. |
+| `tools/vox/shot.mjs <short|all> [--small]` | Review sheet: 4 views, every pose, true size next to Lina -> `docs/voxel-chibi/<short>_vox.png` (`--small`: fast views in `tools/art/out/`). |
+| `tools/vox/portrait.mjs <short>` | HUD portrait (32x42) -> `client/src/art/portraits/<short>.js` + a 12x preview (library: `tools/art/vox_portrait.mjs`). |
+| `tools/art/heroes/lina_vox_{shot,poses,terrains}.mjs` | Lina-only sheets (terrain patch, pose library). |
 | `docs/shots/v3-lina-sheet.png`, `docs/voxel-chibi/ref/` | The chibi likeness reference (v3 2D Lina). |
+
+## Workflow
+Skill `.claude/skills/vox-unit/SKILL.md` (one or many units per run): `npm run vox:ref -- <unit>` -> read `sheet.png` + `ref.json` (`vox:brief -- <short>` condenses them with the kit) -> signature
+reads -> model file + registry line -> `vox:check` -> `vox:shot -- <short> --small` (<= 3 fix rounds) -> full `vox:shot` to the creative director -> register in `VOX_UNITS`, portrait (heroes), done.
 
 ## Grid and densities
 - Axes: x = right seen from the front, y = depth (**the model faces -y**), z = up. Feet on z 0, centred on `META.cx, cy`.
@@ -95,7 +103,13 @@ model.
 - **Footprint:** per-frame voxel bounds size the pick box, HP bar height and decal radius (decal from the idle frame).
 - **Anims:** `channel` -> `cast`; `idle`, `walk`, `stunned` loop, the rest clamp.
 - **Death:** the shader rebuilds each voxel centre from the face byte and breaks the model apart over `DIE_T` 1.45 s (hop, gravity, one bounce, tumble,
-  Bayer fade; shadow follows). Holds the first `stunned` frame.
+  Bayer fade; shadow follows). Holds the first `stunned` frame. The debris follows the spell wind (`WIND_*` in the shader, same gust uniforms as the trees).
+- **Hero ragdoll:** heroes first ragdoll for `RAG_T` 2 s, then dissolve from the settled pose. `ragdoll.js` runs a CPU verlet body (10 particles: torso rigid, head,
+  hands, ankles as rods; no hip/knee joints) and writes one rigid transform per segment to the `uRag` texture; the shader moves each voxel with its
+  segment (face byte bits 5-7, baked from the nearest rig bone capsule; a model needs `rigOf(pose)` -> joints in its entry). Launch = `launchAt` (wind.js) at the feet
+  at death, else a small knock away from the killer, else a plain collapse. Creeps skip the ragdoll.
+
+![Voxel ragdoll](voxel-chibi/ragdoll_strip.png)
 
 ![Voxel death](voxel-chibi/vox_death_strip.png)
 
@@ -104,9 +118,9 @@ model.
 2. **Hair = a shell with a carved face window**, not strands. Paint face details with `paintFront`.
 3. **Emissive only for eyes and signature / spell parts**; tiers are the default, each hero may tune its own.
 4. **No runtime skinning:** frames are rebuilt per pose at load. Sway (`aSw`, trees today; planned for hair / capes) is the only vertex animation.
-5. **Every model has checks:** add it to `vox_kit_check.mjs` and `MODELS` in `voxmesh.test.js` (feet on z 0, winding, footprint, tiers, memory).
+5. **Every model has checks:** one line in `shared/vox/index.js` and `npm run vox:check -- <short>` covers it (feet on z 0, off the walls, winding, footprint, tiers, memory).
 6. **Director gate per model:** an offline sheet + an in-game shot to the creative director before registering. Never self-certify visuals.
-7. **Hand-authored only:** no Valve models / textures. `.vox` (MagicaVoxel) import only for one-off props.
+7. **Hand-authored only:** no Valve models / textures / renders in the repo, at runtime or voxelized. `tools/vox/ref.mjs` renders the local game files into the gitignored `tools/.cache/` as a private visual reference (like the wiki); a legal test (`shared/test/legal.test.js`) fails if shipped code touches it. `.vox` (MagicaVoxel) import only for one-off props.
 
 ## Conversion order
 One director gate per batch, with in-game shots.
@@ -119,5 +133,5 @@ One director gate per batch, with in-game shots.
 | 3. Heroes | The 12 after Lina | |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |
 | 5. Trees + clutter | Trees, 15 clutter variants | |
-| 6. Portraits | `vox_portrait.mjs` for every hero | Lina done |
+| 6. Portraits | `npm run vox:portrait` for every hero | Lina done |
 | 7. Sprite removal | Delete `?vox=0` / `?voxt=0`, the sprite unit path (`actors.js` / `sprites.js`), body / world sheets and generators, painted portraits, the tile atlas terrain path; switch to real depth | |

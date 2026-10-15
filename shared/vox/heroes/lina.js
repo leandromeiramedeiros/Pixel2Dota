@@ -1,7 +1,7 @@
 // Voxel Lina on the parts kit (chibi, after the v3 chibi pilot docs/shots/v3-lina-sheet.png): big round head with large amber eyes, long straight
 // red-orange hair with a fringe and a flame crown, small crimson dress with gold V trim + flame emblem, gold hem, short legs, brown boots, one hand
 // raised holding a flame. Grid 34 x 30 x 48, ~44 voxels tall, faces -y. A params file (proportions, materials, fringe, pinned arm table) plus
-// Lina-only parts (bodice, emblem). Bit-identical to the hand-built original (tools/art/heroes/vox_kit_check.mjs).
+// Lina-only parts (bodice, emblem). Bit-identical to the hand-built original (tools/vox/check.mjs all).
 import { Vox } from '../vox.js';
 import { useMat, useIris, useFlame } from '../mats.js';
 import { solve } from '../rig.js';
@@ -35,6 +35,9 @@ const rigPose = p => {
     pin: { shoulderR: R[0], elbowR: R[1], handR: R[2], shoulderL: [cx + 4.6, cy, 16.8], elbowL: ARMS[arm][0], handL: ARMS[arm][1] },
   };
 };
+
+/** Rig joints of pose p (voxel coords): the ragdoll segments and rest skeleton (client/src/render/voxmesh.js). */
+export const rigOf = p => solve('biped', PROP, rigPose(p)).J;
 
 /**
  * Pose p (all optional): { flick 0..3 flame flicker phase, sway 0..1 hair tip phase, legs [dyR, dyL] foot swing (+ = back),

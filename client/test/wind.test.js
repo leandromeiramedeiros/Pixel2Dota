@@ -1,7 +1,7 @@
 // Spell wind: gust derivation from ability data, the fixed gust array (cap / eviction / decay) and the displacement shapes. Pure, no WebGL.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_GUSTS, KIND, REARM, createWind, spellGust, abilityStats, envelope, windAt, WIND_GLSL } from '../src/render/wind.js';
+import { MAX_GUSTS, KIND, REARM, createWind, spellGust, abilityStats, envelope, windAt, launchAt, WIND_GLSL } from '../src/render/wind.js';
 import { EV } from '../../shared/protocol.js';
 import { DATA } from '../../shared/data.js';
 
@@ -145,4 +145,93 @@ test('displacement: line pushes along dir (not outside / behind it); burst is a 
 test('GLSL: declares the uniforms the renderer fills, loops over MAX_GUSTS', () => {
   for (const n of ['uWind', 'uWN', 'uWA', 'uWB', 'uWC', 'gustAt']) assert.ok(WIND_GLSL.includes(n), n);
   assert.ok(WIND_GLSL.includes('[' + MAX_GUSTS + ']'));
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// pull gusts: the wind pulls the plants the way the spell pulls the units
+const pk = (ev, src, tgt) => spellGust(ev, src, tgt);
+const rad = (p, r, ang, n = 1) => { const px = Math.cos(ang) * r, pz = Math.sin(ang) * r; const [ox, oz] = windAt(p.A, p.B, p.C, n, px, pz); return ox * Math.cos(ang) + oz * Math.sin(ang); };
+const ring8 = (p, r, n = 1) => { let s = 0, mn = Infinity, mx = -Infinity; for (let a = 0; a < 6.28; a += 0.4) { const q = rad(p, r, a, n); s += q; mn = Math.min(mn, q); mx = Math.max(mx, q); } return { mean: s / 16, mn, mx }; };
+
+test('pull burst: an imploding ring, plants lean toward the centre (never away), long after the ring passed', () => {
+  const early = pack1({ ...base, kind: KIND.BURST, radius: 600, pull: 1 }, 0.1), late = pack1({ ...base, kind: KIND.BURST, radius: 600, pull: 1 }, 0.6);
+  assert.equal(early.C[1], 1, 'pull flag packed in uWC.y');
+  for (const p of [early, late]) for (const r of [100, 250, 400, 560]) { const q = ring8(p, r); assert.ok(q.mx <= 1e-9 && q.mn <= 0, 'radial inward only @' + r); }
+  assert.ok(ring8(early, 560).mean < ring8(early, 150).mean * 0.5 && ring8(early, 560).mean < -0.05, 'young ring is still out at the edge');
+  assert.ok(ring8(late, 250).mean < -0.2 && ring8(late, 250).mean < ring8(late, 560).mean, 'ring has contracted: the middle leans hardest');
+  const held = pack1({ ...base, kind: KIND.BURST, radius: 600, life: 6, pull: 1 }, 2);
+  assert.ok(ring8(held, 250).mean < -0.35 * held.A[3] && held.A[3] > 0.1, 'still leaning in 2 s later');
+  const push = pack1({ ...base, kind: KIND.BURST, radius: 600 }, 0.6);
+  assert.ok(ring8(push, 250).mean > 0.2, 'same gust without the flag pushes out');
+});
+
+test('pull swirl spirals inward (tangential same spin, radial negative); line pull narrows toward the caster', () => {
+  const sw = pack1({ ...base, kind: KIND.SWIRL, pull: 1 }, 0.4);
+  for (let a = 0; a < 6.28; a += 0.5) { const px = Math.cos(a) * 150, pz = Math.sin(a) * 150; const [ox, oz] = windAt(sw.A, sw.B, sw.C, 1, px, pz); const t = -Math.sin(a) * ox + Math.cos(a) * oz, q = Math.cos(a) * ox + Math.sin(a) * oz; assert.ok(t > 0 && q < 0, 'spin + inward'); }
+  assert.deepEqual(windAt(sw.A, sw.B, sw.C, 1, 900, 0), [0, 0]);
+  // line from x=-500 (pulled end) to x=+500 (caster): leans toward +x everywhere, wider cone at the pulled end
+  const mk = (pull) => pack1({ ...base, kind: KIND.LINE, len: 500, radius: 300, pull }, 1.2);
+  const pl = mk(1), ps = mk(0);
+  assert.ok(windAt(pl.A, pl.B, pl.C, 1, 0, 0)[0] > 0.05, 'toward the caster end');
+  const side = (p, x, z) => Math.abs(windAt(p.A, p.B, p.C, 1, x, z)[0]);
+  assert.ok(side(pl, -400, 200) > side(pl, 400, 200) && side(ps, 400, 200) > side(ps, -400, 200), 'pull cone narrows toward the caster; a push widens');
+});
+
+test('spellGust: pull spells carry pull = 1 and the geometry that matches the sim events', () => {
+  const PUDGE = { x: 0, y: 0 }, VIC = { x: 900, y: 0 };
+  // meat hook: the cast pushes along the throw, the hit sub-event pulls victim -> Pudge
+  const cast = pk(sp('pudge_meat_hook', { x: 900, y: 0, x2: 1300, y2: 0, r: 70, dur: 1 }), PUDGE, null);
+  assert.equal(cast.kind, KIND.LINE); assert.equal(cast.pull, 0); assert.equal(cast.dx, 1);
+  const hit = pk(sp('pudge_meat_hook', { sub: 'hit', t: 'v', x: 900, y: 0, x2: 0, y2: 0 }), PUDGE, VIC);
+  assert.equal(hit.kind, KIND.LINE); assert.equal(hit.pull, 1); assert.equal(hit.dx, -1, 'runs from the victim toward Pudge'); assert.equal(hit.len, 450); assert.equal(hit.x, 450);
+  assert.notEqual(hit.key, cast.key, 'distinct key: the hit is not eaten by the rearm window');
+  assert.equal(pk(sp('pudge_meat_hook', { sub: 'nope', x: 1, y: 1 }), PUDGE, null), null, 'other sub-events still never gust');
+  // unit-target channels / steals: line target -> caster
+  for (const k of ['lion_mana_drain', 'rubick_spell_steal']) {
+    const g = pk(sp(k, { t: 'v', x: 600, y: 300 }), PUDGE, { x: 600, y: 300 });
+    assert.equal(g.pull, 1, k); assert.equal(g.kind, KIND.LINE, k); assert.ok(g.dx < -0.8 && g.dy < 0, k + ' points back at the caster'); assert.ok(g.strength >= 0.06, k);
+  }
+  const dis = pk(sp('pudge_dismember', { t: 'v', x: 150, y: 0, r: 120 }), PUDGE, { x: 150, y: 0 });
+  assert.equal(dis.pull, 1); assert.equal(dis.kind, KIND.SWIRL);
+  const call = pk(sp('axe_berserkers_call', { r: 315 }), { x: 40, y: 50 }, null);
+  assert.equal(call.pull, 1); assert.equal(call.kind, KIND.BURST); assert.equal(call.x, 40); assert.equal(call.y, 50);
+  // everything else keeps pushing
+  for (const k of ['lina_dragon_slave', 'crystal_maiden_freezing_field', 'invoker_chaos_meteor', 'axe_battle_hunger']) assert.equal(pk(sp(k, { x: 500, y: 0, x2: 900, y2: 0 }), PUDGE, VIC).pull, 0, k);
+});
+
+test('invoker_emp: two phases. The charge pulls inward, the detonation (cast + dur) flips to a strong outward burst', () => {
+  const w = createWind();
+  const rec = w.report(sp('invoker_emp', { x: 500, y: 0, dur: 2.9, r: 675 }), (id) => (id === 'a' ? SRC : null));
+  assert.ok(rec && rec.pull === 1 && rec.kind === KIND.BURST && rec.x === 500, 'pull burst at the EMP centre');
+  assert.equal(w.gusts.length, 2, 'the detonation is queued as a dormant second gust');
+  const boom = w.gusts[1]; assert.equal(boom.pull, 0); assert.equal(boom.kind, KIND.BURST); assert.ok(boom.age < 0 && Math.abs(boom.age + 2.9) < 1e-9 && boom.strength >= rec.strength);
+  assert.ok(rec.life <= 2.9 + 1e-9, 'the pull has faded by the detonation');
+  const A = new Float32Array(32), B = new Float32Array(32), C = new Float32Array(32);
+  const radial = (n, r) => { let s = 0; for (let a = 0; a < 6.28; a += 0.4) s += (windAt(A, B, C, n, 500 + Math.cos(a) * r, Math.sin(a) * r)[0] * Math.cos(a) + windAt(A, B, C, n, 500 + Math.cos(a) * r, Math.sin(a) * r)[1] * Math.sin(a)); return s / 16; };
+  w.update(1.0); let n = w.pack(A, B, C);
+  assert.equal(n, 1, 'only the pull is awake during the charge'); assert.equal(C[1], 1);
+  assert.ok(radial(n, 250) < -0.05, 'charging: leaning inward ' + radial(n, 250));
+  w.update(1.9 + 0.5); n = w.pack(A, B, C);                         // t = 3.4 s: 0.5 s after the detonation
+  assert.equal(n, 1, 'the pull is gone, the burst is up'); assert.equal(C[1], 0);
+  assert.ok(radial(n, 300) > 0.3, 'detonated: pushed outward ' + radial(n, 300));
+  const dud = createWind(); assert.equal(dud.report(sp('invoker_emp', { x: 500, y: 0, r: 675 }), () => SRC).kind, KIND.BURST); assert.equal(dud.gusts.length, 1, 'no delay in the event: just the pull');
+});
+
+test('launchAt: burst = away from the centre, pull = toward it, line = along the cast, swirl = tangential, nothing = null', () => {
+  const G = (o) => ({ x: 0, y: 0, dx: 1, dy: 0, len: 0, radius: 600, strength: 0.8, kind: KIND.BURST, pull: 0, life: 4, age: 0, key: 'k', src: 'a', ...o });
+  assert.equal(launchAt([], 100, 0), null);
+  const out = launchAt([G()], 300, 0), pull = launchAt([G({ pull: 1 })], 300, 0), up = launchAt([G()], 0, -300);
+  assert.ok(out.dx > 0.95 && Math.abs(out.dy) < 0.05, 'burst pushes away (+x)'); assert.ok(pull.dx < -0.95, 'pull toward the centre');
+  assert.ok(up.dy < -0.95, 'game y (not plane z) of the result');
+  const line = launchAt([G({ kind: KIND.LINE, dx: 0, dy: 1, len: 600, radius: 250, x: 0, y: 0 })], 20, 100);
+  assert.ok(line.dy > 0.8, 'line along its direction (+y)');
+  const sw = launchAt([G({ kind: KIND.SWIRL, radius: 500 })], 250, 0);
+  assert.ok(Math.abs(sw.dy) > Math.abs(sw.dx), 'swirl is mostly tangential');
+  assert.ok(launchAt([G()], 5000, 0) === null, 'far outside every gust');
+  // strength follows the gust and what is left of it
+  const fresh = launchAt([G()], 300, 0), weak = launchAt([G({ strength: 0.3 })], 300, 0), old = launchAt([G({ age: 3.5 })], 300, 0);
+  assert.ok(fresh.mag > weak.mag && (!old || fresh.mag > old.mag));
+  // a queued detonation replaces the charging pull; a dormant gust counts at full strength
+  const gs = [G({ pull: 1, key: 'emp' }), G({ key: 'emp#then', age: -2 })];
+  assert.ok(launchAt(gs, 300, 0).dx > 0.95, 'push, not the pull');
 });

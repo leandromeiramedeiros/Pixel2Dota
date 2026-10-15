@@ -1,16 +1,15 @@
 // Voxel mesher checks (client/src/render/voxmesh.js): every pose frame of every shared/vox model in the game, plus a synthetic model for the
-// team flag, emissive tiers, the voxel centre (corner bits) and the footprint. Offline stats / standalone run: tools/art/heroes/lina_vox_mesh_check.mjs.
+// team flag, emissive tiers, the voxel centre (corner bits) and the footprint. Per model: `npm run vox:check -- <short>`. Offline Lina stats: tools/art/heroes/lina_vox_mesh_check.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Vox } from '../../shared/vox/vox.js';
-import * as LINA from '../../shared/vox/lina.js';
-import * as MELEE_R from '../../shared/vox/creeps/melee_radiant.js';
-import * as MELEE_D from '../../shared/vox/creeps/melee_dire.js';
+import { VOX } from '../../shared/vox/index.js';
 import { meshVox, buildVoxFrames, faceNormal, voxCentre, emitGain, F_TEAM, F_CORNER, TIER_K } from '../src/render/voxmesh.js';
 
-const MODELS = [{ name: 'lina', build: LINA.build || LINA.buildLina, anims: LINA.ANIMS, cx: 17, cy: 15, eyes: true },
-  ...[['melee_radiant', MELEE_R], ['melee_dire', MELEE_D]].map(([name, m]) => ({ name, build: m.build, anims: m.ANIMS, cx: m.META.cx, cy: m.META.cy, eyes: true }))];
+// every registered model (shared/vox/index.js); VOX_ONLY=<short> narrows it (tools/vox/check.mjs)
+const MODELS = Object.entries(VOX).filter(([n]) => !process.env.VOX_ONLY || n === process.env.VOX_ONLY)
+  .map(([name, { mod: m }]) => ({ name, build: m.build, anims: m.ANIMS, cx: m.META.cx, cy: m.META.cy, rigOf: m.rigOf, eyes: m.META.rig !== 'static' }));
 const EYE = /^(lash|iris|pupil|shine|eye)/;
 
 /** Brute-force footprint of a Vox (model units, unit 1, grounded) for comparison with userData.fp. */
@@ -59,7 +58,7 @@ function checkLayout(g, tag) {
 }
 
 for (const M of MODELS) test(`voxmesh: ${M.name} every pose frame`, () => {
-  const frames = buildVoxFrames(M.build, M.anims, { cx: M.cx, cy: M.cy }), arrays = new Set(); let ix0 = null;
+  const frames = buildVoxFrames(M.build, M.anims, { cx: M.cx, cy: M.cy, jointsOf: M.rigOf }), arrays = new Set(); let ix0 = null;
   for (const [anim, poses] of Object.entries(M.anims)) poses.forEach((pose, i) => {
     const v = M.build(pose), g = frames[anim][i], tag = `${M.name} ${anim}[${i}]`, u = g.userData.unit;
     checkLayout(g, tag);
@@ -118,4 +117,21 @@ test('voxmesh: emissive tiers (+ legacy Lina names) and team flag', () => {
   const fp = g.userData.fp;
   assert.deepEqual(fp.min, [-2, 0, -2]); assert.deepEqual(fp.max, [2, 8, 4]); assert.equal(fp.top, 8);   // unit 2: trim at (2,1,1) sticks out to +z
   assert.ok(Math.abs(fp.r - 2 * Math.hypot(1, 2)) < 1e-9, 'fp.r');
+});
+
+test('voxmesh: ragdoll segments (aHash bits 5-7) follow the rig joints', () => {
+  const M = MODELS.find(m => m.rigOf); if (!M) return;
+  const pose = M.anims.stunned[0], g = buildVoxFrames(M.build, { s: [pose] }, { cx: M.cx, cy: M.cy, unit: 1, jointsOf: M.rigOf }).s[0];
+  const H = g.attributes.aHash, P = g.attributes.position, F = g.attributes.aFace, q = g.userData.q, J = g.userData.joints, n = [0, 0, 0, 0, 0, 0], sum = [0, 0, 0, 0, 0, 0].map(() => [0, 0, 0]);
+  assert.ok(J && J.neck && J.footL && J.handR, 'userData.joints');
+  for (let j = 0; j < P.count; j += 4) {
+    const u = H.getX(j) + 128, seg = u >> 5; assert.ok(seg < 6 && u >= 0 && u < 256, 'segment id');
+    const c = voxCentre([P.getX(j), P.getY(j), P.getZ(j)], F.getX(j), q).map(x => x / q); n[seg]++; for (let i = 0; i < 3; i++) sum[seg][i] += c[i];
+  }
+  assert.ok(n.every(c => c > 20), 'every segment has voxels ' + n);
+  const avg = i => sum[i].map(x => x / n[i]);
+  assert.ok(avg(0)[1] > avg(1)[1] && avg(1)[1] > avg(4)[1] && avg(1)[1] > avg(5)[1], 'head above torso above legs');
+  assert.ok(avg(2)[0] < 0 && avg(3)[0] > 0 && avg(4)[0] < 0 && avg(5)[0] > 0, 'R (-x) / L (+x) sides');
+  // joints: head above neck above hips, feet at the ground
+  assert.ok(J.head[1] > J.neck[1] && J.neck[1] > J.hips[1] && J.footR[1] < 2, 'joint heights');
 });

@@ -2,11 +2,12 @@
 //   position: Int8 (Int16 if the model is > 127 stored units from the foot) xyz in stored units (q per voxel: 1, or 2 if cx / cy are not whole), w = aFace
 //   aFace:    bits 0-2 face id = model axis * 2 + (side > 0) (flat normal: x 0/1, y 2/3, z 4/5 for -/+), bit 3 team (mat.team: tinted per instance),
 //             bits 4-5 quad corner k (0..3 = o, o+t1, o+t1+t2, o+t2): the shader rebuilds the voxel centre from position + aFace (voxel death, no extra attribute)
-//   aSm:      Int8 normalized smoothed per-voxel normal (light + outline hull push); w = aHash, a per-voxel random Int8 (same on all its faces)
+//   aSm:      Int8 normalized smoothed per-voxel normal (light + outline hull push); w = aHash = (segment << 5 | hash5) - 128: hash5 is a per-voxel random 0..31 and segment (0..7, SEG) the ragdoll body the voxel belongs to (opts.joints; else 0), both the same on all its faces
 //   aCol:     Uint8 normalized albedo / emit colour, w = aEmit: 0 = lit, else emit gain * 100 (HDR flames keep their exact gain)
 // One shared index buffer per buildVoxFrames call (quads all use the same 0,1,2,0,2,3 pattern; drawRange = this frame's quads).
 // g.userData: unit = model units per stored unit (multiply into the instance scale), q = stored units per voxel, quads,
 //   fp = voxel footprint in model units (voxels x opts.unit): { min:[x,y,z], max:[x,y,z], top, r } (r = max horizontal reach from the foot axis).
+//   joints = opts.joints (rig J, voxel coords) in model units (feet-centred, ground-shifted) for the ragdoll rest pose; null when the model has no rig.
 // Model space = buildings3d convention: origin at the feet centre, +y up, front (-y in voxel space) = +z toward the camera.
 import * as THREE from 'three';
 import { smoothNormal } from '../../../shared/vox/vox.js';
@@ -50,13 +51,34 @@ export function voxCentre(p, f, q) {
   return c.map(x => x + q / 2);
 }
 
-const hash8 = (x, y, z) => { let h = (x * 73856093) ^ (y * 19349663) ^ (z * 83492791); h = Math.imul(h ^ (h >>> 13), 0x5bd1e995); return ((h ^ (h >>> 15)) & 255) - 128; };
+const hash5 = (x, y, z) => { let h = (x * 73856093) ^ (y * 19349663) ^ (z * 83492791); h = Math.imul(h ^ (h >>> 13), 0x5bd1e995); return (h ^ (h >>> 15)) & 31; };
+
+// Ragdoll segments of a biped: each voxel goes to the nearest bone capsule by distance / radius (radius ~ the limb's thickness, so a skirt or a ponytail
+// lands on the torso / head, not on the thigh beside it). Ids are the aHash bits 5-7 and the ragdoll's body order.
+export const SEG = { head: 0, torso: 1, armR: 2, armL: 3, legR: 4, legL: 5 };
+const BONES = [   // [segment, radius (voxels), joint chain]
+  [0, 9.6, ['neck', 'head']], [1, 7.5, ['hips', 'neck']],
+  [2, 2.4, ['shoulderR', 'elbowR', 'handR']], [3, 2.4, ['shoulderL', 'elbowL', 'handL']],
+  [4, 2.4, ['hipR', 'kneeR', 'ankleR', 'footR']], [5, 2.4, ['hipL', 'kneeL', 'ankleL', 'footL']],
+];
+/** Segment (SEG id) of the voxel point p (voxel coords, cell centre) for a biped's joints J (shared/vox/rig.js solve()). */
+export function segmentOf(J, p) {
+  let best = 0, bd = Infinity;
+  for (const [id, r, chain] of BONES) for (let i = 0; i + 1 < chain.length; i++) {
+    const a = J[chain[i]], b = J[chain[i + 1]], ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    const t = l2 > 1e-9 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / l2)) : 0;
+    const d = Math.hypot(p[0] - a[0] - ab[0] * t, p[1] - a[1] - ab[1] * t, p[2] - a[2] - ab[2] * t) / r;
+    if (d < bd) { bd = d; best = id; }
+  }
+  return best;
+}
 
 /**
  * meshVox(v, opts): one quad per exposed voxel face (neighbour cell empty), 4 verts + 6 indices, flat face normals, no merging.
  * opts: { cx, cy (voxel-space foot centre, default = grid centre: 17,15 for Lina), unit (model units per voxel, default 1: -> userData.unit / fp),
  *   colorOf(mat, v) -> { c:[r,g,b] (0..1, a lit colour > 1 clamps), emit:bool, gain (emit only, default 1) },
  *   ground (default true): shift the mesh so its lowest point is y = 0 (walk frames with both feet lifted would otherwise float),
+ *   joints: rig J (voxel coords) -> per-voxel ragdoll segment (segmentOf) + userData.joints,
  *   index: a quadIndex() to share (used if it holds this mesh's quads; false = none, the caller sets it) }. Model = ((vx - cx), vz, (cy - vy)) * unit, a proper rotation (det +1): voxel -y (front) -> +z.
  */
 export function meshVox(v, opts = {}) {
@@ -87,7 +109,7 @@ export function meshVox(v, opts = {}) {
       o[0] = lo[0]; o[1] = lo[1]; o[2] = lo[2]; if (s > 0) o[a] += 1;
       if (!s4) {   // first exposed face of this voxel: smooth normal + hash, footprint
         const q = smoothNormal(v, x, y, z); const w = [q[0], q[2], -q[1]], l = Math.hypot(w[0], w[1], w[2]);
-        s4 = l > 1e-6 ? w.map(e => Math.round(e / l * 127)) : [0, 0, 0]; s4[3] = hash8(x, y, z);
+        s4 = l > 1e-6 ? w.map(e => Math.round(e / l * 127)) : [0, 0, 0]; s4[3] = ((opts.joints ? segmentOf(opts.joints, [x + 0.5, y + 0.5, z + 0.5]) : 0) << 5 | hash5(x, y, z)) - 128;
         for (let i = 0; i < 3; i++) { bmn[i] = Math.min(bmn[i], lo[i]); bmx[i] = Math.max(bmx[i], lo[i] + 1); }
         r2 = Math.max(r2, (Math.abs(lo[0] + 0.5) + 0.5) ** 2 + (Math.abs(lo[2] + 0.5) + 0.5) ** 2);
       }
@@ -115,14 +137,17 @@ export function meshVox(v, opts = {}) {
   const gy = mn / Q, u = quads ? unit : 0;   // ground shift in voxels; empty mesh -> zero footprint
   g.userData.unit = unit / Q; g.userData.q = Q; g.userData.quads = quads;
   g.userData.fp = { min: [bmn[0] * u, (bmn[1] - gy) * u, bmn[2] * u], max: [bmx[0] * u, (bmx[1] - gy) * u, bmx[2] * u], top: (bmx[1] - gy) * u, r: Math.sqrt(r2) * u };
+  if (opts.joints) {   // rig joints -> model units, the same frame as the mesh (feet-centred, ground-shifted)
+    g.userData.joints = {}; for (const k in opts.joints) { const j = opts.joints[k]; g.userData.joints[k] = [(j[0] - cx) * unit, (j[2] - gy) * unit, (cy - j[1]) * unit]; }
+  }
   g.computeBoundingBox(); g.computeBoundingSphere();
   return g;
 }
 
 /** build(pose) -> Vox; anims = { name: [pose, ...] } (e.g. ANIMS). Returns { name: [geometry, ...] }, one geometry per pose, all sharing one index buffer. */
-export function buildVoxFrames(build, anims, opts = {}) {
+export function buildVoxFrames(build, anims, opts = {}) {   // opts.jointsOf(pose) -> rig J (optional, ragdoll segments)
   const out = {}, all = [];
-  for (const k in anims) out[k] = anims[k].map((p) => { const g = meshVox(build(p), { ...opts, index: false }); all.push(g); return g; });
+  for (const k in anims) out[k] = anims[k].map((p) => { const g = meshVox(build(p), { ...opts, joints: opts.jointsOf && opts.jointsOf(p), index: false }); all.push(g); return g; });
   const ix = quadIndex(all.reduce((m, g) => Math.max(m, g.userData.quads), 0));
   for (const g of all) g.setIndex(ix);   // drawRange already = own quads * 6
   return out;

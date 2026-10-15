@@ -7,15 +7,20 @@
 //   - depth = sprites: the foot point (propDepth), so units sort like the 2D sheets.
 // Team tint: voxels of `team` mats (aFace bit 3) take the instance team colour at their own ramp luminance. Death: the model breaks into its
 // voxels (centre rebuilt from position + aFace corner bits, random from aHash): they burst out, fall, bounce once and dissolve (DIE_*).
+// Heroes (models with a rig, voxmesh.js segments in aHash bits 5-7) ragdoll first: ragdoll.js simulates a verlet skeleton on the CPU for RAG_T seconds and
+// uploads one rotation + translation per body segment to the uRag texture (row = ragdoll slot, iMs.z); the shader moves each voxel with its segment,
+// then the dissolve below starts from the settled pose.
 // Picks, HP bars and decals use the voxel footprint of the drawn pose frame (frame.pf, a sprite-like box; see actors.js / index.js).
 // Lazy: a model's frames are meshed on its first add() (or prepare()); Lina ~150 ms, synchronous. The Mesh objects exist from the start
 // (empty geometry, hidden) because index.js registers the shadow casters once at creation.
 import * as THREE from 'three';
 import { ART_UNITS_PER_PX } from '../../../shared/constants.js';
 import { COMMON_GLSL } from './shaderlib.js';
+import { WIND_GLSL } from './wind.js';
 import { DEPTH_FRAG } from './shadow.js';
 import { instancedGeo, flushInstances, DEPTH_GLSL } from './mesh3d.js';
 import { buildVoxFrames } from './voxmesh.js';
+import { createRagdoll, launchOf, RAG_T, RAG_JOINTS } from './ragdoll.js';
 import * as LINA from '../../../shared/vox/lina.js';
 
 export const CHAR_UNIT = 4.2, WORLD_UNIT = 8.4;   // world units per voxel: characters (heroes, creeps, neutrals, Roshan) / world (buildings, trees, clutter, terrain)
@@ -31,7 +36,7 @@ export const VOX_UNITS = {
 /** Registry entry from a model module ({ build, ANIMS, META: { cx, cy, rig } }); o overrides (unit, max, lean, keys, ...). */
 export function voxEntry(mod, o = {}) {
   const M = mod.META || {};
-  return { build: mod.build, anims: mod.ANIMS, cx: M.cx, cy: M.cy, unit: CHAR_UNIT, max: 16, lean: M.rig !== 'static', rig: M.rig || 'biped', ...o };
+  return { build: mod.build, rigOf: mod.rigOf, anims: mod.ANIMS, cx: M.cx, cy: M.cy, unit: CHAR_UNIT, max: 16, lean: M.rig !== 'static', rig: M.rig || 'biped', ...o };
 }
 export const VOX_HEROES = VOX_UNITS;   // old name
 const LEAN_TO = 30 * Math.PI / 180;    // view pitch the model is shown at (deg above the horizon)
@@ -39,7 +44,10 @@ const LEAN_K = 1;                      // share of (camera pitch - LEAN_TO) take
 const OUT_W = 3;                       // outline thickness, world units
 // voxel death (world units, seconds): burst speed out / up, gravity, bounce restitution, ground slide kept after the bounce, launch stagger,
 // lean release, dissolve start (+ up to DIE_FADE_J per voxel) -> fully gone at DIE_T
-export const DIE_T = 1.45;
+export const DIE_T = 1.45;   // dissolve length, counted from the end of the ragdoll (RAG_T) for heroes
+const RAG_SLOTS = 16;         // simultaneous ragdolls (a texture row each)
+// debris in the wind: spell gusts (wind.js gustAt, push and pull) + a faint breeze nudge the voxels, grass-scale (WIND_K u per unit gust, clutter3d uses 40, debris is light and moves further)
+const WIND_K = 60, WIND_BREEZE = 6, WIND_SETTLED = 0.35, WIND_RAMP = 0.5;
 const DIE_OUT = 45, DIE_UP = 80, DIE_G = 1100, DIE_BOUNCE = 0.35, DIE_FRIC = 0.4, DIE_DELAY = 0.08, DIE_LEAN = 0.2, DIE_FADE = 0.8, DIE_FADE_J = 0.3;
 
 /** `?vox=0` turns voxel units off (sprite sheets again). */
@@ -58,11 +66,13 @@ export function voxModelOf(short) { return voxNameOf(short); }
 
 const VERT = /* glsl */ `
 ${COMMON_GLSL.split('float bayer4')[0]}
+${WIND_GLSL}
 attribute vec3 aCol, aSm;
-attribute float aEmit, aFace, aHash;                             // voxmesh.js: aEmit 0 = lit, else gain * 100; aFace = face id | team 8 | corner * 16; aHash -128..127
+attribute float aEmit, aFace, aHash;                             // voxmesh.js: aEmit 0 = lit, else gain * 100; aFace = face id | team 8 | corner * 16; aHash = (segment * 32 + random 0..31) - 128
 attribute vec3 iPos;
 attribute vec4 iXf, iTi, iHi, iMs, iTm;
 uniform float uPull, uOutW, uLeanTo, uLeanK, uQ;
+uniform sampler2D uRag;                                          // ragdoll: row = slot, texel 2s = segment s quaternion, 2s+1 = translation + ground height
 varying vec3 vW, vN, vFoot, vCol;
 varying float vE;
 varying vec4 vTi, vHi, vMs;
@@ -70,6 +80,7 @@ ${DEPTH_GLSL}
 vec3 rotY(vec3 v, float c, float s){ return vec3(v.x * c + v.z * s, v.y, -v.x * s + v.z * c); }
 // tilt about the foot in the vertical plane through the camera: +y goes toward h (horizontal unit vector away from the camera)
 vec3 lean(vec3 v, vec2 h, float c, float s){ float a = dot(v.xz, h); vec2 xz = v.xz - h * a + h * (a * c + v.y * s); return vec3(xz.x, v.y * c - a * s, xz.y); }
+vec3 rotQ(vec4 q, vec3 v){ return v + 2. * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 vec3 ax3(float i){ return vec3(i < .5, abs(i - 1.) < .5, i > 1.5); }
 vec3 rotAx(vec3 v, vec3 k, float a){ float c = cos(a), s = sin(a); return v * c + cross(k, v) * s + k * dot(k, v) * (1. - c); }
 void main(){
@@ -83,22 +94,41 @@ void main(){
 #endif
   float c = cos(iXf.x), s = sin(iXf.x);
   vec3 n = rotY(normalize(mix(nf, aSm, .7)), c, s), o;
-  float dt = iTm.w, die = step(0., dt), alpha = iTi.a;
+  float dt = iTm.w, die = step(0., dt), dieO = die, alpha = iTi.a;
   if (dt >= 0.) {                                                // voxel death: rigid voxels on ballistic paths
     vec3 t1 = ax3(sd > .5 ? mod(fa + 1., 3.) : mod(fa + 2., 3.)), t2 = ax3(sd > .5 ? mod(fa + 2., 3.) : mod(fa + 1., 3.));
     vec3 cS = position - uQ * (t1 * float(abs(kc - 1.5) < .6) + t2 * float(kc > 1.5) + ax3(fa) * sd) + .5 * uQ;   // voxel centre (stored units)
     vec3 wc = rotY(cS, c, s) * sc, wo = rotY(p - cS, c, s) * sc;
-    float r0 = (aHash + 128.) / 255., r1 = fract(r0 * 7.13 + .31), r2 = fract(r0 * 13.7 + .77);
-    float t = max(0., dt - r2 * ${DIE_DELAY.toFixed(3)}), hv = .5 * uQ * sc, a0 = r1 * 6.2832;
+    float u8 = aHash + 128., sg = floor(u8 / 32. + .001), hh = fract(sin(dot(cS, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float r0 = (u8 - sg * 32. + hh) / 32., r1 = fract(r0 * 7.13 + .31), r2 = fract(r0 * 13.7 + .77);
+    float td = dt, gOff = 0.;
+    int sl = int(iMs.z + .5) - 1;
+    if (sl >= 0) {                                                // ragdoll: this voxel's segment pose, then the dissolve from the settled body
+      ivec2 tp = ivec2(int(sg + .5) * 2, sl);
+      vec4 qa = texelFetch(uRag, tp, 0), tb = texelFetch(uRag, tp + ivec2(1, 0), 0);
+      wc = rotQ(qa, wc) + tb.xyz; wo = rotQ(qa, wo); n = rotQ(qa, n); gOff = tb.w; td = dt - ${RAG_T.toFixed(3)};
+      dieO = step(0., td);
+    }
+    if (td < 0.) o = wc + wo;
+    else {
+    float t = max(0., td - r2 * ${DIE_DELAY.toFixed(3)}), hv = .5 * uQ * sc, a0 = r1 * 6.2832;
     vec2 rd = vec2(cos(a0), sin(a0)), dh = wc.xz, dir = normalize((length(dh) > 1e-3 ? normalize(dh) : rd) * .7 + rd * .3 + 1e-4);
     float vh = ${DIE_OUT.toFixed(1)} * (.4 + .9 * r0), vy = ${DIE_UP.toFixed(1)} * (.35 + .9 * r1), G = ${DIE_G.toFixed(1)};
-    float y0 = max(0., wc.y - hv), ta = (vy + sqrt(vy * vy + 2. * G * y0)) / G, vb = (G * ta - vy) * ${DIE_BOUNCE.toFixed(3)}, tb = 2. * vb / G, y, d;
+    float y0 = max(0., wc.y - gOff - hv), ta = (vy + sqrt(vy * vy + 2. * G * y0)) / G, vb = (G * ta - vy) * ${DIE_BOUNCE.toFixed(3)}, tb = 2. * vb / G, y, d;
     if (t < ta) { y = y0 + vy * t - .5 * G * t * t; d = vh * t; }
     else { float u = min(t - ta, tb); y = max(0., vb * u - .5 * G * u * u); d = vh * ta + vh * ${DIE_FRIC.toFixed(3)} * u; }
     vec3 k = vec3(dir.y, 0., -dir.x);                             // roll axis (up x dir): tumbles forward, lands on a face (whole quarter turns)
     float ang = (floor(1. + r2 * 3.) * (r1 > .5 ? 1. : -1.)) * 1.5708 * min(t / (ta + tb), 1.);
-    o = vec3(wc.x + dir.x * d, y + hv, wc.z + dir.y * d) + rotAx(wo, k, ang); n = rotAx(n, k, ang);
-    alpha *= 1. - smoothstep(${DIE_FADE.toFixed(3)} + ${DIE_FADE_J.toFixed(3)} * r0, ${DIE_T.toFixed(3)}, dt);
+    o = vec3(wc.x + dir.x * d, y + hv + gOff, wc.z + dir.y * d) + rotAx(wo, k, ang); n = rotAx(n, k, ang);
+    if (uWind > 0.) {                                             // wind: same gust field as the plants, strongest while airborne, per-voxel varied; outside SHADOW so the shadow pass matches
+      float air = mix(${WIND_SETTLED.toFixed(2)}, 1., smoothstep(0., 30., y)) * (.65 + .7 * r1) * smoothstep(0., ${WIND_RAMP.toFixed(2)}, t);
+      vec2 g = uWN > 0 ? gustAt(iPos.xz + o.xz) : vec2(0.);
+      vec2 br = vec2(sin(uTime * 1.7 + r0 * 40.), sin(uTime * 1.3 + r2 * 40.) * .6);
+      vec2 wd = (g * ${WIND_K.toFixed(1)} + br * ${WIND_BREEZE.toFixed(1)}) * uWind * air;
+      o.xz += wd;
+    }
+    }
+    alpha *= 1. - smoothstep(${DIE_FADE.toFixed(3)} + ${DIE_FADE_J.toFixed(3)} * r0, ${DIE_T.toFixed(3)}, td);
   } else o = rotY(p, c, s) * sc;
   vec3 tc = uCamPos - iPos;                                     // shadow passes lean too (uCamPos = view camera), so self-shadow matches the drawn body
   float hl = length(tc.xz);
@@ -111,7 +141,7 @@ void main(){
   const vec3 LUM = vec3(.299, .587, .114);
   al = mix(al, min(iTm.rgb * (dot(al, LUM) / max(dot(iTm.rgb, LUM), .05)), vec3(1.)), tf);
   vW = w; vN = n; vFoot = iPos; vE = aEmit > .5 ? 1. : 0.; vCol = al * iTi.rgb * mix(1., aEmit * .01, vE); vTi = vec4(iXf.w, alpha, iMs.x, iMs.y); vMs = iMs;
-  vHi = vec4(iHi.rgb, iHi.a * (1. - die));                       // no outline on flying voxels
+  vHi = vec4(iHi.rgb, iHi.a * (1. - dieO));                      // no outline on flying voxels (a ragdoll keeps it)
   vec4 cr = projectionMatrix * viewMatrix * vec4(w, 1.);
 #ifdef SHADOW
   gl_Position = die * alpha < .5 * die ? vec4(2., 2., 2., 1.) : cr;   // dissolved death voxels stop casting
@@ -164,14 +194,18 @@ function footFrame(fp, unit) {
   return { w: Math.max(1, Math.round(r * 2)), h: Math.max(1, Math.round(h)), ax: r, ay: h, dens: 1, vox: true, r: fp.r * unit, top: fp.top * unit };
 }
 
-export function createVoxActors({ scene, uniforms }) {
+/** ground(x, z) = terrain height at plane coords (x, z = -game y), for the ragdolls. */
+export function createVoxActors({ scene, uniforms, ground = () => 0 }) {
   const rimU = { value: 1 }, outU = { value: OUT_W }, leanU = { value: LEAN_TO };
   const group = new THREE.Group(); group.name = 'voxactors'; scene.add(group);
   const stats = { draws: 0, tris: 0, instances: 0, buildMs: 0 };
   const models = {}, all = [], empty = new THREE.BufferGeometry();
+  const ragData = new Float32Array(12 * 4 * RAG_SLOTS), ragTex = new THREE.DataTexture(ragData, 12, RAG_SLOTS, THREE.RGBAFormat, THREE.FloatType);
+  ragTex.minFilter = ragTex.magFilter = THREE.NearestFilter; ragTex.needsUpdate = true;
+  const ragU = { value: ragTex }, rags = new Map(), ragSlot = new Array(RAG_SLOTS).fill(null), segBuf = new Float32Array(48);
   if (voxEnabled) for (const name in VOX_UNITS) {
     const h = VOX_UNITS[name], m = models[name] = { h, anims: {}, built: false, vu: 1, radius: 0, qU: { value: 1 } };
-    const un = { ...uniforms, uPull: { value: 12 }, uOutW: outU, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU };
+    const un = { ...uniforms, uPull: { value: 12 }, uOutW: outU, uRimOn: rimU, uLeanTo: leanU, uLeanK: { value: h.lean === false ? 0 : LEAN_K }, uQ: m.qU, uRag: ragU };
     for (const anim in h.anims) m.anims[anim] = h.anims[anim].map((_, i) => {
       const body = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.FrontSide }));
       const hull = new THREE.Mesh(empty, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: un, side: THREE.BackSide, defines: { HULL: 1 } }));
@@ -187,12 +221,12 @@ export function createVoxActors({ scene, uniforms }) {
   /** Mesh a model's pose frames (first sight). */
   function build(m) {
     const t0 = performance.now(), h = m.h;
-    const frames = buildVoxFrames(h.build, h.anims, { cx: h.cx, cy: h.cy });
+    const frames = buildVoxFrames(h.build, h.anims, { cx: h.cx, cy: h.cy, jointsOf: h.rigOf });
     for (const anim in frames) frames[anim].forEach((geo, i) => {
       const f = m.anims[anim][i], inst = f.inst = instancedGeo(geo, h.max, IFLOATS);
       inst.geo.setIndex(geo.index); inst.geo.setDrawRange(0, geo.drawRange.count);
       f.tris = inst.tris = geo.drawRange.count / 3; f.body.geometry = f.hull.geometry = inst.geo; m.vu = geo.userData.unit; m.qU.value = geo.userData.q;
-      f.pf = footFrame(geo.userData.fp, h.unit);
+      f.pf = footFrame(geo.userData.fp, h.unit); f.joints = geo.userData.joints || null;
     });
     const idle = (m.anims.idle || Object.values(m.anims)[0])[0];
     m.radius = idle.pf.r;   // decal radius: one stable value per model (per-frame reach jumps with raised arms)
@@ -209,6 +243,40 @@ export function createVoxActors({ scene, uniforms }) {
     return list[loop ? ((idx % n) + n) % n : Math.min(Math.max(idx, 0), n - 1)];
   }
 
+  /** Free the slot of a ragdoll (also on revive). */
+  function ragEnd(key) { const r = rags.get(key); if (r) { ragSlot[r.slot] = null; rags.delete(key); } }
+  /**
+   * Start the ragdoll of a dying unit (key = unit id) from the pose frame it is drawn in. o: { anim, idx, facing (game radians), scale, launch: wind sample
+   * { dx, dy (game), mag } | null, fall: [x, z] plane direction of a plain collapse, age: seconds already dead (late sight: fast-forward) }.
+   * Returns false when the model has no rig (creeps: voxel dissolve only).
+   */
+  function ragStart(key, name, x, y, z, o = {}) {
+    const m = models[name]; if (!m || !m.built || rags.has(key)) return rags.has(key);
+    const f = pick(m, o.anim || 'death', o.idx | 0), J = f && f.joints; if (!J) return false;
+    let slot = ragSlot.indexOf(null); if (slot < 0) { let oldest = null; for (const [k, r] of rags) if (!oldest || r.age > oldest.age) oldest = r; ragEnd(oldest.key); slot = ragSlot.indexOf(null); }
+    const k = m.h.unit * (o.scale || 1), a = (o.facing || 0) + Math.PI / 2, c = Math.cos(a), s = Math.sin(a), rest = {};
+    for (const n in J) { const j = J[n]; rest[n] = [(j[0] * c + j[2] * s) * k, j[1] * k, (-j[0] * s + j[2] * c) * k]; }   // rotY of the shader
+    const px = x, pz = -y, L = launchOf(o.launch, o.fall);
+    const rd = createRagdoll(rest, { ...L, scale: k, ground: (ox, oz) => ground(px + ox, pz + oz) - z });
+    const r = { key, slot, rd, age: 0, done: false };
+    ragSlot[slot] = key; rags.set(key, r);
+    if (o.age > 0) rd.advance(Math.min(o.age, RAG_T));
+    r.age = o.age || 0; writeRag(r); ragTex.needsUpdate = true;
+    return true;
+  }
+  function writeRag(r) { r.rd.segments(segBuf); ragData.set(segBuf, r.slot * 48); if (r.rd.time >= RAG_T - 1e-6) r.done = true; }
+  /** Advance every live ragdoll by dt and refresh the texture; a ragdoll is dropped once its dissolve is over. */
+  function ragStep(dt) {
+    if (!rags.size) return;
+    dt = Math.min(dt, 0.1);
+    for (const [key, r] of rags) {
+      r.age += dt;
+      if (r.age > RAG_T + DIE_T + 0.5) { ragEnd(key); continue; }
+      if (!r.done) { r.rd.advance(dt); writeRag(r); }
+    }
+    ragTex.needsUpdate = true;
+  }
+
   const _w = [1, 1, 1];
   return {
     group, stats, models,
@@ -216,7 +284,7 @@ export function createVoxActors({ scene, uniforms }) {
     nameOf: voxNameOf,
     /** decal radius of a model (world units at scale 1, its idle footprint); 0 until built */
     radius(name) { const m = models[name]; return m ? m.radius : 0; },
-    dieT: DIE_T,
+    dieT: DIE_T, ragT: RAG_T, ragStart, ragEnd, ragStep, hasRag: (key) => rags.has(key),
     /** mesh these models now (e.g. on match load) instead of on first sight */
     prepare(names) { for (const n of names) { const m = models[n]; if (m && !m.built) build(m); } },
     begin() { for (const f of all) f.n = 0; },
@@ -233,8 +301,9 @@ export function createVoxActors({ scene, uniforms }) {
       d[i + 4] = m.h.unit * m.vu * (o.scale || 1); d[i + 5] = 0; d[i + 6] = o.flash || 0;
       d[i + 7] = t[0]; d[i + 8] = t[1]; d[i + 9] = t[2]; d[i + 10] = o.alpha == null ? 1 : o.alpha;
       d[i + 11] = ol ? ol[0] : 0.07; d[i + 12] = ol ? ol[1] : 0.03; d[i + 13] = ol ? ol[2] : 0.06; d[i + 14] = 1;   // no team colour: dark outline
-      d[i + 15] = o.emit == null ? 1 : o.emit; d[i + 16] = o.rim == null ? 1 : o.rim; d[i + 17] = 0; d[i + 18] = 0;
+      d[i + 15] = o.emit == null ? 1 : o.emit; d[i + 16] = o.rim == null ? 1 : o.rim; d[i + 17] = 0; d[i + 18] = 0;   // iMs.z = ragdoll slot + 1 (0 = none)
       d[i + 19] = tc ? tc[0] : 0; d[i + 20] = tc ? tc[1] : 0; d[i + 21] = tc ? tc[2] : 0; d[i + 22] = o.death == null || o.death < 0 ? -1 : o.death;
+      if (o.rag != null && o.death >= 0) { const r = rags.get(o.rag); if (r) d[i + 17] = r.slot + 1; }
       return f;
     },
     end() {
@@ -244,6 +313,6 @@ export function createVoxActors({ scene, uniforms }) {
     },
     casters() { return all.map((f) => ({ mesh: f.body, mat: f.body.userData.depthMat })); },
     setRim(on) { rimU.value = on ? 1 : 0; },
-    dispose() { for (const f of all) { if (f.inst) f.inst.geo.dispose(); f.body.material.dispose(); f.hull.material.dispose(); f.body.userData.depthMat.dispose(); } scene.remove(group); },
+    dispose() { ragTex.dispose(); for (const f of all) { if (f.inst) f.inst.geo.dispose(); f.body.material.dispose(); f.hull.material.dispose(); f.body.userData.depthMat.dispose(); } scene.remove(group); },
   };
 }

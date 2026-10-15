@@ -24,9 +24,9 @@ any spell without a server) or a real match with cheats. Never self-certify visu
    `META { rig, grid, cx, cy }`, `build(pose)` -> `Vox` (34x30x48, faces -y, feet on z 0), `ANIMS { idle, walk, attack, cast, stunned }`.
    Body = `solve('biped', PROP, pose)` + `parts.js` builders; materials via `useMat` (override only signature colours; emissives carry a `tier`; heroes
    never use `team: true`: one colour scheme for both teams); poses = `LIBRARY[rig](opts)` + `withPoses` for signature frames.
-   - Checks: add it to `tools/art/heroes/vox_kit_check.mjs` and `MODELS` in `client/test/voxmesh.test.js`. Review sheet (see `creep_vox_shot.mjs`) to the director.
+   - Workflow: skill `.claude/skills/vox-unit` (`npm run vox:ref -- <short>`, `vox:brief`, model, `vox:check`, `vox:shot`); add the model to `shared/vox/index.js` (one line: checks, sheets and the mesh test pick it up). Full sheet to the director.
    - Register: `VOX_UNITS` in `client/src/render/voxactors.js`: `<short>: voxEntry(MOD, { unit: CHAR_UNIT, max: 10 })`.
-   - Portrait: `node tools/art/vox_portrait.mjs <short>` -> `client/src/art/portraits/<short>.js`.
+   - Portrait: `npm run vox:portrait -- <short>` -> `client/src/art/portraits/<short>.js`.
    - Ranged attack projectile: `client/src/render/fx/projectiles.js ATK[short]` (else GENERIC magic missile).
 6. **Icons**: glyphs in `tools/art/icons/abilities.mjs` (or a sibling file merged in `icons.mjs`), one per ability key, 20x20 frame. Rebuild `node tools/art/icons/icons.mjs`,
    validate `node tools/art/icons/check.mjs` (every roster ability needs an icon). Director rule: detailed, Dota-2-like composition and colour key, hand-authored.

@@ -74,7 +74,7 @@ function buildingType(u) {
   return 'filler';
 }
 
-export function createActors({ sprites, atlas, uniforms, lights, fog, particles, camera, buildings, trees: trees3d, vox = null, yaw = () => 0 }) {
+export function createActors({ sprites, atlas, uniforms, lights, fog, particles, camera, buildings, trees: trees3d, vox = null, yaw = () => 0, launch = null }) {
   const map = getMap();
   const per = new Map();            // unit id -> { hp, flash, frame, dust, lastDir }
   const picks = [];                 // pickable sprites drawn this frame
@@ -160,7 +160,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
       const down = view.treesDown || null;
       let nTrees = 0;
       const trees = map.trees;
-      trees3d.begin(); buildings.begin(); if (vox) vox.begin();
+      trees3d.begin(); buildings.begin(); if (vox) { vox.begin(); vox.ragStep(dt); }
       // near cells first, nothing past the draw distance: when the instance cap is hit, the far trees go (inside the mist), never near ones
       const reach = (opts && opts.drawDist) || 5500, r2 = (reach + TREE_CELL) * (reach + TREE_CELL), cp = cam.position;
       order.length = 0;
@@ -225,7 +225,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         const ghost = !mine && u.team !== 2 && building && fog && !visible && !fog.isVisible(u.x, u.y) ? fog.ghost(u) : null;
         if (ghost) visible = true;
         const uhp = ghost ? ghost.hp : u.hp, udead = ghost ? ghost.dead : (u.status & ST.DEAD) || u.anim === 'dead' || u.hp <= 0;
-        if (u.hp <= 0 && !building && (u.status & ST.DEAD) && st.deadT > 2.2) visible = false;
+        if (u.hp <= 0 && !building && (u.status & ST.DEAD) && st.deadT > (st.rag ? vox.ragT + vox.dieT + 0.3 : 2.2)) visible = false;
         if ((u.status & ST.DEAD) || u.hp <= 0) st.deadT += dt; else st.deadT = 0;
         u.visible = visible;
         // hit flash from hp drops
@@ -283,10 +283,14 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
         const bR = bType ? BINFO[bType].R : 0;
         if (bType) { if (inView(u.x, u.y, z, bR)) buildings.add(bType, u.x, u.y, z, { team: u.team === 1 ? 1 : 0, hp: u.maxHp > 0 ? Math.max(0, Math.min(1, uhp / u.maxHp)) : 1, destroyed: st.collapse, flash: st.flash * 0.85, hi: outline, phase: (u.x * 0.013 + u.y * 0.007) % 6.28 }); }
         else {
-          const vf = voxName ? vox.add(voxName, u.x, u.y, z, { anim: sc.anim, idx: sc.idx, facing: u.facing || 0, tint, flash: st.flash * 0.85, outline, alpha, rim, emit, scale: uscale, team: u.team === 0 || u.team === 1 ? TEAM_COL[u.team] : null, death: dead ? st.deadT : -1 }) : null;
+          if (voxName && dead && st.rag == null) {   // heroes ragdoll first (voxactors.js ragStart): wind launch / killer knock / plain collapse backwards
+            const fc = u.facing || 0;
+            st.rag = vox.ragStart(id, voxName, u.x, u.y, z, { anim: sc.anim, idx: sc.idx, facing: fc, scale: uscale, launch: launch ? launch(u) : null, fall: [-Math.cos(fc), Math.sin(fc)], age: st.deadT }) ? 1 : 0;
+          } else if (!dead && st.rag != null) { if (st.rag) vox.ragEnd(id); st.rag = null; }
+          const vf = voxName ? vox.add(voxName, u.x, u.y, z, { anim: sc.anim, idx: sc.idx, facing: u.facing || 0, tint, flash: st.flash * 0.85, outline, alpha, rim, emit, scale: uscale, team: u.team === 0 || u.team === 1 ? TEAM_COL[u.team] : null, death: dead ? st.deadT : -1, rag: st.rag ? id : null }) : null;
           if (vf) f = vf.pf; else { voxName = ''; sprites.sprite(u.x, u.y, z, f, { tint, flash: st.flash * 0.85, outline, alpha, rim, emit, scale: uscale }); }   // vox instance cap: sprite
         }
-        const vR = voxName ? vox.radius(voxName) * uscale : 0, sa = dead ? 0.25 * (voxName ? Math.max(0, 1 - st.deadT / vox.dieT) : 1) : 0.5;
+        const vR = voxName ? vox.radius(voxName) * uscale : 0, sa = dead ? 0.25 * (voxName ? (st.rag ? 0 : Math.max(0, 1 - st.deadT / vox.dieT)) : 1) : 0.5;
         if (alpha > 0.1 && sa > 0.01) {
           // shadow + selection ring
           const sr = Math.max(14, bType ? bR * 1.25 : vR ? vR * VOX_SHADOW_K : f.w / (f.dens || 1) * 2.2);
@@ -297,7 +301,7 @@ export function createActors({ sprites, atlas, uniforms, lights, fog, particles,
             sprites.decal(u.x, u.y, rr, 1, c[0], c[1], c[2], isSel ? 1 : 0.7, decalHeights(u.x, u.y, rr), isSel, 0.6);
           }
         }
-        if (!bType || !dead) addPick(id, u.x, u.y, z, f, voxName ? uscale : 1, -1);   // voxel units: f = footprint box (voxactors.js footFrame)
+        if ((!bType || !dead) && !(dead && st.rag)) addPick(id, u.x, u.y, z, f, voxName ? uscale : 1, -1);   // voxel units: f = footprint box (voxactors.js footFrame)
         nUnits++;
         // lights
         if (!dead) {

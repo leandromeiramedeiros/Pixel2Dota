@@ -27,13 +27,13 @@ client/src/
   render/            Three.js renderer; voxmesh.js (vox -> compact mesh) + voxactors.js (instanced voxel units); fx/ = per-hero spell VFX
                      (fx/<short>.js); quality.js presets; wind.js gusts
   art/atlas.js       sheet loader + atlas;  art/sheets/*.js generated pixel sheets (icons, fx stamps; unit/world sheets retire in batch 7)
-  art/portraits/     HUD portraits rendered from the voxel models (tools/art/vox_portrait.mjs)
+  art/portraits/     HUD portraits rendered from the voxel models (tools/vox/portrait.mjs)
   ui/                DOM HUD, lobby, shop, minimap, scoreboard, menu, touch controls (touch.js)
   input.js           desktop mouse + keyboard -> orders
   sandbox.html       offline renderer sandbox (sandbox.js + fxdemo.js: fire any spell without a server)
 tools/
   bake.mjs           game-file bake (needs a local Dota 2 install): shared/heroes.js roster + ITEM_NAMES -> shared/data/*.js
-  art/heroes/*_vox*.mjs  voxel model checks / reference renders;  art/vox_portrait.mjs portraits
+  vox/*.mjs          voxel unit tools (ref, brief, check, shot, portrait; docs/VOXEL.md);  art/vox.mjs ray-cast renderer, art/vox_portrait.mjs portrait lib
   art/heroes/*.mjs   legacy sprite sheet generators (rig.mjs + lib3d.mjs), removed in batch 7
   art/icons/*.mjs    ability + item icon glyphs -> sheets/icons.js;  art/world/*.mjs terrain/tree/building/creep sheets
   fullmatch.mjs, soak.mjs   headless bot matches / short sim runs
@@ -114,7 +114,7 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   geo3d fx and beams use stepped bands, never ordered dither.
 - **Voxel units** (`voxmesh.js`, `voxactors.js`): one compact geometry per pose frame (12 B / vertex: Int8 position + face byte, Int8 smooth normal +
   hash, Uint8 colour + emit gain), built lazily on a hero's first `add()`, drawn instanced. The vertex shader leans each body 30 deg about its feet away
-  from the camera (in the shadow pass too), pushes an inverted-hull outline, and breaks the model into falling voxels on death. Emissive tiers: eye <= 1,
+  from the camera (in the shadow pass too), pushes an inverted-hull outline, and breaks the model into falling voxels on death (heroes ragdoll 2 s first: `ragdoll.js`, per-segment transforms in the `uRag` texture; VOXEL.md). Emissive tiers: eye <= 1,
   signature ~1.2, spell 1.5-1.7. Until sprite removal (batch 7) units still sort at foot depth.
 - **Ground fx must be geo3d discs/quads at `heightAt`**, never billboards drawn below a unit's foot. Legacy sprites (`sprites.js`, retiring in batch 7) sort
   each pixel at its true height above the foot.
@@ -126,7 +126,7 @@ Fog of war is client-side (server sends everything); `state.vision` carries temp
   tint, o)` = geo3d TARGET disc + coloured ground light (`grow` is a radius multiplier, `light: false` skips the light). Never stretch `decal_ring_target`.
 - **Spell vision**: `w.addVision()` in the sim (`vision.js`) -> `state.vision` -> client `fog.js` casts from each source like a friendly unit.
 - **Spell wind** (`wind.js`): up to `MAX_GUSTS` 8 gusts derived from EV.SPELL events (shape swirl/line/burst from targeting, strength from damage, size
-  from radius/range, read generically from DATA; `OVERRIDES` per key). Trees + clutter shaders read the shared gust uniforms: plants bend away from the spell (burst outward, swirl spirals out, line along the cast) and hold a rocking lean for ~3-6 s. Attacks never gust.
+  from radius/range, read generically from DATA; `OVERRIDES` per key). Trees + clutter shaders read the shared gust uniforms: plants bend away from the spell (burst outward, swirl spirals out, line along the cast) and hold a rocking lean for ~3-6 s. Pull spells (`OVERRIDES.pull`: hook, dismember, mana drain, spell steal, berserker's call; EMP pulls while charging then bursts via `then`) flip the field inward. Death debris and hero ragdoll launches (`launchAt`) read the same gusts. Attacks never gust.
 - **Quality** (`quality.js`): *Level* low / medium / high / ultra = a *preset* (renderer `settings` for fidelity: `bloomStrength/Levels, shadows, shadowPoints, maxLights,
   particles, ambient, clutter, rim, wind, ssr, rays, atmos, drawDist, msaa, outlines`; `ultra` must equal `render/index.js DEFAULTS`, tested; graded low <= ... <= ultra) plus an *option bundle*
   (`LEVEL_OPTIONS`: resolution 1/4, 1/2, native -> `pixelScale` 1, sqrt2, 2; fps cap 30/60/120/144/165/MAX (0 = display refresh); `bloom`; `dof`; vsync). Picking a level applies both and
