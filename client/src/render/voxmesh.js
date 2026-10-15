@@ -156,10 +156,16 @@ export function meshVox(v, opts = {}) {
   return g;
 }
 
-/** build(pose) -> Vox; anims = { name: [pose, ...] } (e.g. ANIMS). Returns { name: [geometry, ...] }, one geometry per pose, all sharing one index buffer. */
+/**
+ * build(pose) -> Vox; anims = { name: [pose, ...] } (e.g. ANIMS). Returns { name: [geometry, ...] }, one geometry per distinct pose (identical poses,
+ * e.g. the 0,1,2,1 idle bob, share one geometry: no GPU bytes for the repeat), all sharing one index buffer.
+ */
 export function buildVoxFrames(build, anims, opts = {}) {   // opts.jointsOf(pose) -> rig J (optional, ragdoll segments)
-  const out = {}, all = [];
-  for (const k in anims) out[k] = anims[k].map((p) => { const g = meshVox(build(p), { ...opts, joints: opts.jointsOf && opts.jointsOf(p), index: false }); all.push(g); return g; });
+  const out = {}, all = [], seen = new Map();
+  for (const k in anims) out[k] = anims[k].map((p) => {
+    const key = JSON.stringify(p); if (seen.has(key)) return seen.get(key);
+    const g = meshVox(build(p), { ...opts, joints: opts.jointsOf && opts.jointsOf(p), index: false }); all.push(g); seen.set(key, g); return g;
+  });
   const ix = quadIndex(all.reduce((m, g) => Math.max(m, g.userData.quads), 0));
   for (const g of all) g.setIndex(ix);   // drawRange already = own quads * 6
   return out;

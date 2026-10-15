@@ -131,7 +131,7 @@ One director gate per batch, with in-game shots.
 | 0. Foundation | Compact mesher, lazy build, registry, footprint, kit, tiers, team tint, death, CI checks | done |
 | 1. Lane creeps | Melee, ranged, siege: Radiant and Dire are separate models after the Dota 2 ones (no team tint); `max` >= 64 per frame | melee Radiant + Dire drafted, awaiting the director gate |
 | 2. Buildings | Tower, barracks, fort, fountain, shop, lantern, filler; `lean: false`; rubble on destroy | |
-| 3. Heroes | The 12 after Lina | |
+| 3. Heroes | The 12 after Lina | Invoker + Forged Spirit drafted, awaiting the director gate |
 | 4. Neutrals + Roshan | 21 neutrals + Roshan across the 4 rigs | |
 | 5. Trees + clutter | Trees, 15 clutter variants | |
 | 6. Portraits | `npm run vox:portrait` for every hero | Lina done |
