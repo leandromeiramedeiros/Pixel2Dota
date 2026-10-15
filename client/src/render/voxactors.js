@@ -37,6 +37,7 @@ import * as MELEE_D from '../../../shared/vox/creeps/melee_dire.js';
 import * as MELEE_R from '../../../shared/vox/creeps/melee_radiant.js';
 import * as MIRANA from '../../../shared/vox/heroes/mirana.js';
 import * as PUDGE from '../../../shared/vox/heroes/pudge.js';
+import * as RUBICK from '../../../shared/vox/heroes/rubick.js';
 import * as SNIPER from '../../../shared/vox/heroes/sniper.js';
 import * as SVEN from '../../../shared/vox/heroes/sven.js';
 import * as ZUUS from '../../../shared/vox/heroes/zuus.js';
@@ -59,6 +60,7 @@ export const VOX_UNITS = {   // heroes + their summons, then creeps; alphabetica
   lion: voxEntry(LION, { unit: CHAR_UNIT, max: 10 }),
   mirana: voxEntry(MIRANA, { unit: CHAR_UNIT, max: 10 }),
   pudge: voxEntry(PUDGE, { unit: CHAR_UNIT, max: 10 }),
+  rubick: voxEntry(RUBICK, { unit: CHAR_UNIT, max: 10 }),
   sniper: voxEntry(SNIPER, { unit: CHAR_UNIT, max: 10 }),
   sven: voxEntry(SVEN, { unit: CHAR_UNIT, max: 10 }),
   zuus: voxEntry(ZUUS, { unit: CHAR_UNIT, max: 10 }),
