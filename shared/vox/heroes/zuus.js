@@ -47,7 +47,7 @@ export function build(p = {}) {
   // ---- legs: baggy dark navy trousers, dark boots with a blue cuff
   for (const k of ['R', 'L']) {
     const f = J['foot' + k];
-    feet(v, f, 'boot', M.boot, { hw: 2, front: 3.6, back: 1.8, h: 3.6 });   // feet() takes a plain id (a function is not resolved)
+    feet(v, f, 'boot', M.boot, { hw: 2, front: 3.6, back: 1.8, h: 3.6 });
     limb(v, [J['ankle' + k], J['knee' + k], J['hip' + k]], [1.7, 2, 2.1], M.navy);
     band(v, J['ankle' + k], J['knee' + k], 0.05, 0.3, 1.9, M.boot);
   }
@@ -89,34 +89,35 @@ export function build(p = {}) {
   ell(v, Th, [hx, hy, hz], SKULL, M.skin);
   const strand = (px) => [M.hair, M.hairL, M.hair, M.hairD][((Math.floor((px - hx + 0.5) / 1.5) % 4) + 4) % 4];
   const line = px => hz + 4.8 - Math.min(2.4, Math.abs(px - hx) * 0.5);           // hairline: high forehead, receding at the temples
-  const face = (px, py, pz) => py < hy - 1 + Math.max(0, hz - pz) * 0.5 && pz < line(px);
-  ell(v, Th, [hx, hy + 1, hz + 0.6], [5.9, 6, 6.6], strand, (px, py, pz) => !face(px, py, pz) && pz > hz - 1.6 && py > hy - 3.6);
-  ell(v, Th, [hx, hy + 3.6, hz - 1.6], [5.6, 4, 5.6], strand, (px, py, pz) => py > hy + 1.6);        // the mane behind, to the nape
-  for (const s of [-3.4, -1.2, 1.2, 3.4]) {                                                          // swept-back locks, tips flaring back
-    cap(v, Th, [hx + s * 0.8, hy - 2.4, hz + 5 - Math.abs(s) * 0.3], [hx + s * 1.25, hy + 7.4, hz - 1.4 - Math.abs(s) * 0.4], 1.9, strand, 0.6);
+  const face = (px, py, pz) => py < hy + 0.4 + Math.max(0, hz - pz) * 0.5 && pz < line(px);   // wide: forehead, temples, cheeks
+  ell(v, Th, [hx, hy + 1.2, hz + 0.6], [5.8, 5.7, 6.4], strand, (px, py, pz) => !face(px, py, pz) && (pz > hz + 2.4 || py > hy + 0.6));   // a thin cap, sides only behind the temples
+  ell(v, Th, [hx, hy + 3.4, hz - 1.4], [5, 3.4, 5], strand, (px, py, pz) => py > hy + 1.8);        // the mane behind, to the nape
+  for (const s of [-2.6, 0, 2.6]) {                                                          // swept-back locks, tips flaring back
+    cap(v, Th, [hx + s * 0.8, hy - 2.4, hz + 5 - Math.abs(s) * 0.3], [hx + s * 1.2, hy + 6.6, hz - 0.8 - Math.abs(s) * 0.4], 1.4, strand, 0.5);
   }
   // beard: a full white beard from the cheeks to the chest, pointed at the bottom; moustache over the mouth
   const beard = (px, py, pz) => { const k = Math.floor((px - hx + 0.5) / 2); return [M.hair, M.hairL, M.hairD][((k % 3) + 3) % 3]; };
   ell(v, Th, [hx, hy - 1.6, hz - 4.4], [5, 4, 4.4], beard, (px, py, pz) => py < hy + 1.6 && pz < hz - 3.8 + Math.abs(px - hx) * 0.55);
   ell(v, Th, [hx, hy - 2.6, hz - 7.2], [3.4, 2.8, 3.2], beard, (px, py, pz) => pz > hz - 10.2 + Math.abs(px - hx) * 0.9);   // the point
-  for (const s of [-1, 1]) cap(v, Th, [hx + s * 4.8, hy + 0.2, hz - 0.2], [hx + s * 5.6, hy + 0.6, hz - 2.4], 1.2, M.hairD);   // sideburns
+  for (const s of [-1, 1]) cap(v, Th, [hx + s * 4.8, hy + 0.2, hz - 0.2], [hx + s * 5.4, hy + 0.2, hz - 2.6], 0.9, M.hairD);   // sideburns
 
   // ---- face, painted on the front-most voxels (follows the posed head): heavy white brows, pale glowing eyes, nose, moustache
   const hc = J.head, ox = Math.round(hc[0] - cx), oz = Math.round(hc[2] - hz), ez = Math.round(hz - 1) + oz;
-  decal(v, [-4, -3, -2, 1, 2, 3].map(x => [cx + x + ox, ez + 2]), M.hairL);                  // brows
-  eyes(v, { at: [[cx - 4 + ox], [cx + 2 + ox]], z: ez, style: 'dot', state: p.eyes }, M);
+  decal(v, [-4, -3, -2, 0, 1, 2].map(x => [cx + x + ox, ez + 2]), M.hairL);                  // brows
+  eyes(v, { at: [[cx - 4 + ox], [cx + 1 + ox]], z: ez, style: 'dot', state: p.eyes }, M);
   decal(v, [[cx + ox - 1, ez - 1], [cx + ox, ez - 1], [cx + ox - 1, ez - 2], [cx + ox, ez - 2]], M.skin);   // nose
   decal(v, [[cx + ox - 1, ez - 3], [cx + ox, ez - 3]], M.skinD);
   decal(v, [-3, -2, -1, 0, 1, 2].map(x => [cx + x + ox, ez - 4]), M.hairL);                   // moustache
   mouth(v, [[cx - 1 + ox, ez - 5], [cx + ox, ez - 5]], M.mouth);
 
-  // ---- streamers: two long blue ribbons from the nape trailing back near level (they must not read as antennae from the front), swept further back in motion
+  // ---- streamers: two long blue ribbons from the nape draping back and down over the shoulder blades, lifting to trail behind in motion
   const n = J.neck;
   for (const s of [-1, 1]) {
-    const a = [n[0] + s * 1.4, n[1] + 2.6, n[2] + 2], b = [n[0] + s * (2.4 + trail), n[1] + 15 + trail * 4, n[2] + 1.4 + trail];
-    const c = [n[0] + s * (3 + trail), n[1] + 25 + trail * 2, n[2] + 2.4 - trail];
-    v.capsule(a, b, 0.95, M.vest, 0.8);
-    v.capsule(b, c, 0.8, M.glove, 0.7);
+    const a = [n[0] + s * 1.4, n[1] + 3, n[2] + 1.4], b = [n[0] + s * 2, n[1] + 6 + trail * 3, n[2] - 3 + trail * 3];
+    const c = [n[0] + s * 2.4, n[1] + 9 + trail * 7, n[2] - 8 + trail * 6], d = [n[0] + s * 2.8, n[1] + 12 + trail * 11, n[2] - 13 + trail * 8];
+    v.capsule(a, b, 0.9, M.vest, 0.85);
+    v.capsule(b, c, 0.85, M.vest, 0.75);
+    v.capsule(c, d, 0.75, M.glove, 0.6);
   }
   return v;
 }
